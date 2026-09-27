@@ -1,6 +1,13 @@
 /build/
 /out/
+/dist/
+/.hamun/
 /cmake-build-*/
+
+Platforms/Android/local.properties
+Platforms/Android/.gradle/
+Platforms/Android/app/build/
+
 .vs/
 .idea/
 .vscode/
