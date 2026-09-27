@@ -50,17 +50,22 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Verify Android SDK
+      - name: Locate Android sdkmanager
         shell: bash
         run: |
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          sdkmanager --version
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $ANDROID_SDK_ROOT"
+            exit 1
+          fi
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --version
 
       - name: Install Android native toolchain
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platform-tools"             "platforms;android-37"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER"             "platform-tools"             "platforms;android-37"             "build-tools;36.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Build Android debug APK
         working-directory: Platforms/Android
