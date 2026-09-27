@@ -40,7 +40,7 @@ BuildAndroid.bat --release
 
 - Android Gradle Plugin: 9.4.0
 - Gradle: 9.6.0
-- compileSdk / targetSdk: 37
+- compileSdk / targetSdk: 36
 - Build Tools: 36.0.0
 - NDK: 28.2.13676358
 - CMake: 3.22.1
