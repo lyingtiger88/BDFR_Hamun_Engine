@@ -38,6 +38,40 @@ The main goals are:
 
 ---
 
+## Easy Android Builds
+
+Android packaging is designed to be a one-command workflow rather than a manual
+Android Studio setup process.
+
+### Windows
+
+```bat
+BuildAndroid.bat
+```
+
+Build, install, and launch on a connected device:
+
+```bat
+BuildAndroid.bat --install
+```
+
+The build helper automatically detects the Android SDK, verifies the required
+NDK/CMake packages, provisions Gradle when necessary, invokes the same Hamun
+CMake project used by the engine, packages the native application, and copies
+the APK to:
+
+```text
+dist/android/HamunGame-debug.apk
+```
+
+The initial Android target uses a native activity and defaults to `arm64-v8a`.
+The current bootstrap validates the native Hamun runtime; Vulkan/OpenGL ES
+surface rendering will be connected in the Android graphics milestone.
+
+See `docs/ANDROID_BUILD.md` for the complete toolchain details.
+
+---
+
 ## Graphics API Targets
 
 Hamun Engine is being designed around a dedicated **Render Hardware Interface (RHI)**.
@@ -359,6 +393,7 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 - [ ] GPU memory management
 - [x] First triangle through backend-neutral RHI
 - [ ] First textured mesh
+- [x] Indexed 3D cube with depth and constant buffers
 
 **Milestone:** functional DirectX 12 backend through HamunRHI.
 
@@ -377,6 +412,8 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 
 ### OpenGL ES
 
+- [x] Android native build/package bootstrap
+- [ ] Android Vulkan/GLES surface rendering
 - [ ] GLES compatibility backend
 - [ ] Feature/capability detection
 - [ ] Reduced rendering feature tier
