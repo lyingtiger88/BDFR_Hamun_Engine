@@ -28,21 +28,9 @@ public:
 
     void Shutdown() override { initialized_ = false; }
 
-    std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc&) override
-    {
-        return {};
-    }
-
-    std::unique_ptr<IShader> CreateShader(const ShaderDesc&) override
-    {
-        return {};
-    }
-
-    std::unique_ptr<IPipeline> CreateGraphicsPipeline(
-        const GraphicsPipelineDesc&) override
-    {
-        return {};
-    }
+    std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc&) override { return {}; }
+    std::unique_ptr<IShader> CreateShader(const ShaderDesc&) override { return {}; }
+    std::unique_ptr<IPipeline> CreateGraphicsPipeline(const GraphicsPipelineDesc&) override { return {}; }
 
     ICommandList* BeginFrame() override { return nullptr; }
     bool SubmitFrame() override { return false; }

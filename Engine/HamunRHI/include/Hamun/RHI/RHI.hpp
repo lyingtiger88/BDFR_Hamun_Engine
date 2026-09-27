@@ -22,6 +22,11 @@ enum class BufferUsage : std::uint8_t {
     Upload
 };
 
+enum class IndexType : std::uint8_t {
+    UInt16,
+    UInt32
+};
+
 enum class ShaderStage : std::uint8_t {
     Vertex,
     Pixel
@@ -87,13 +92,21 @@ struct GraphicsPipelineDesc {
     IShader* pixelShader = nullptr;
     std::vector<VertexAttribute> vertexAttributes;
     std::uint32_t vertexStride = 0;
+    std::uint32_t constantBufferCount = 0;
+    bool depthTest = true;
 };
 
 class IBuffer {
 public:
     virtual ~IBuffer() = default;
+
     [[nodiscard]] virtual std::uint64_t Size() const noexcept = 0;
     [[nodiscard]] virtual BufferUsage Usage() const noexcept = 0;
+
+    virtual bool Update(
+        const void* data,
+        std::uint64_t size,
+        std::uint64_t offset = 0) = 0;
 };
 
 class IShader {
@@ -129,10 +142,21 @@ public:
         const std::array<float, 4>& clearColor) = 0;
     virtual void SetPipeline(IPipeline& pipeline) = 0;
     virtual void SetVertexBuffer(
-        IBuffer& buffer, std::uint32_t stride) = 0;
+        IBuffer& buffer,
+        std::uint32_t stride) = 0;
+    virtual void SetIndexBuffer(
+        IBuffer& buffer,
+        IndexType indexType) = 0;
+    virtual void SetConstantBuffer(
+        std::uint32_t slot,
+        IBuffer& buffer) = 0;
     virtual void Draw(
         std::uint32_t vertexCount,
         std::uint32_t firstVertex = 0) = 0;
+    virtual void DrawIndexed(
+        std::uint32_t indexCount,
+        std::uint32_t firstIndex = 0,
+        std::int32_t vertexOffset = 0) = 0;
     virtual void EndRenderPass() = 0;
 };
 

@@ -38,8 +38,15 @@ D3D12_HEAP_PROPERTIES UploadHeapProperties()
 {
     D3D12_HEAP_PROPERTIES props{};
     props.Type = D3D12_HEAP_TYPE_UPLOAD;
-    props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    props.CreationNodeMask = 1;
+    props.VisibleNodeMask = 1;
+    return props;
+}
+
+D3D12_HEAP_PROPERTIES DefaultHeapProperties()
+{
+    D3D12_HEAP_PROPERTIES props{};
+    props.Type = D3D12_HEAP_TYPE_DEFAULT;
     props.CreationNodeMask = 1;
     props.VisibleNodeMask = 1;
     return props;
@@ -56,6 +63,21 @@ D3D12_RESOURCE_DESC BufferResourceDesc(UINT64 size)
     desc.Format = DXGI_FORMAT_UNKNOWN;
     desc.SampleDesc.Count = 1;
     desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    return desc;
+}
+
+D3D12_RESOURCE_DESC DepthResourceDesc(UINT width, UINT height)
+{
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_D32_FLOAT;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
     return desc;
 }
 
@@ -96,6 +118,11 @@ const char* SemanticName(Hamun::RHI::VertexSemantic semantic)
     return "TEXCOORD";
 }
 
+UINT64 AlignConstantBufferSize(UINT64 size)
+{
+    return (size + 255ull) & ~255ull;
+}
+
 } // namespace
 
 #endif
@@ -118,6 +145,28 @@ public:
 
     std::uint64_t Size() const noexcept override { return size_; }
     BufferUsage Usage() const noexcept override { return usage_; }
+
+    bool Update(
+        const void* data,
+        std::uint64_t size,
+        std::uint64_t offset) override
+    {
+        if (!data || size == 0 || offset + size > size_)
+            return false;
+
+        void* mapped = nullptr;
+        const D3D12_RANGE readRange{0, 0};
+        if (FAILED(resource_->Map(0, &readRange, &mapped)))
+            return false;
+
+        std::memcpy(
+            static_cast<std::byte*>(mapped) + offset,
+            data,
+            static_cast<std::size_t>(size));
+
+        resource_->Unmap(0, nullptr);
+        return true;
+    }
 
     ID3D12Resource* Native() const noexcept { return resource_.Get(); }
 
@@ -213,12 +262,14 @@ public:
         ID3D12GraphicsCommandList* commandList,
         ID3D12Resource* renderTarget,
         D3D12_CPU_DESCRIPTOR_HANDLE rtv,
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv,
         const D3D12_VIEWPORT& viewport,
         const D3D12_RECT& scissor)
     {
         commandList_ = commandList;
         renderTarget_ = renderTarget;
         rtv_ = rtv;
+        dsv_ = dsv;
         viewport_ = viewport;
         scissor_ = scissor;
         renderPassOpen_ = false;
@@ -238,9 +289,17 @@ public:
 
         commandList_->RSSetViewports(1, &viewport_);
         commandList_->RSSetScissorRects(1, &scissor_);
-        commandList_->OMSetRenderTargets(1, &rtv_, FALSE, nullptr);
+        commandList_->OMSetRenderTargets(1, &rtv_, FALSE, &dsv_);
         commandList_->ClearRenderTargetView(
             rtv_, clearColor.data(), 0, nullptr);
+        commandList_->ClearDepthStencilView(
+            dsv_,
+            D3D12_CLEAR_FLAG_DEPTH,
+            1.0f,
+            0,
+            0,
+            nullptr);
+
         renderPassOpen_ = true;
     }
 
@@ -255,7 +314,8 @@ public:
     }
 
     void SetVertexBuffer(
-        IBuffer& buffer, std::uint32_t stride) override
+        IBuffer& buffer,
+        std::uint32_t stride) override
     {
         auto* native = dynamic_cast<D3D12Buffer*>(&buffer);
         if (!native || !commandList_ || stride == 0)
@@ -271,6 +331,38 @@ public:
         commandList_->IASetVertexBuffers(0, 1, &view);
     }
 
+    void SetIndexBuffer(
+        IBuffer& buffer,
+        IndexType indexType) override
+    {
+        auto* native = dynamic_cast<D3D12Buffer*>(&buffer);
+        if (!native || !commandList_)
+            return;
+
+        D3D12_INDEX_BUFFER_VIEW view{};
+        view.BufferLocation = native->Native()->GetGPUVirtualAddress();
+        view.SizeInBytes = static_cast<UINT>(native->Size());
+        view.Format =
+            indexType == IndexType::UInt16
+                ? DXGI_FORMAT_R16_UINT
+                : DXGI_FORMAT_R32_UINT;
+
+        commandList_->IASetIndexBuffer(&view);
+    }
+
+    void SetConstantBuffer(
+        std::uint32_t slot,
+        IBuffer& buffer) override
+    {
+        auto* native = dynamic_cast<D3D12Buffer*>(&buffer);
+        if (!native || !commandList_)
+            return;
+
+        commandList_->SetGraphicsRootConstantBufferView(
+            slot,
+            native->Native()->GetGPUVirtualAddress());
+    }
+
     void Draw(
         std::uint32_t vertexCount,
         std::uint32_t firstVertex) override
@@ -278,6 +370,20 @@ public:
         if (commandList_)
             commandList_->DrawInstanced(
                 vertexCount, 1, firstVertex, 0);
+    }
+
+    void DrawIndexed(
+        std::uint32_t indexCount,
+        std::uint32_t firstIndex,
+        std::int32_t vertexOffset) override
+    {
+        if (commandList_)
+            commandList_->DrawIndexedInstanced(
+                indexCount,
+                1,
+                firstIndex,
+                vertexOffset,
+                0);
     }
 
     void EndRenderPass() override
@@ -297,6 +403,7 @@ private:
     ID3D12GraphicsCommandList* commandList_ = nullptr;
     ID3D12Resource* renderTarget_ = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_{};
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv_{};
     D3D12_VIEWPORT viewport_{};
     D3D12_RECT scissor_{};
     bool renderPassOpen_ = false;
@@ -346,6 +453,8 @@ private:
     ComPtr<ID3D12CommandQueue> queue_;
     ComPtr<IDXGISwapChain3> swapChain_;
     ComPtr<ID3D12DescriptorHeap> rtvHeap_;
+    ComPtr<ID3D12DescriptorHeap> dsvHeap_;
+    ComPtr<ID3D12Resource> depthBuffer_;
     std::array<ComPtr<ID3D12Resource>, kFrameCount> renderTargets_;
     std::array<ComPtr<ID3D12CommandAllocator>, kFrameCount> allocators_;
     ComPtr<ID3D12GraphicsCommandList> commandList_;
@@ -403,7 +512,7 @@ bool D3D12Backend::Initialize(const BackendCreateInfo& createInfo)
 
     initialized_ = true;
     Core::Log(Core::LogLevel::Info,
-        "D3D12 RHI initialized.");
+        "D3D12 RHI initialized with depth, indexed drawing and constant buffers.");
     return true;
 #else
     (void)createInfo;
@@ -432,6 +541,8 @@ void D3D12Backend::Shutdown()
     for (auto& target : renderTargets_)
         target.Reset();
 
+    depthBuffer_.Reset();
+    dsvHeap_.Reset();
     fence_.Reset();
     rtvHeap_.Reset();
     swapChain_.Reset();
@@ -451,8 +562,13 @@ std::unique_ptr<IBuffer> D3D12Backend::CreateBuffer(
     if (!initialized_ || desc.size == 0)
         return {};
 
+    const std::uint64_t allocationSize =
+        desc.usage == BufferUsage::Constant
+            ? AlignConstantBufferSize(desc.size)
+            : desc.size;
+
     const auto heapProps = UploadHeapProperties();
-    const auto resourceDesc = BufferResourceDesc(desc.size);
+    const auto resourceDesc = BufferResourceDesc(allocationSize);
 
     ComPtr<ID3D12Resource> resource;
     if (Failed(device_->CreateCommittedResource(
@@ -465,22 +581,16 @@ std::unique_ptr<IBuffer> D3D12Backend::CreateBuffer(
             "CreateCommittedResource(buffer)"))
         return {};
 
-    if (desc.initialData) {
-        void* mapped = nullptr;
-        const D3D12_RANGE readRange{0, 0};
-        if (Failed(resource->Map(0, &readRange, &mapped),
-                "Map(buffer)"))
-            return {};
+    auto result = std::make_unique<D3D12Buffer>(
+        std::move(resource),
+        allocationSize,
+        desc.usage);
 
-        std::memcpy(
-            mapped,
-            desc.initialData,
-            static_cast<std::size_t>(desc.size));
-        resource->Unmap(0, nullptr);
-    }
+    if (desc.initialData &&
+        !result->Update(desc.initialData, desc.size, 0))
+        return {};
 
-    return std::make_unique<D3D12Buffer>(
-        std::move(resource), desc.size, desc.usage);
+    return result;
 #else
     (void)desc;
     return {};
@@ -550,7 +660,23 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
         desc.vertexStride == 0)
         return {};
 
+    std::vector<D3D12_ROOT_PARAMETER> rootParameters(
+        desc.constantBufferCount);
+
+    for (std::uint32_t i = 0; i < desc.constantBufferCount; ++i) {
+        rootParameters[i].ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParameters[i].Descriptor.ShaderRegister = i;
+        rootParameters[i].Descriptor.RegisterSpace = 0;
+        rootParameters[i].ShaderVisibility =
+            D3D12_SHADER_VISIBILITY_ALL;
+    }
+
     D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+    rootDesc.NumParameters =
+        static_cast<UINT>(rootParameters.size());
+    rootDesc.pParameters =
+        rootParameters.empty() ? nullptr : rootParameters.data();
     rootDesc.Flags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -595,7 +721,6 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
         element.AlignedByteOffset = attribute.offset;
         element.InputSlotClass =
             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-        element.InstanceDataStepRate = 0;
         inputLayout.push_back(element);
     }
 
@@ -611,7 +736,8 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
 
     D3D12_RASTERIZER_DESC raster{};
     raster.FillMode = D3D12_FILL_MODE_SOLID;
-    raster.CullMode = D3D12_CULL_MODE_NONE;
+    raster.CullMode = D3D12_CULL_MODE_BACK;
+    raster.FrontCounterClockwise = FALSE;
     raster.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
     raster.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
     raster.SlopeScaledDepthBias =
@@ -619,7 +745,9 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
     raster.DepthClipEnable = TRUE;
 
     D3D12_DEPTH_STENCIL_DESC depth{};
-    depth.DepthEnable = FALSE;
+    depth.DepthEnable = desc.depthTest ? TRUE : FALSE;
+    depth.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    depth.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     depth.StencilEnable = FALSE;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};
@@ -641,6 +769,8 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso.NumRenderTargets = 1;
     pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso.DSVFormat =
+        desc.depthTest ? DXGI_FORMAT_D32_FLOAT : DXGI_FORMAT_UNKNOWN;
     pso.SampleDesc.Count = 1;
 
     ComPtr<ID3D12PipelineState> pipelineState;
@@ -680,10 +810,14 @@ ICommandList* D3D12Backend::BeginFrame()
     rtv.ptr +=
         static_cast<SIZE_T>(frameIndex_) * rtvDescriptorSize_;
 
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+        dsvHeap_->GetCPUDescriptorHandleForHeapStart();
+
     commandListView_.Prepare(
         commandList_.Get(),
         renderTargets_[frameIndex_].Get(),
         rtv,
+        dsv,
         viewport_,
         scissor_);
 
@@ -849,8 +983,7 @@ bool D3D12Backend::CreateSwapChain(
             "Query IDXGISwapChain3"))
         return false;
 
-    frameIndex_ =
-        swapChain_->GetCurrentBackBufferIndex();
+    frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
 
     viewport_.TopLeftX = 0.0f;
     viewport_.TopLeftY = 0.0f;
@@ -868,13 +1001,13 @@ bool D3D12Backend::CreateSwapChain(
 
 bool D3D12Backend::CreateFrameResources()
 {
-    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    heapDesc.NumDescriptors = kFrameCount;
+    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
+    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtvHeapDesc.NumDescriptors = kFrameCount;
 
     if (Failed(
             device_->CreateDescriptorHeap(
-                &heapDesc, IID_PPV_ARGS(&rtvHeap_)),
+                &rtvHeapDesc, IID_PPV_ARGS(&rtvHeap_)),
             "Create RTV heap"))
         return false;
 
@@ -903,6 +1036,48 @@ bool D3D12Backend::CreateFrameResources()
                 "CreateCommandAllocator"))
             return false;
     }
+
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
+    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.NumDescriptors = 1;
+
+    if (Failed(
+            device_->CreateDescriptorHeap(
+                &dsvHeapDesc, IID_PPV_ARGS(&dsvHeap_)),
+            "Create DSV heap"))
+        return false;
+
+    const D3D12_HEAP_PROPERTIES defaultHeap =
+        DefaultHeapProperties();
+    const D3D12_RESOURCE_DESC depthDesc =
+        DepthResourceDesc(
+            static_cast<UINT>(viewport_.Width),
+            static_cast<UINT>(viewport_.Height));
+
+    D3D12_CLEAR_VALUE depthClear{};
+    depthClear.Format = DXGI_FORMAT_D32_FLOAT;
+    depthClear.DepthStencil.Depth = 1.0f;
+    depthClear.DepthStencil.Stencil = 0;
+
+    if (Failed(
+            device_->CreateCommittedResource(
+                &defaultHeap,
+                D3D12_HEAP_FLAG_NONE,
+                &depthDesc,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                &depthClear,
+                IID_PPV_ARGS(&depthBuffer_)),
+            "Create depth buffer"))
+        return false;
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+    device_->CreateDepthStencilView(
+        depthBuffer_.Get(),
+        &dsvDesc,
+        dsvHeap_->GetCPUDescriptorHandleForHeapStart());
 
     if (Failed(
             device_->CreateCommandList(
@@ -939,22 +1114,17 @@ bool D3D12Backend::CreateFrameResources()
     return true;
 }
 
-bool D3D12Backend::WaitForFrame(
-    std::uint32_t submittedFrame)
+bool D3D12Backend::WaitForFrame(std::uint32_t submittedFrame)
 {
-    const std::uint64_t fenceValue =
-        nextFenceValue_++;
+    const std::uint64_t fenceValue = nextFenceValue_++;
 
     if (Failed(
-            queue_->Signal(
-                fence_.Get(), fenceValue),
+            queue_->Signal(fence_.Get(), fenceValue),
             "CommandQueue::Signal"))
         return false;
 
-    frameFenceValues_[submittedFrame] =
-        fenceValue;
-    frameIndex_ =
-        swapChain_->GetCurrentBackBufferIndex();
+    frameFenceValues_[submittedFrame] = fenceValue;
+    frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
 
     const std::uint64_t waitValue =
         frameFenceValues_[frameIndex_];
@@ -967,8 +1137,7 @@ bool D3D12Backend::WaitForFrame(
                 "Fence::SetEventOnCompletion"))
             return false;
 
-        WaitForSingleObject(
-            fenceEvent_, INFINITE);
+        WaitForSingleObject(fenceEvent_, INFINITE);
     }
 
     return true;
@@ -979,19 +1148,16 @@ void D3D12Backend::WaitForGpu()
     if (!queue_ || !fence_ || !fenceEvent_)
         return;
 
-    const std::uint64_t value =
-        nextFenceValue_++;
+    const std::uint64_t value = nextFenceValue_++;
 
-    if (FAILED(queue_->Signal(
-            fence_.Get(), value)))
+    if (FAILED(queue_->Signal(fence_.Get(), value)))
         return;
 
     if (fence_->GetCompletedValue() < value) {
         if (SUCCEEDED(
                 fence_->SetEventOnCompletion(
                     value, fenceEvent_))) {
-            WaitForSingleObject(
-                fenceEvent_, INFINITE);
+            WaitForSingleObject(fenceEvent_, INFINITE);
         }
     }
 }
