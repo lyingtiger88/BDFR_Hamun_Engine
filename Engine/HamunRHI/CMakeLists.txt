@@ -16,6 +16,11 @@ target_compile_definitions(HamunRHI PRIVATE
 )
 
 if(WIN32 AND HAMUN_ENABLE_D3D12)
-  target_compile_definitions(HamunRHI PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  target_compile_definitions(HamunRHI PRIVATE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    UNICODE
+    _UNICODE
+  )
   target_link_libraries(HamunRHI PRIVATE d3d12 dxgi d3dcompiler)
 endif()

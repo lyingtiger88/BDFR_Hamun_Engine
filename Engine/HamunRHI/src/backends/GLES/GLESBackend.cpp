@@ -18,7 +18,7 @@ public:
     {
 #if defined(HAMUN_ENABLE_GLES)
         Core::Log(Core::LogLevel::Info,
-            "OpenGL ES compatibility backend selected; native context implementation is pending.");
+            "OpenGL ES compatibility RHI selected; native resource implementation is pending.");
         initialized_ = true;
         return true;
 #else
@@ -26,8 +26,28 @@ public:
 #endif
     }
 
-    bool RenderFrame() override { return initialized_; }
     void Shutdown() override { initialized_ = false; }
+
+    std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc&) override
+    {
+        return {};
+    }
+
+    std::unique_ptr<IShader> CreateShader(const ShaderDesc&) override
+    {
+        return {};
+    }
+
+    std::unique_ptr<IPipeline> CreateGraphicsPipeline(
+        const GraphicsPipelineDesc&) override
+    {
+        return {};
+    }
+
+    ICommandList* BeginFrame() override { return nullptr; }
+    bool SubmitFrame() override { return false; }
+    ISwapChain* SwapChain() noexcept override { return nullptr; }
+    IFence* FrameFence() noexcept override { return nullptr; }
 
 private:
     Capabilities caps_{};

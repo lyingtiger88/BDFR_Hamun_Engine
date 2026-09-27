@@ -1,5 +1,3 @@
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 
 #include <Hamun/Core/Log.hpp>
@@ -49,7 +47,8 @@ public:
             wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
             wc.lpszClassName = kWindowClassName;
 
-            if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            if (!RegisterClassExW(&wc) &&
+                GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
                 Core::Log(Core::LogLevel::Error,
                     "Win32: RegisterClassExW failed.");
                 return;
@@ -93,11 +92,7 @@ public:
 
     [[nodiscard]] bool IsValid() const noexcept { return hwnd_ != nullptr; }
 
-    void* NativeHandle() const noexcept override
-    {
-        return hwnd_;
-    }
-
+    void* NativeHandle() const noexcept override { return hwnd_; }
     std::uint32_t Width() const noexcept override { return width_; }
     std::uint32_t Height() const noexcept override { return height_; }
 
@@ -107,7 +102,6 @@ public:
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
             if (message.message == WM_QUIT)
                 return false;
-
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
@@ -119,7 +113,8 @@ private:
         HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         Win32Window* self =
-            reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+            reinterpret_cast<Win32Window*>(
+                GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
         if (message == WM_NCCREATE) {
             const auto* create =
@@ -164,7 +159,7 @@ private:
 
 } // namespace
 
-std::unique_ptr<IWindow> CreateWindow(const WindowDesc& desc)
+std::unique_ptr<IWindow> CreateNativeWindow(const WindowDesc& desc)
 {
     auto window = std::make_unique<Win32Window>(desc);
     if (!window->IsValid())

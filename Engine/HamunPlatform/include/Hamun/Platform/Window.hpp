@@ -19,11 +19,9 @@ public:
     [[nodiscard]] virtual void* NativeHandle() const noexcept = 0;
     [[nodiscard]] virtual std::uint32_t Width() const noexcept = 0;
     [[nodiscard]] virtual std::uint32_t Height() const noexcept = 0;
-
-    // Returns false after the application receives a quit request.
     virtual bool PumpEvents() = 0;
 };
 
-std::unique_ptr<IWindow> CreateWindow(const WindowDesc& desc);
+std::unique_ptr<IWindow> CreateNativeWindow(const WindowDesc& desc);
 
 } // namespace Hamun::Platform
