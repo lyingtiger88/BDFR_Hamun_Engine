@@ -24,10 +24,10 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Run sandbox (Windows)
+      - name: Run sandbox (Windows DX12 smoke test)
         if: runner.os == 'Windows'
-        run: ./build/Samples/Sandbox/Release/HamunSandbox.exe
+        run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
 
-      - name: Run sandbox (Linux)
+      - name: Run sandbox (Linux foundation smoke test)
         if: runner.os == 'Linux'
-        run: ./build/Samples/Sandbox/HamunSandbox
+        run: ./build/Samples/Sandbox/HamunSandbox --smoke-test

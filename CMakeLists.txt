@@ -6,11 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(HAMUN_BUILD_SANDBOX "Build Hamun Engine sandbox" ON)
-option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend foundation" ${WIN32})
+option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend" ${WIN32})
 option(HAMUN_ENABLE_VULKAN "Enable Vulkan backend foundation" ON)
 option(HAMUN_ENABLE_GLES "Enable OpenGL ES backend foundation" ON)
 
 add_subdirectory(Engine/HamunCore)
+add_subdirectory(Engine/HamunPlatform)
 add_subdirectory(Engine/HamunRHI)
 add_subdirectory(Engine/HamunWorld)
 add_subdirectory(Engine/HamunGraph)
