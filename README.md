@@ -6,7 +6,7 @@
 
 The project takes inspiration from the open-world and streaming philosophy of engines such as **Grit Engine**, while rebuilding the core architecture for modern hardware and APIs.
 
-> **Project status:** Pre-Alpha / Foundation stage  
+> **Project status:** Pre-Alpha / RHI Foundation  
 > **Repository:** `BDFR_Hamun_Engine`
 
 ---
@@ -308,19 +308,19 @@ Additional managed scripting options may be evaluated later.
 
 The roadmap is intentionally milestone-based. Features may move between phases as engine architecture is validated.
 
-## Phase 0 — Foundation **(Current Focus)**
+## Phase 0 — Foundation
 
-- [ ] Establish repository structure
-- [ ] C++20/23 baseline
-- [ ] CMake build system
+- [x] Establish repository structure
+- [x] C++20 baseline
+- [x] CMake build system
 - [ ] Coding conventions
 - [ ] Core types and utilities
-- [ ] Logging system
+- [x] Logging system
 - [ ] Assertion/error system
 - [ ] Math library foundation
-- [ ] Platform abstraction
+- [x] Platform abstraction
 - [ ] Unit-test foundation
-- [ ] CI build validation
+- [x] CI build validation
 
 **Milestone:** clean engine skeleton that builds reliably.
 
@@ -343,21 +343,21 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 
 ---
 
-## Phase 2 — HamunRHI + DirectX 12
+## Phase 2 — HamunRHI + DirectX 12 **(Current Graphics Focus)**
 
-- [ ] RHI resource model
-- [ ] Command queues
-- [ ] Command lists
-- [ ] Buffers
+- [x] RHI resource model
+- [x] Command queues
+- [x] Command lists
+- [x] Buffers (initial upload/vertex path)
 - [ ] Textures
 - [ ] Samplers
 - [ ] Descriptor management
-- [ ] Pipeline states
-- [ ] Shader loading
-- [ ] Swap chain
-- [ ] Synchronization
+- [x] Pipeline states
+- [x] Shader loading/compilation (temporary D3DCompile bootstrap)
+- [x] Swap chain
+- [x] Synchronization
 - [ ] GPU memory management
-- [ ] First triangle
+- [x] First triangle through backend-neutral RHI
 - [ ] First textured mesh
 
 **Milestone:** functional DirectX 12 backend through HamunRHI.
@@ -412,9 +412,9 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 - [ ] Entity/world model
 - [ ] Region/Cell/SubCell partition
 - [ ] Async cell streaming
-- [ ] Streaming scheduler
-- [ ] Predictive streaming
-- [ ] Large-world coordinate system
+- [x] Streaming scheduler
+- [x] Predictive streaming foundation
+- [x] Large-world coordinate foundation
 - [ ] Camera-relative rendering
 - [ ] LOD
 - [ ] HLOD
@@ -440,8 +440,8 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 - [ ] Reflection binding
 - [ ] Graph compiler
 - [ ] Intermediate representation
-- [ ] Bytecode VM
-- [ ] Runtime execution
+- [x] Bytecode VM
+- [x] Runtime execution foundation
 - [ ] Breakpoints
 - [ ] Execution trace
 - [ ] Watch variables
@@ -554,7 +554,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **foundation stage**.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. The DirectX 12 backend now renders through the public HamunRHI interfaces, with Windows and Linux CI validation in place.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 
