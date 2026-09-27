@@ -537,22 +537,6 @@ The first meaningful engine milestone is intentionally small:
 
 Once this foundation is stable, Vulkan, OpenGL ES, HamunWorld, and HamunGraph can grow on top of a validated architecture.
 
----
-
-## Proposed Repository Topics
-
-Suggested GitHub topics for the project:
-
-`game-engine` · `cpp` · `cplusplus` · `directx12` · `vulkan` · `opengl-es` · `graphics-engine` · `rendering-engine` · `open-world` · `world-streaming` · `visual-scripting` · `game-development` · `pbr` · `gpu-driven` · `ecs` · `cmake` · `cross-platform` · `3d-engine`
-
----
-
-## Suggested GitHub Description
-
-> Modern C++ open-world game engine with DirectX 12, Vulkan and OpenGL ES backends, large-world streaming, GPU-driven rendering and HamunGraph visual scripting.
-
----
-
 ## Development Philosophy
 
 Hamun Engine follows a few core principles:
