@@ -1,0 +1,8 @@
+add_library(HamunCore STATIC src/Log.cpp)
+target_include_directories(HamunCore PUBLIC include)
+target_compile_features(HamunCore PUBLIC cxx_std_20)
+if(MSVC)
+  target_compile_options(HamunCore PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(HamunCore PRIVATE -Wall -Wextra -Wpedantic)
+endif()
