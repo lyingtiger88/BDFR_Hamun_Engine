@@ -28,6 +28,10 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
 
+      - name: Run sandbox (Windows DX11 compatibility smoke test)
+        if: runner.os == 'Windows'
+        run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test --d3d11
+
       - name: Run sandbox (Linux foundation smoke test)
         if: runner.os == 'Linux'
         run: ./build/Samples/Sandbox/HamunSandbox --smoke-test
