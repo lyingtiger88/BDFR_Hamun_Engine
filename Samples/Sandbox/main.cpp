@@ -4,6 +4,7 @@
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -54,7 +55,8 @@ void RunFoundationSelfTests()
 
     Hamun::Graph::VM vm;
     const auto value = vm.Execute(program);
-    if (const auto* result = std::get_if<double>(&value)) {
+    if (const auto* result =
+            std::get_if<double>(&value)) {
         std::cout
             << "HamunGraph VM test: 6 * 7 = "
             << *result
@@ -81,17 +83,21 @@ Mat4 Identity()
 Mat4 Multiply(const Mat4& a, const Mat4& b)
 {
     Mat4 result{};
+
     for (int row = 0; row < 4; ++row) {
         for (int column = 0; column < 4; ++column) {
             float sum = 0.0f;
+
             for (int k = 0; k < 4; ++k) {
                 sum +=
                     a.m[row * 4 + k] *
                     b.m[k * 4 + column];
             }
+
             result.m[row * 4 + column] = sum;
         }
     }
+
     return result;
 }
 
@@ -137,9 +143,12 @@ Mat4 PerspectiveFovLH(
     float farZ)
 {
     Mat4 result{};
-    const float yScale = 1.0f / std::tan(fovY * 0.5f);
-    const float xScale = yScale / aspect;
-    const float zScale = farZ / (farZ - nearZ);
+    const float yScale =
+        1.0f / std::tan(fovY * 0.5f);
+    const float xScale =
+        yScale / aspect;
+    const float zScale =
+        farZ / (farZ - nearZ);
 
     result.m[0] = xScale;
     result.m[5] = yScale;
@@ -151,25 +160,58 @@ Mat4 PerspectiveFovLH(
 
 struct Vertex {
     float position[3];
-    float color[4];
+    float uv[2];
 };
 
 struct alignas(256) SceneConstants {
     Mat4 mvp;
 };
 
-bool RunRhiCube(
+std::array<std::uint8_t, 16 * 16 * 4>
+BuildCheckerboardTexture()
+{
+    std::array<std::uint8_t, 16 * 16 * 4> pixels{};
+
+    for (std::uint32_t y = 0; y < 16; ++y) {
+        for (std::uint32_t x = 0; x < 16; ++x) {
+            const bool alternate =
+                ((x / 4) + (y / 4)) % 2 != 0;
+
+            const std::size_t index =
+                (static_cast<std::size_t>(y) * 16 + x) * 4;
+
+            if (alternate) {
+                pixels[index + 0] = 30;
+                pixels[index + 1] = 185;
+                pixels[index + 2] = 235;
+                pixels[index + 3] = 255;
+            } else {
+                pixels[index + 0] = 240;
+                pixels[index + 1] = 105;
+                pixels[index + 2] = 45;
+                pixels[index + 3] = 255;
+            }
+        }
+    }
+
+    return pixels;
+}
+
+bool RunTexturedMesh(
     Hamun::Platform::IWindow& window,
     bool smokeTest)
 {
     using namespace Hamun::RHI;
 
-    auto backend = CreateBackend(BackendType::D3D12);
+    auto backend =
+        CreateBackend(BackendType::D3D12);
+
     if (!backend)
         return false;
 
     BackendCreateInfo createInfo;
-    createInfo.nativeWindowHandle = window.NativeHandle();
+    createInfo.nativeWindowHandle =
+        window.NativeHandle();
     createInfo.width = window.Width();
     createInfo.height = window.Height();
     createInfo.enableValidation = true;
@@ -178,23 +220,44 @@ bool RunRhiCube(
         return false;
 
     const Vertex vertices[] = {
-        {{-0.6f, -0.6f, -0.6f}, {1.0f, 0.2f, 0.2f, 1.0f}},
-        {{-0.6f,  0.6f, -0.6f}, {0.2f, 1.0f, 0.2f, 1.0f}},
-        {{ 0.6f,  0.6f, -0.6f}, {0.2f, 0.4f, 1.0f, 1.0f}},
-        {{ 0.6f, -0.6f, -0.6f}, {1.0f, 0.8f, 0.2f, 1.0f}},
-        {{-0.6f, -0.6f,  0.6f}, {0.9f, 0.2f, 1.0f, 1.0f}},
-        {{-0.6f,  0.6f,  0.6f}, {0.2f, 1.0f, 1.0f, 1.0f}},
-        {{ 0.6f,  0.6f,  0.6f}, {1.0f, 0.5f, 0.2f, 1.0f}},
-        {{ 0.6f, -0.6f,  0.6f}, {0.8f, 0.8f, 0.9f, 1.0f}}
+        {{-0.6f,-0.6f,-0.6f},{0.0f,1.0f}},
+        {{-0.6f, 0.6f,-0.6f},{0.0f,0.0f}},
+        {{ 0.6f, 0.6f,-0.6f},{1.0f,0.0f}},
+        {{ 0.6f,-0.6f,-0.6f},{1.0f,1.0f}},
+
+        {{ 0.6f,-0.6f, 0.6f},{0.0f,1.0f}},
+        {{ 0.6f, 0.6f, 0.6f},{0.0f,0.0f}},
+        {{-0.6f, 0.6f, 0.6f},{1.0f,0.0f}},
+        {{-0.6f,-0.6f, 0.6f},{1.0f,1.0f}},
+
+        {{-0.6f,-0.6f, 0.6f},{0.0f,1.0f}},
+        {{-0.6f, 0.6f, 0.6f},{0.0f,0.0f}},
+        {{-0.6f, 0.6f,-0.6f},{1.0f,0.0f}},
+        {{-0.6f,-0.6f,-0.6f},{1.0f,1.0f}},
+
+        {{ 0.6f,-0.6f,-0.6f},{0.0f,1.0f}},
+        {{ 0.6f, 0.6f,-0.6f},{0.0f,0.0f}},
+        {{ 0.6f, 0.6f, 0.6f},{1.0f,0.0f}},
+        {{ 0.6f,-0.6f, 0.6f},{1.0f,1.0f}},
+
+        {{-0.6f, 0.6f,-0.6f},{0.0f,1.0f}},
+        {{-0.6f, 0.6f, 0.6f},{0.0f,0.0f}},
+        {{ 0.6f, 0.6f, 0.6f},{1.0f,0.0f}},
+        {{ 0.6f, 0.6f,-0.6f},{1.0f,1.0f}},
+
+        {{-0.6f,-0.6f, 0.6f},{0.0f,1.0f}},
+        {{-0.6f,-0.6f,-0.6f},{0.0f,0.0f}},
+        {{ 0.6f,-0.6f,-0.6f},{1.0f,0.0f}},
+        {{ 0.6f,-0.6f, 0.6f},{1.0f,1.0f}}
     };
 
     const std::uint16_t indices[] = {
-        0, 1, 2, 0, 2, 3,
-        4, 6, 5, 4, 7, 6,
-        4, 5, 1, 4, 1, 0,
-        3, 2, 6, 3, 6, 7,
-        1, 5, 6, 1, 6, 2,
-        4, 0, 3, 4, 3, 7
+         0, 1, 2,  0, 2, 3,
+         4, 5, 6,  4, 6, 7,
+         8, 9,10,  8,10,11,
+        12,13,14, 12,14,15,
+        16,17,18, 16,18,19,
+        20,21,22, 20,22,23
     };
 
     BufferDesc vertexDesc;
@@ -211,11 +274,43 @@ bool RunRhiCube(
     constantDesc.size = sizeof(SceneConstants);
     constantDesc.usage = BufferUsage::Constant;
 
-    auto vertexBuffer = backend->CreateBuffer(vertexDesc);
-    auto indexBuffer = backend->CreateBuffer(indexDesc);
-    auto constantBuffer = backend->CreateBuffer(constantDesc);
+    auto vertexBuffer =
+        backend->CreateBuffer(vertexDesc);
+    auto indexBuffer =
+        backend->CreateBuffer(indexDesc);
+    auto constantBuffer =
+        backend->CreateBuffer(constantDesc);
 
-    if (!vertexBuffer || !indexBuffer || !constantBuffer)
+    if (!vertexBuffer ||
+        !indexBuffer ||
+        !constantBuffer)
+        return false;
+
+    const auto pixels =
+        BuildCheckerboardTexture();
+
+    TextureDesc textureDesc;
+    textureDesc.width = 16;
+    textureDesc.height = 16;
+    textureDesc.format =
+        TextureFormat::RGBA8_UNorm;
+    textureDesc.initialData = pixels.data();
+    textureDesc.rowPitch = 16 * 4;
+
+    auto texture =
+        backend->CreateTexture(textureDesc);
+
+    SamplerDesc samplerDesc;
+    samplerDesc.filter = SamplerFilter::Linear;
+    samplerDesc.addressU =
+        SamplerAddressMode::Repeat;
+    samplerDesc.addressV =
+        SamplerAddressMode::Repeat;
+
+    auto sampler =
+        backend->CreateSampler(samplerDesc);
+
+    if (!texture || !sampler)
         return false;
 
     const std::string shaderSource = R"(
@@ -224,29 +319,32 @@ cbuffer SceneConstants : register(b0)
     row_major float4x4 mvp;
 };
 
+Texture2D BaseColor : register(t0);
+SamplerState BaseSampler : register(s0);
+
 struct VSInput
 {
     float3 position : POSITION;
-    float4 color : COLOR;
+    float2 uv : TEXCOORD0;
 };
 
 struct PSInput
 {
     float4 position : SV_POSITION;
-    float4 color : COLOR;
+    float2 uv : TEXCOORD0;
 };
 
 PSInput VSMain(VSInput input)
 {
     PSInput output;
     output.position = mul(float4(input.position, 1.0f), mvp);
-    output.color = input.color;
+    output.uv = input.uv;
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return input.color;
+    return BaseColor.Sample(BaseSampler, input.uv);
 }
 )";
 
@@ -260,35 +358,46 @@ float4 PSMain(PSInput input) : SV_TARGET
     psDesc.source = shaderSource;
     psDesc.entryPoint = "PSMain";
 
-    auto vertexShader = backend->CreateShader(vsDesc);
-    auto pixelShader = backend->CreateShader(psDesc);
+    auto vertexShader =
+        backend->CreateShader(vsDesc);
+    auto pixelShader =
+        backend->CreateShader(psDesc);
 
     if (!vertexShader || !pixelShader)
         return false;
 
     GraphicsPipelineDesc pipelineDesc;
-    pipelineDesc.vertexShader = vertexShader.get();
-    pipelineDesc.pixelShader = pixelShader.get();
-    pipelineDesc.vertexStride = sizeof(Vertex);
+    pipelineDesc.vertexShader =
+        vertexShader.get();
+    pipelineDesc.pixelShader =
+        pixelShader.get();
+    pipelineDesc.vertexStride =
+        sizeof(Vertex);
     pipelineDesc.constantBufferCount = 1;
+    pipelineDesc.textureCount = 1;
+    pipelineDesc.samplerCount = 1;
     pipelineDesc.depthTest = true;
     pipelineDesc.vertexAttributes = {
         {
             VertexSemantic::Position,
             0,
             VertexFormat::Float3,
-            static_cast<std::uint32_t>(offsetof(Vertex, position))
+            static_cast<std::uint32_t>(
+                offsetof(Vertex, position))
         },
         {
-            VertexSemantic::Color,
+            VertexSemantic::TexCoord,
             0,
-            VertexFormat::Float4,
-            static_cast<std::uint32_t>(offsetof(Vertex, color))
+            VertexFormat::Float2,
+            static_cast<std::uint32_t>(
+                offsetof(Vertex, uv))
         }
     };
 
     auto pipeline =
-        backend->CreateGraphicsPipeline(pipelineDesc);
+        backend->CreateGraphicsPipeline(
+            pipelineDesc);
+
     if (!pipeline)
         return false;
 
@@ -296,25 +405,39 @@ float4 PSMain(PSInput input) : SV_TARGET
         static_cast<float>(window.Width()) /
         static_cast<float>(window.Height());
 
-    constexpr float pi = 3.14159265358979323846f;
+    constexpr float pi =
+        3.14159265358979323846f;
+
     const Mat4 projection =
-        PerspectiveFovLH(pi / 3.0f, aspect, 0.1f, 100.0f);
-    const Mat4 view = Translation(0.0f, 0.0f, 3.0f);
+        PerspectiveFovLH(
+            pi / 3.0f,
+            aspect,
+            0.1f,
+            100.0f);
+
+    const Mat4 view =
+        Translation(
+            0.0f,
+            0.0f,
+            3.0f);
 
     const auto start =
         std::chrono::steady_clock::now();
 
     int renderedFrames = 0;
+
     while (window.PumpEvents()) {
         const auto now =
             std::chrono::steady_clock::now();
+
         const float seconds =
-            std::chrono::duration<float>(now - start).count();
+            std::chrono::duration<float>(
+                now - start).count();
 
         const Mat4 model =
             Multiply(
-                RotationY(seconds * 0.9f),
-                RotationX(seconds * 0.45f));
+                RotationY(seconds * 0.8f),
+                RotationX(seconds * 0.35f));
 
         SceneConstants constants{};
         constants.mvp =
@@ -328,14 +451,24 @@ float4 PSMain(PSInput input) : SV_TARGET
                 0))
             return false;
 
-        ICommandList* commands = backend->BeginFrame();
+        ICommandList* commands =
+            backend->BeginFrame();
+
         if (!commands)
             return false;
 
         commands->BeginRenderPass(
-            {0.018f, 0.032f, 0.055f, 1.0f});
+            {0.012f, 0.022f, 0.040f, 1.0f});
         commands->SetPipeline(*pipeline);
-        commands->SetConstantBuffer(0, *constantBuffer);
+        commands->SetConstantBuffer(
+            0,
+            *constantBuffer);
+        commands->SetTexture(
+            0,
+            *texture);
+        commands->SetSampler(
+            0,
+            *sampler);
         commands->SetVertexBuffer(
             *vertexBuffer,
             sizeof(Vertex));
@@ -344,14 +477,16 @@ float4 PSMain(PSInput input) : SV_TARGET
             IndexType::UInt16);
         commands->DrawIndexed(
             static_cast<std::uint32_t>(
-                sizeof(indices) / sizeof(indices[0])));
+                std::size(indices)));
         commands->EndRenderPass();
 
         if (!backend->SubmitFrame())
             return false;
 
         ++renderedFrames;
-        if (smokeTest && renderedFrames >= 3)
+
+        if (smokeTest &&
+            renderedFrames >= 3)
             break;
     }
 
@@ -375,24 +510,32 @@ int main(int argc, char** argv)
     RunFoundationSelfTests();
 
     const bool smokeTest =
-        HasArgument(argc, argv, "--smoke-test");
+        HasArgument(
+            argc,
+            argv,
+            "--smoke-test");
 
 #if defined(_WIN32)
     Hamun::Platform::WindowDesc windowDesc;
     windowDesc.title =
-        "BDFR Hamun Engine - 3D RHI Cube";
+        "BDFR Hamun Engine - Textured RHI Mesh";
     windowDesc.width = 1280;
     windowDesc.height = 720;
 
     auto window =
-        Hamun::Platform::CreateNativeWindow(windowDesc);
+        Hamun::Platform::CreateNativeWindow(
+            windowDesc);
+
     if (!window)
         return 2;
 
-    if (!RunRhiCube(*window, smokeTest))
+    if (!RunTexturedMesh(
+            *window,
+            smokeTest))
         return 3;
 #else
     (void)smokeTest;
+
     Log(
         LogLevel::Info,
         "Non-Windows CI validates the cross-platform RHI interface; native Vulkan rendering follows.");

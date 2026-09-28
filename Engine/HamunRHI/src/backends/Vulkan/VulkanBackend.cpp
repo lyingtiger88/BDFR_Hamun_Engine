@@ -8,9 +8,7 @@ public:
     VulkanBackend()
     {
         caps_.compute = true;
-        caps_.asyncCompute = true;
-        caps_.indirectDraw = true;
-        caps_.bindless = true;
+        caps_.asyncCompute = true; caps_.indirectDraw = true; caps_.bindless = true;
     }
 
     std::string_view Name() const noexcept override { return "Vulkan"; }
@@ -32,6 +30,8 @@ public:
     void Shutdown() override { initialized_ = false; }
 
     std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc&) override { return {}; }
+    std::unique_ptr<ITexture> CreateTexture(const TextureDesc&) override { return {}; }
+    std::unique_ptr<ISampler> CreateSampler(const SamplerDesc&) override { return {}; }
     std::unique_ptr<IShader> CreateShader(const ShaderDesc&) override { return {}; }
     std::unique_ptr<IPipeline> CreateGraphicsPipeline(const GraphicsPipelineDesc&) override { return {}; }
 

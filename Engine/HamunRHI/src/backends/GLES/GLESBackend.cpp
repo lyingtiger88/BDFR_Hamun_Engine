@@ -8,6 +8,7 @@ public:
     GLESBackend()
     {
         caps_.compute = true;
+        
     }
 
     std::string_view Name() const noexcept override { return "OpenGL ES"; }
@@ -18,7 +19,7 @@ public:
     {
 #if defined(HAMUN_ENABLE_GLES)
         Core::Log(Core::LogLevel::Info,
-            "OpenGL ES compatibility RHI selected; native resource implementation is pending.");
+            "OpenGL ES RHI selected; native resource implementation is pending.");
         initialized_ = true;
         return true;
 #else
@@ -29,6 +30,8 @@ public:
     void Shutdown() override { initialized_ = false; }
 
     std::unique_ptr<IBuffer> CreateBuffer(const BufferDesc&) override { return {}; }
+    std::unique_ptr<ITexture> CreateTexture(const TextureDesc&) override { return {}; }
+    std::unique_ptr<ISampler> CreateSampler(const SamplerDesc&) override { return {}; }
     std::unique_ptr<IShader> CreateShader(const ShaderDesc&) override { return {}; }
     std::unique_ptr<IPipeline> CreateGraphicsPipeline(const GraphicsPipelineDesc&) override { return {}; }
 

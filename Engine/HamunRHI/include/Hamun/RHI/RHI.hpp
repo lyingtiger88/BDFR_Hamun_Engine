@@ -45,6 +45,20 @@ enum class VertexSemantic : std::uint8_t {
     Color
 };
 
+enum class TextureFormat : std::uint8_t {
+    RGBA8_UNorm
+};
+
+enum class SamplerFilter : std::uint8_t {
+    Nearest,
+    Linear
+};
+
+enum class SamplerAddressMode : std::uint8_t {
+    Clamp,
+    Repeat
+};
+
 struct Capabilities {
     bool compute = false;
     bool asyncCompute = false;
@@ -67,6 +81,21 @@ struct BufferDesc {
     const void* initialData = nullptr;
 };
 
+struct TextureDesc {
+    std::uint32_t width = 1;
+    std::uint32_t height = 1;
+    TextureFormat format = TextureFormat::RGBA8_UNorm;
+    const void* initialData = nullptr;
+    std::uint32_t rowPitch = 0;
+};
+
+struct SamplerDesc {
+    SamplerFilter filter = SamplerFilter::Linear;
+    SamplerAddressMode addressU = SamplerAddressMode::Repeat;
+    SamplerAddressMode addressV = SamplerAddressMode::Repeat;
+    SamplerAddressMode addressW = SamplerAddressMode::Repeat;
+};
+
 struct ShaderDesc {
     ShaderStage stage = ShaderStage::Vertex;
     std::string source;
@@ -81,6 +110,8 @@ struct VertexAttribute {
 };
 
 class IBuffer;
+class ITexture;
+class ISampler;
 class IShader;
 class IPipeline;
 class ICommandList;
@@ -93,6 +124,8 @@ struct GraphicsPipelineDesc {
     std::vector<VertexAttribute> vertexAttributes;
     std::uint32_t vertexStride = 0;
     std::uint32_t constantBufferCount = 0;
+    std::uint32_t textureCount = 0;
+    std::uint32_t samplerCount = 0;
     bool depthTest = true;
 };
 
@@ -107,6 +140,20 @@ public:
         const void* data,
         std::uint64_t size,
         std::uint64_t offset = 0) = 0;
+};
+
+class ITexture {
+public:
+    virtual ~ITexture() = default;
+
+    [[nodiscard]] virtual std::uint32_t Width() const noexcept = 0;
+    [[nodiscard]] virtual std::uint32_t Height() const noexcept = 0;
+    [[nodiscard]] virtual TextureFormat Format() const noexcept = 0;
+};
+
+class ISampler {
+public:
+    virtual ~ISampler() = default;
 };
 
 class IShader {
@@ -150,6 +197,12 @@ public:
     virtual void SetConstantBuffer(
         std::uint32_t slot,
         IBuffer& buffer) = 0;
+    virtual void SetTexture(
+        std::uint32_t slot,
+        ITexture& texture) = 0;
+    virtual void SetSampler(
+        std::uint32_t slot,
+        ISampler& sampler) = 0;
     virtual void Draw(
         std::uint32_t vertexCount,
         std::uint32_t firstVertex = 0) = 0;
@@ -173,6 +226,10 @@ public:
 
     virtual std::unique_ptr<IBuffer> CreateBuffer(
         const BufferDesc& desc) = 0;
+    virtual std::unique_ptr<ITexture> CreateTexture(
+        const TextureDesc& desc) = 0;
+    virtual std::unique_ptr<ISampler> CreateSampler(
+        const SamplerDesc& desc) = 0;
     virtual std::unique_ptr<IShader> CreateShader(
         const ShaderDesc& desc) = 0;
     virtual std::unique_ptr<IPipeline> CreateGraphicsPipeline(
