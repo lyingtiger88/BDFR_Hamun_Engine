@@ -241,6 +241,31 @@ Future specialized graph types are expected to include:
 
 ---
 
+## Asset Pipeline & First Interactive Scene
+
+Hamun now includes an initial file-based asset pipeline:
+
+- glTF 2.0 mesh loading through `cgltf`
+- PNG/JPG decoding through `stb_image`
+- indexed mesh data
+- UV coordinates
+- optional normals
+- base-color texture discovery from glTF materials
+- real file-backed texture loading
+- a repository test glTF scene and PNG texture
+- WASD free-camera movement
+- Q/E vertical movement
+- Shift sprint
+- RMB + mouse look
+- Escape to exit
+- FPS/camera-position debug output
+
+The same asset-driven scene is smoke-tested through both **DirectX 12** and
+**DirectX 11** on Windows. Linux validates the cross-platform modules and the
+Android APK pipeline remains green.
+
+---
+
 ## Large World System
 
 Hamun Engine is being architected for worlds far larger than a conventional single loaded level.
@@ -472,10 +497,10 @@ Win32 Window
 ## Phase 4 — Modern Renderer
 
 - [ ] Render Graph
-- [ ] Mesh system
-- [ ] Material system
+- [x] Mesh system (initial file-backed glTF path)
+- [x] Material system foundation (glTF base-color texture path)
 - [ ] PBR
-- [ ] Camera system
+- [x] Camera system (free camera)
 - [ ] Lighting
 - [ ] Shadowing
 - [ ] GPU Scene
@@ -597,6 +622,32 @@ Win32 Window
 - [ ] Packaging
 - [ ] Automated testing
 - [ ] Documentation pipeline
+
+---
+
+## Initial Test v0.1 Status
+
+The first interactive desktop test path is now functional:
+
+- [x] Native Win32 window
+- [x] DirectX 12
+- [x] DirectX 11 compatibility backend
+- [x] HLSL shader compilation
+- [x] Vertex / index / constant buffers
+- [x] Texture + sampler
+- [x] Depth buffer
+- [x] glTF 2.0 file import
+- [x] PNG/JPG image decode
+- [x] File-backed textured mesh
+- [x] Free camera
+- [x] WASD + mouse input
+- [x] HamunGraph VM bootstrap test
+- [x] World streaming bootstrap test
+- [x] Windows DX12/DX11 CI smoke tests
+- [x] Android APK CI build
+
+The next step is packaging this into a convenient downloadable test build and
+expanding the scene/asset system beyond the bootstrap sample.
 
 ---
 
