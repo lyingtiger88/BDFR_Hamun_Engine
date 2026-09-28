@@ -14,6 +14,7 @@ option(HAMUN_ENABLE_GLES "Enable OpenGL ES backend foundation" ON)
 
 add_subdirectory(Engine/HamunCore)
 add_subdirectory(Engine/HamunPlatform)
+add_subdirectory(Engine/HamunAssets)
 add_subdirectory(Engine/HamunRHI)
 add_subdirectory(Engine/HamunWorld)
 add_subdirectory(Engine/HamunGraph)
