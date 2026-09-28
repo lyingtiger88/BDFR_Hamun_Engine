@@ -199,12 +199,13 @@ BuildCheckerboardTexture()
 
 bool RunTexturedMesh(
     Hamun::Platform::IWindow& window,
-    bool smokeTest)
+    bool smokeTest,
+    Hamun::RHI::BackendType backendType)
 {
     using namespace Hamun::RHI;
 
     auto backend =
-        CreateBackend(BackendType::D3D12);
+        CreateBackend(backendType);
 
     if (!backend)
         return false;
@@ -517,8 +518,21 @@ int main(int argc, char** argv)
 
 #if defined(_WIN32)
     Hamun::Platform::WindowDesc windowDesc;
+    const bool useD3D11 =
+        HasArgument(
+            argc,
+            argv,
+            "--d3d11");
+
+    const Hamun::RHI::BackendType backendType =
+        useD3D11
+            ? Hamun::RHI::BackendType::D3D11
+            : Hamun::RHI::BackendType::D3D12;
+
     windowDesc.title =
-        "BDFR Hamun Engine - Textured RHI Mesh";
+        useD3D11
+            ? "BDFR Hamun Engine - Textured RHI Mesh (DX11)"
+            : "BDFR Hamun Engine - Textured RHI Mesh (DX12)";
     windowDesc.width = 1280;
     windowDesc.height = 720;
 
@@ -531,7 +545,8 @@ int main(int argc, char** argv)
 
     if (!RunTexturedMesh(
             *window,
-            smokeTest))
+            smokeTest,
+            backendType))
         return 3;
 #else
     (void)smokeTest;
