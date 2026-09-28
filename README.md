@@ -72,6 +72,35 @@ See `docs/ANDROID_BUILD.md` for the complete toolchain details.
 
 ---
 
+## DirectX 11 Compatibility
+
+Hamun includes a separate **Direct3D 11 compatibility backend** behind the same
+HamunRHI interfaces used by DirectX 12.
+
+The compatibility backend currently supports:
+
+- textured indexed meshes
+- vertex/index/constant buffers
+- 2D textures and shader-resource views
+- samplers
+- depth buffers
+- HLSL shaders
+- input layouts
+- rasterizer/depth state
+- swap-chain presentation
+
+Feature-level negotiation currently attempts:
+
+`11_1 -> 11_0 -> 10_1 -> 10_0`
+
+The renderer does not reduce the DirectX 12/Vulkan design to DX11 limitations.
+Advanced systems such as bindless rendering, mesh shaders, ray tracing and
+explicit asynchronous compute remain higher capability-tier features.
+
+Windows CI renders the same textured RHI test on both DX12 and DX11.
+
+---
+
 ## Graphics API Targets
 
 Hamun Engine is being designed around a dedicated **Render Hardware Interface (RHI)**.
@@ -79,6 +108,7 @@ Hamun Engine is being designed around a dedicated **Render Hardware Interface (R
 | Platform / API | Target |
 |---|---|
 | DirectX 12 | Primary Windows backend |
+| DirectX 11 | Windows compatibility backend |
 | Vulkan | Primary cross-platform backend |
 | OpenGL ES | Compatibility / mobile / embedded backend |
 
@@ -377,7 +407,7 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 
 ---
 
-## Phase 2 — HamunRHI + DirectX 12 **(Current Graphics Focus)**
+## Phase 2 — HamunRHI + DirectX 12 / DirectX 11 **(Current Graphics Focus)**
 
 - [x] RHI resource model
 - [x] Command queues
@@ -394,18 +424,20 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 - [x] First triangle through backend-neutral RHI
 - [x] First textured mesh
 - [x] Indexed 3D cube with depth and constant buffers
+- [x] DirectX 11 compatibility backend
+- [x] DX11 Feature Level 11_1 / 11_0 / 10_1 / 10_0 negotiation
+- [x] Shared textured-mesh smoke test on DX12 and DX11
 
 **Milestone:** functional DirectX 12 backend through HamunRHI.
 
-Current verified DX12 test path:
+Current verified Windows RHI test path:
 
 ```text
 Win32 Window
   -> HamunRHI
   -> Vertex / Index / Constant Buffers
-  -> DXC HLSL Shader Model 6
-  -> Texture Upload
-  -> SRV + Sampler Descriptor Heaps
+  -> DX12: DXC HLSL Shader Model 6 + explicit texture upload/descriptors
+  -> DX11: HLSL SM5/SM4 compatibility path + SRV/sampler binding
   -> Textured Indexed Mesh
   -> Depth Test
   -> Present
@@ -605,7 +637,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **Pre-Alpha RHI foundation stage**. The DirectX 12 backend now renders an indexed textured 3D mesh through the public HamunRHI interfaces, with DXC Shader Model 6 support, texture upload, SRV/sampler descriptor binding, depth testing, and Windows/Linux/Android CI validation in place.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 
