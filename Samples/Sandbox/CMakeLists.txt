@@ -4,6 +4,7 @@ target_link_libraries(HamunSandbox PRIVATE
   HamunPlatform
   HamunAssets
   HamunRHI
+  HamunRenderer
   HamunWorld
   HamunGraph
 )

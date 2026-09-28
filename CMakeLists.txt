@@ -16,6 +16,7 @@ add_subdirectory(Engine/HamunCore)
 add_subdirectory(Engine/HamunPlatform)
 add_subdirectory(Engine/HamunAssets)
 add_subdirectory(Engine/HamunRHI)
+add_subdirectory(Engine/HamunRenderer)
 add_subdirectory(Engine/HamunWorld)
 add_subdirectory(Engine/HamunGraph)
 
