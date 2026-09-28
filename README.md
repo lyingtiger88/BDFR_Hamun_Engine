@@ -149,6 +149,7 @@ BDFR Hamun Engine
 |
 +-- HamunRHI
 |   +-- DirectX 12
+|   +-- DirectX 11
 |   +-- Vulkan
 |   +-- OpenGL ES
 |
@@ -259,6 +260,12 @@ Hamun now includes an initial file-based asset pipeline:
 - RMB + mouse look
 - Escape to exit
 - FPS/camera-position debug output
+- glTF scene-node/world-transform import
+- multi-instance scene rendering
+- normal-based directional lighting
+- ambient lighting
+- base-color material factors
+- multiple indexed draw calls per frame
 
 The same asset-driven scene is smoke-tested through both **DirectX 12** and
 **DirectX 11** on Windows. Linux validates the cross-platform modules and the
@@ -501,7 +508,7 @@ Win32 Window
 - [x] Material system foundation (glTF base-color texture path)
 - [ ] PBR
 - [x] Camera system (free camera)
-- [ ] Lighting
+- [x] Lighting foundation (directional + ambient)
 - [ ] Shadowing
 - [ ] GPU Scene
 - [ ] GPU culling
@@ -619,7 +626,7 @@ Win32 Window
 - [ ] Crash reporting
 - [ ] Performance capture
 - [ ] Memory diagnostics
-- [ ] Packaging
+- [x] Packaging foundation (Windows test artifact + Android APK)
 - [ ] Automated testing
 - [ ] Documentation pipeline
 
@@ -646,8 +653,22 @@ The first interactive desktop test path is now functional:
 - [x] Windows DX12/DX11 CI smoke tests
 - [x] Android APK CI build
 
-The next step is packaging this into a convenient downloadable test build and
-expanding the scene/asset system beyond the bootstrap sample.
+The portable Windows package is now automated through GitHub Actions.
+
+### Test v0.2
+
+- [x] glTF scene-node transforms
+- [x] Multiple scene instances
+- [x] Translation and scale from glTF
+- [x] Vertex-normal lighting
+- [x] Directional + ambient light foundation
+- [x] Material base-color factor
+- [x] Multi-draw scene rendering on DX12
+- [x] Multi-draw scene rendering on DX11
+- [x] Portable Windows v0.2 artifact
+
+The next renderer step is a proper material/PBR foundation, followed by a more
+structured scene/world representation and renderer-owned draw submission.
 
 ---
 

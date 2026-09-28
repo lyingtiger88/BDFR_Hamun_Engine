@@ -1,13 +1,18 @@
 param(
     [string]$BuildDir = "build",
     [string]$Configuration = "Release",
-    [string]$OutputDir = "dist/Hamun_Test_v0.1"
+    [string]$Version = "v0.2",
+    [string]$OutputDir = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $BuildRoot = Join-Path $Root $BuildDir
+
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    $OutputDir = "dist/Hamun_Test_$Version"
+}
 
 $Candidates = @(
     (Join-Path $BuildRoot "Samples/Sandbox/$Configuration"),
@@ -56,7 +61,7 @@ HamunSandbox.exe --d3d11
 "@ | Set-Content -Encoding ASCII (Join-Path $PackageDir "Run_DX11.bat")
 
 @"
-BDFR Hamun Engine - Test v0.1
+BDFR Hamun Engine - Test $Version
 ================================
 
 Recommended:
@@ -72,8 +77,14 @@ Controls:
   Shift         : Sprint
   Esc           : Exit
 
-This is an early technical test build.
-It loads a real glTF 2.0 scene and PNG texture from the Assets folder.
+Test $Version adds:
+  - multi-object glTF scene rendering
+  - glTF node/world transforms
+  - multiple scene instances
+  - vertex normals
+  - base-color material factor
+  - simple directional + ambient lighting
+  - a larger scene for free-camera traversal
 
 DX12 is the primary Windows backend.
 DX11 is the compatibility backend.
@@ -90,7 +101,7 @@ try {
 }
 
 @"
-Version: Test v0.1
+Version: Test $Version
 Commit: $Commit
 Configuration: $Configuration
 Architecture: x64

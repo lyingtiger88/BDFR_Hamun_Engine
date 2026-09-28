@@ -32,17 +32,17 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test --d3d11
 
-      - name: Package Windows Test v0.1
+      - name: Package Windows Test v0.2
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -OutputDir dist/Hamun_Test_v0.1
+        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -Version v0.2 -OutputDir dist/Hamun_Test_v0.2
 
-      - name: Upload Windows Test v0.1
+      - name: Upload Windows Test v0.2
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Hamun-Test-v0.1-Windows-x64
-          path: dist/Hamun_Test_v0.1/
+          name: Hamun-Test-v0.2-Windows-x64
+          path: dist/Hamun_Test_v0.2/
           if-no-files-found: error
           retention-days: 30
 
