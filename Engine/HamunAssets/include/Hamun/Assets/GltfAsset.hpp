@@ -25,8 +25,24 @@ struct MeshAsset {
     };
 };
 
+struct SceneInstance {
+    std::string name;
+    std::uint32_t meshIndex = 0;
+
+    // Flat glTF world matrix. Hamun currently uses row-vector HLSL math;
+    // copying the glTF column-major flat representation directly gives
+    // the transposed mathematical matrix required by that convention.
+    std::array<float, 16> worldMatrix{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+};
+
 struct GltfAsset {
     std::vector<MeshAsset> meshes;
+    std::vector<SceneInstance> instances;
 };
 
 std::optional<GltfAsset> LoadGltf(

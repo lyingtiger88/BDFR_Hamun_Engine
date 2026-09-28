@@ -8,9 +8,14 @@
 #include <iterator>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Hamun::Assets {
 namespace {
+
+using PrimitiveMap =
+    std::vector<
+        std::vector<std::uint32_t>>;
 
 const cgltf_accessor* FindAttribute(
     const cgltf_primitive& primitive,
@@ -37,7 +42,8 @@ std::filesystem::path BaseColorTexturePath(
     const std::filesystem::path& sourcePath)
 {
     if (!primitive.material ||
-        !primitive.material->has_pbr_metallic_roughness)
+        !primitive.material
+             ->has_pbr_metallic_roughness)
         return {};
 
     const cgltf_texture_view& view =
@@ -56,7 +62,8 @@ std::filesystem::path BaseColorTexturePath(
     if (uri.rfind("data:", 0) == 0)
         return {};
 
-    return sourcePath.parent_path() /
+    return
+        sourcePath.parent_path() /
         std::filesystem::path(uri);
 }
 
@@ -65,7 +72,8 @@ void ReadBaseColorFactor(
     std::array<float, 4>& factor)
 {
     if (!primitive.material ||
-        !primitive.material->has_pbr_metallic_roughness)
+        !primitive.material
+             ->has_pbr_metallic_roughness)
         return;
 
     const auto& source =
@@ -77,6 +85,127 @@ void ReadBaseColorFactor(
         std::begin(source),
         std::end(source),
         factor.begin());
+}
+
+void AppendNodeInstances(
+    const cgltf_node* node,
+    const cgltf_data* data,
+    const PrimitiveMap& primitiveMap,
+    GltfAsset& asset)
+{
+    if (!node)
+        return;
+
+    if (node->mesh &&
+        data->meshes &&
+        node->mesh >= data->meshes &&
+        node->mesh <
+            data->meshes +
+            data->meshes_count) {
+        const std::size_t sourceMeshIndex =
+            static_cast<std::size_t>(
+                node->mesh -
+                data->meshes);
+
+        cgltf_float world[16]{};
+        cgltf_node_transform_world(
+            node,
+            world);
+
+        const auto& mappedPrimitives =
+            primitiveMap[sourceMeshIndex];
+
+        for (std::uint32_t meshIndex :
+             mappedPrimitives) {
+            SceneInstance instance;
+
+            if (node->name) {
+                instance.name =
+                    node->name;
+            } else if (
+                node->mesh->name) {
+                instance.name =
+                    node->mesh->name;
+            } else {
+                instance.name =
+                    "SceneInstance";
+            }
+
+            instance.meshIndex =
+                meshIndex;
+
+            std::copy(
+                std::begin(world),
+                std::end(world),
+                instance.worldMatrix.begin());
+
+            asset.instances.push_back(
+                std::move(instance));
+        }
+    }
+
+    for (cgltf_size i = 0;
+         i < node->children_count;
+         ++i) {
+        AppendNodeInstances(
+            node->children[i],
+            data,
+            primitiveMap,
+            asset);
+    }
+}
+
+void BuildSceneInstances(
+    const cgltf_data* data,
+    const PrimitiveMap& primitiveMap,
+    GltfAsset& asset)
+{
+    if (data->scene &&
+        data->scene->nodes_count > 0) {
+        for (cgltf_size i = 0;
+             i < data->scene->nodes_count;
+             ++i) {
+            AppendNodeInstances(
+                data->scene->nodes[i],
+                data,
+                primitiveMap,
+                asset);
+        }
+    } else {
+        for (cgltf_size i = 0;
+             i < data->nodes_count;
+             ++i) {
+            const cgltf_node* node =
+                &data->nodes[i];
+
+            if (!node->parent) {
+                AppendNodeInstances(
+                    node,
+                    data,
+                    primitiveMap,
+                    asset);
+            }
+        }
+    }
+
+    // Some asset files intentionally contain meshes without a scene.
+    // Keep them renderable by creating identity instances.
+    if (asset.instances.empty()) {
+        for (std::uint32_t meshIndex = 0;
+             meshIndex <
+                static_cast<std::uint32_t>(
+                    asset.meshes.size());
+             ++meshIndex) {
+            SceneInstance instance;
+            instance.name =
+                asset.meshes[meshIndex].name;
+            instance.meshIndex =
+                meshIndex;
+
+            asset.instances.push_back(
+                std::move(instance));
+        }
+    }
 }
 
 } // namespace
@@ -99,7 +228,8 @@ std::optional<GltfAsset> LoadGltf(
 
     if (result != cgltf_result_success) {
         if (error)
-            *error = "cgltf could not parse the glTF file";
+            *error =
+                "cgltf could not parse the glTF file";
         return std::nullopt;
     }
 
@@ -111,20 +241,28 @@ std::optional<GltfAsset> LoadGltf(
 
     if (result != cgltf_result_success) {
         if (error)
-            *error = "cgltf could not load glTF buffers";
+            *error =
+                "cgltf could not load glTF buffers";
         cgltf_free(data);
         return std::nullopt;
     }
 
-    result = cgltf_validate(data);
+    result =
+        cgltf_validate(data);
+
     if (result != cgltf_result_success) {
         if (error)
-            *error = "glTF validation failed";
+            *error =
+                "glTF validation failed";
         cgltf_free(data);
         return std::nullopt;
     }
 
     GltfAsset asset;
+
+    PrimitiveMap primitiveMap(
+        static_cast<std::size_t>(
+            data->meshes_count));
 
     for (cgltf_size meshIndex = 0;
          meshIndex < data->meshes_count;
@@ -133,10 +271,12 @@ std::optional<GltfAsset> LoadGltf(
             data->meshes[meshIndex];
 
         for (cgltf_size primitiveIndex = 0;
-             primitiveIndex < sourceMesh.primitives_count;
+             primitiveIndex <
+                sourceMesh.primitives_count;
              ++primitiveIndex) {
             const cgltf_primitive& primitive =
-                sourceMesh.primitives[primitiveIndex];
+                sourceMesh
+                    .primitives[primitiveIndex];
 
             if (primitive.type !=
                 cgltf_primitive_type_triangles)
@@ -165,12 +305,14 @@ std::optional<GltfAsset> LoadGltf(
             MeshAsset mesh;
 
             if (sourceMesh.name)
-                mesh.name = sourceMesh.name;
+                mesh.name =
+                    sourceMesh.name;
 
             if (sourceMesh.primitives_count > 1) {
                 mesh.name +=
                     "_primitive_" +
-                    std::to_string(primitiveIndex);
+                    std::to_string(
+                        primitiveIndex);
             }
 
             mesh.vertices.resize(
@@ -178,7 +320,8 @@ std::optional<GltfAsset> LoadGltf(
                     positions->count));
 
             for (cgltf_size vertexIndex = 0;
-                 vertexIndex < positions->count;
+                 vertexIndex <
+                    positions->count;
                  ++vertexIndex) {
                 MeshVertex& vertex =
                     mesh.vertices[
@@ -214,10 +357,12 @@ std::optional<GltfAsset> LoadGltf(
                         primitive.indices->count));
 
                 for (cgltf_size index = 0;
-                     index < primitive.indices->count;
+                     index <
+                        primitive.indices->count;
                      ++index) {
                     mesh.indices[
-                        static_cast<std::size_t>(index)] =
+                        static_cast<std::size_t>(
+                            index)] =
                         static_cast<std::uint32_t>(
                             cgltf_accessor_read_index(
                                 primitive.indices,
@@ -228,7 +373,8 @@ std::optional<GltfAsset> LoadGltf(
                     mesh.vertices.size());
 
                 for (std::size_t index = 0;
-                     index < mesh.vertices.size();
+                     index <
+                        mesh.vertices.size();
                      ++index) {
                     mesh.indices[index] =
                         static_cast<std::uint32_t>(
@@ -245,19 +391,36 @@ std::optional<GltfAsset> LoadGltf(
                 primitive,
                 mesh.baseColorFactor);
 
+            const std::uint32_t assetMeshIndex =
+                static_cast<std::uint32_t>(
+                    asset.meshes.size());
+
             asset.meshes.push_back(
                 std::move(mesh));
+
+            primitiveMap[
+                static_cast<std::size_t>(
+                    meshIndex)]
+                .push_back(
+                    assetMeshIndex);
         }
     }
 
-    cgltf_free(data);
-
     if (asset.meshes.empty()) {
         if (error)
-            *error = "glTF contains no supported triangle meshes";
+            *error =
+                "glTF contains no supported triangle meshes";
+
+        cgltf_free(data);
         return std::nullopt;
     }
 
+    BuildSceneInstances(
+        data,
+        primitiveMap,
+        asset);
+
+    cgltf_free(data);
     return asset;
 }
 
