@@ -11,6 +11,7 @@ namespace Hamun::RHI {
 
 enum class BackendType : std::uint8_t {
     D3D12,
+    D3D11,
     Vulkan,
     OpenGLES
 };

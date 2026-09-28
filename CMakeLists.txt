@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(HAMUN_BUILD_SANDBOX "Build Hamun Engine sandbox" ON)
 option(HAMUN_BUILD_ANDROID_GAME "Build Hamun Android game bootstrap" OFF)
 option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend" ${WIN32})
+option(HAMUN_ENABLE_D3D11 "Enable Direct3D 11 compatibility backend" ${WIN32})
 option(HAMUN_ENABLE_VULKAN "Enable Vulkan backend foundation" ON)
 option(HAMUN_ENABLE_GLES "Enable OpenGL ES backend foundation" ON)
 
