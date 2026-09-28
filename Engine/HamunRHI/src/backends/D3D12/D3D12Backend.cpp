@@ -285,7 +285,7 @@ bool CompileDxc(
             ? L"vs_6_0"
             : L"ps_6_0";
 
-    const std::vector<LPCWSTR> arguments = {
+    std::vector<LPCWSTR> arguments = {
         L"-E",
         entryPoint.c_str(),
         L"-T",
