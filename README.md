@@ -383,19 +383,33 @@ The roadmap is intentionally milestone-based. Features may move between phases a
 - [x] Command queues
 - [x] Command lists
 - [x] Buffers (initial upload/vertex path)
-- [ ] Textures
-- [ ] Samplers
-- [ ] Descriptor management
+- [x] Textures (initial 2D RGBA8 path)
+- [x] Samplers
+- [x] Descriptor management (bootstrap shader-visible heaps)
 - [x] Pipeline states
-- [x] Shader loading/compilation (temporary D3DCompile bootstrap)
+- [x] Shader loading/compilation (DXC Shader Model 6 primary, temporary fallback retained)
 - [x] Swap chain
 - [x] Synchronization
 - [ ] GPU memory management
 - [x] First triangle through backend-neutral RHI
-- [ ] First textured mesh
+- [x] First textured mesh
 - [x] Indexed 3D cube with depth and constant buffers
 
 **Milestone:** functional DirectX 12 backend through HamunRHI.
+
+Current verified DX12 test path:
+
+```text
+Win32 Window
+  -> HamunRHI
+  -> Vertex / Index / Constant Buffers
+  -> DXC HLSL Shader Model 6
+  -> Texture Upload
+  -> SRV + Sampler Descriptor Heaps
+  -> Textured Indexed Mesh
+  -> Depth Test
+  -> Present
+```
 
 ---
 
@@ -591,7 +605,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **Pre-Alpha RHI foundation stage**. The DirectX 12 backend now renders through the public HamunRHI interfaces, with Windows and Linux CI validation in place.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. The DirectX 12 backend now renders an indexed textured 3D mesh through the public HamunRHI interfaces, with DXC Shader Model 6 support, texture upload, SRV/sampler descriptor binding, depth testing, and Windows/Linux/Android CI validation in place.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 
