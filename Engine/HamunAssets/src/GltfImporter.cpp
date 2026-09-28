@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <string>
+#include <utility>
 
 namespace Hamun::Assets {
 namespace {
