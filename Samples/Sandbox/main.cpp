@@ -7,11 +7,13 @@
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -101,7 +103,56 @@ void RunFoundationSelfTests()
 #if defined(_WIN32)
 
 struct alignas(256) SceneConstants {
-    Hamun::Renderer::Mat4 mvp;
+    Hamun::Renderer::Mat4 model;
+    Hamun::Renderer::Mat4 viewProjection;
+
+    float baseColorFactor[4]{
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f
+    };
+
+    float lightDirection[4]{
+        0.45f,
+        -1.0f,
+        0.25f,
+        0.0f
+    };
+
+    float lightColor[4]{
+        1.0f,
+        0.95f,
+        0.86f,
+        1.0f
+    };
+
+    float lightingParams[4]{
+        0.24f,
+        0.95f,
+        0.0f,
+        0.0f
+    };
+};
+
+struct RenderMesh {
+    std::unique_ptr<Hamun::RHI::IBuffer>
+        vertexBuffer;
+
+    std::unique_ptr<Hamun::RHI::IBuffer>
+        indexBuffer;
+
+    std::unique_ptr<Hamun::RHI::ITexture>
+        texture;
+
+    std::uint32_t indexCount = 0;
+
+    std::array<float, 4> baseColorFactor{
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f
+    };
 };
 
 std::filesystem::path DefaultScenePath()
@@ -110,6 +161,129 @@ std::filesystem::path DefaultScenePath()
         Hamun::Platform::ExecutableDirectory() /
         "Assets" /
         "TestScene.gltf";
+}
+
+std::unique_ptr<Hamun::RHI::ITexture>
+CreateMeshTexture(
+    Hamun::RHI::IBackend& backend,
+    const Hamun::Assets::MeshAsset& mesh)
+{
+    using namespace Hamun::RHI;
+
+    Hamun::Assets::ImageAsset image;
+    std::string imageError;
+
+    if (!mesh.baseColorTexture.empty()) {
+        const auto loadedImage =
+            Hamun::Assets::LoadImageRGBA8(
+                mesh.baseColorTexture,
+                &imageError);
+
+        if (!loadedImage) {
+            std::cerr
+                << "Failed to load texture: "
+                << mesh.baseColorTexture
+                << " - "
+                << imageError
+                << '\n';
+
+            return {};
+        }
+
+        image = *loadedImage;
+    } else {
+        image.width = 1;
+        image.height = 1;
+        image.rgba8 = {
+            255,
+            255,
+            255,
+            255
+        };
+    }
+
+    TextureDesc textureDesc;
+    textureDesc.width =
+        image.width;
+    textureDesc.height =
+        image.height;
+    textureDesc.format =
+        TextureFormat::RGBA8_UNorm;
+    textureDesc.initialData =
+        image.rgba8.data();
+    textureDesc.rowPitch =
+        image.width * 4u;
+
+    return
+        backend.CreateTexture(
+            textureDesc);
+}
+
+bool BuildRenderMeshes(
+    Hamun::RHI::IBackend& backend,
+    const Hamun::Assets::GltfAsset& asset,
+    std::vector<RenderMesh>& renderMeshes)
+{
+    using namespace Hamun::RHI;
+
+    renderMeshes.clear();
+    renderMeshes.reserve(
+        asset.meshes.size());
+
+    for (const Hamun::Assets::MeshAsset& mesh :
+         asset.meshes) {
+        BufferDesc vertexDesc;
+        vertexDesc.size =
+            mesh.vertices.size() *
+            sizeof(
+                Hamun::Assets::MeshVertex);
+        vertexDesc.usage =
+            BufferUsage::Vertex;
+        vertexDesc.initialData =
+            mesh.vertices.data();
+
+        BufferDesc indexDesc;
+        indexDesc.size =
+            mesh.indices.size() *
+            sizeof(std::uint32_t);
+        indexDesc.usage =
+            BufferUsage::Index;
+        indexDesc.initialData =
+            mesh.indices.data();
+
+        RenderMesh renderMesh;
+
+        renderMesh.vertexBuffer =
+            backend.CreateBuffer(
+                vertexDesc);
+
+        renderMesh.indexBuffer =
+            backend.CreateBuffer(
+                indexDesc);
+
+        renderMesh.texture =
+            CreateMeshTexture(
+                backend,
+                mesh);
+
+        renderMesh.indexCount =
+            static_cast<std::uint32_t>(
+                mesh.indices.size());
+
+        renderMesh.baseColorFactor =
+            mesh.baseColorFactor;
+
+        if (!renderMesh.vertexBuffer ||
+            !renderMesh.indexBuffer ||
+            !renderMesh.texture) {
+            return false;
+        }
+
+        renderMeshes.push_back(
+            std::move(renderMesh));
+    }
+
+    return true;
 }
 
 bool RunAssetScene(
@@ -130,9 +304,10 @@ bool RunAssetScene(
             &assetError);
 
     if (!asset ||
-        asset->meshes.empty()) {
+        asset->meshes.empty() ||
+        asset->instances.empty()) {
         std::cerr
-            << "Failed to load glTF: "
+            << "Failed to load glTF scene: "
             << scenePath
             << " - "
             << assetError
@@ -140,58 +315,24 @@ bool RunAssetScene(
         return false;
     }
 
-    const Hamun::Assets::MeshAsset& mesh =
-        asset->meshes.front();
-
-    if (mesh.vertices.empty() ||
-        mesh.indices.empty()) {
-        std::cerr
-            << "Loaded glTF mesh is empty.\n";
-        return false;
-    }
-
-    Hamun::Assets::ImageAsset image;
-
-    if (!mesh.baseColorTexture.empty()) {
-        const auto loadedImage =
-            Hamun::Assets::LoadImageRGBA8(
-                mesh.baseColorTexture,
-                &assetError);
-
-        if (!loadedImage) {
-            std::cerr
-                << "Failed to load texture: "
-                << mesh.baseColorTexture
-                << " - "
-                << assetError
-                << '\n';
-            return false;
-        }
-
-        image = *loadedImage;
-    } else {
-        image.width = 1;
-        image.height = 1;
-        image.rgba8 = {
-            255,
-            255,
-            255,
-            255
-        };
-    }
-
     std::cout
-        << "Loaded glTF mesh: "
-        << mesh.name
-        << " | vertices="
-        << mesh.vertices.size()
-        << " indices="
-        << mesh.indices.size()
-        << " texture="
-        << image.width
-        << "x"
-        << image.height
+        << "Loaded glTF scene: "
+        << scenePath.filename().string()
+        << " | meshes="
+        << asset->meshes.size()
+        << " instances="
+        << asset->instances.size()
         << '\n';
+
+    for (const auto& instance :
+         asset->instances) {
+        std::cout
+            << "  instance: "
+            << instance.name
+            << " -> mesh "
+            << instance.meshIndex
+            << '\n';
+    }
 
     auto backend =
         CreateBackend(backendType);
@@ -213,61 +354,15 @@ bool RunAssetScene(
             createInfo))
         return false;
 
-    BufferDesc vertexDesc;
-    vertexDesc.size =
-        mesh.vertices.size() *
-        sizeof(
-            Hamun::Assets::MeshVertex);
-    vertexDesc.usage =
-        BufferUsage::Vertex;
-    vertexDesc.initialData =
-        mesh.vertices.data();
+    std::vector<RenderMesh>
+        renderMeshes;
 
-    BufferDesc indexDesc;
-    indexDesc.size =
-        mesh.indices.size() *
-        sizeof(std::uint32_t);
-    indexDesc.usage =
-        BufferUsage::Index;
-    indexDesc.initialData =
-        mesh.indices.data();
-
-    BufferDesc constantDesc;
-    constantDesc.size =
-        sizeof(SceneConstants);
-    constantDesc.usage =
-        BufferUsage::Constant;
-
-    auto vertexBuffer =
-        backend->CreateBuffer(
-            vertexDesc);
-    auto indexBuffer =
-        backend->CreateBuffer(
-            indexDesc);
-    auto constantBuffer =
-        backend->CreateBuffer(
-            constantDesc);
-
-    if (!vertexBuffer ||
-        !indexBuffer ||
-        !constantBuffer)
+    if (!BuildRenderMeshes(
+            *backend,
+            *asset,
+            renderMeshes)) {
         return false;
-
-    TextureDesc textureDesc;
-    textureDesc.width =
-        image.width;
-    textureDesc.height =
-        image.height;
-    textureDesc.format =
-        TextureFormat::RGBA8_UNorm;
-    textureDesc.initialData =
-        image.rgba8.data();
-    textureDesc.rowPitch =
-        image.width * 4u;
-
-    auto texture =
-        backend->CreateTexture(
-            textureDesc);
+    }
 
     SamplerDesc samplerDesc;
     samplerDesc.filter =
@@ -281,13 +376,46 @@ bool RunAssetScene(
         backend->CreateSampler(
             samplerDesc);
 
-    if (!texture || !sampler)
+    if (!sampler)
         return false;
+
+    std::vector<
+        std::unique_ptr<IBuffer>>
+        constantBuffers;
+
+    constantBuffers.reserve(
+        asset->instances.size());
+
+    for (std::size_t i = 0;
+         i < asset->instances.size();
+         ++i) {
+        BufferDesc constantDesc;
+        constantDesc.size =
+            sizeof(SceneConstants);
+        constantDesc.usage =
+            BufferUsage::Constant;
+
+        auto constantBuffer =
+            backend->CreateBuffer(
+                constantDesc);
+
+        if (!constantBuffer)
+            return false;
+
+        constantBuffers.push_back(
+            std::move(
+                constantBuffer));
+    }
 
     const std::string shaderSource = R"(
 cbuffer SceneConstants : register(b0)
 {
-    row_major float4x4 mvp;
+    row_major float4x4 model;
+    row_major float4x4 viewProjection;
+    float4 baseColorFactor;
+    float4 lightDirection;
+    float4 lightColor;
+    float4 lightingParams;
 };
 
 Texture2D BaseColor : register(t0);
@@ -296,33 +424,83 @@ SamplerState BaseSampler : register(s0);
 struct VSInput
 {
     float3 position : POSITION;
+    float3 normal : NORMAL;
     float2 uv : TEXCOORD0;
 };
 
 struct PSInput
 {
     float4 position : SV_POSITION;
+    float3 normalWS : NORMAL0;
     float2 uv : TEXCOORD0;
 };
 
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.position =
+
+    const float4 worldPosition =
         mul(
             float4(
                 input.position,
                 1.0f),
-            mvp);
-    output.uv = input.uv;
+            model);
+
+    output.position =
+        mul(
+            worldPosition,
+            viewProjection);
+
+    output.normalWS =
+        normalize(
+            mul(
+                float4(
+                    input.normal,
+                    0.0f),
+                model).xyz);
+
+    output.uv =
+        input.uv;
+
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return BaseColor.Sample(
-        BaseSampler,
-        input.uv);
+    const float3 normal =
+        normalize(
+            input.normalWS);
+
+    const float3 towardLight =
+        normalize(
+            -lightDirection.xyz);
+
+    const float diffuse =
+        saturate(
+            dot(
+                normal,
+                towardLight));
+
+    const float illumination =
+        lightingParams.x +
+        diffuse *
+        lightingParams.y;
+
+    const float3 lighting =
+        lightColor.rgb *
+        illumination;
+
+    const float4 sampled =
+        BaseColor.Sample(
+            BaseSampler,
+            input.uv);
+
+    return
+        sampled *
+        baseColorFactor *
+        float4(
+            lighting,
+            1.0f);
 }
 )";
 
@@ -345,6 +523,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     auto vertexShader =
         backend->CreateShader(
             vsDesc);
+
     auto pixelShader =
         backend->CreateShader(
             psDesc);
@@ -381,6 +560,15 @@ float4 PSMain(PSInput input) : SV_TARGET
                     position))
         },
         {
+            VertexSemantic::Normal,
+            0,
+            VertexFormat::Float3,
+            static_cast<std::uint32_t>(
+                offsetof(
+                    Hamun::Assets::MeshVertex,
+                    normal))
+        },
+        {
             VertexSemantic::TexCoord,
             0,
             VertexFormat::Float2,
@@ -415,8 +603,9 @@ float4 PSMain(PSInput input) : SV_TARGET
 
     while (window.PumpEvents()) {
         if (window.IsKeyDown(
-                Hamun::Platform::Key::Escape))
+                Hamun::Platform::Key::Escape)) {
             break;
+        }
 
         const auto now =
             std::chrono::steady_clock::now();
@@ -440,16 +629,61 @@ float4 PSMain(PSInput input) : SV_TARGET
             static_cast<float>(
                 window.Height());
 
-        SceneConstants constants{};
-        constants.mvp =
-            camera.ViewProjection(
-                aspect);
+        const Hamun::Renderer::Mat4
+            viewProjection =
+                camera.ViewProjection(
+                    aspect);
 
-        if (!constantBuffer->Update(
-                &constants,
-                sizeof(constants),
-                0))
-            return false;
+        for (std::size_t instanceIndex = 0;
+             instanceIndex <
+                asset->instances.size();
+             ++instanceIndex) {
+            const auto& instance =
+                asset->instances[
+                    instanceIndex];
+
+            if (instance.meshIndex >=
+                renderMeshes.size()) {
+                return false;
+            }
+
+            const RenderMesh& renderMesh =
+                renderMeshes[
+                    instance.meshIndex];
+
+            SceneConstants constants;
+
+            for (std::size_t matrixIndex = 0;
+                 matrixIndex < 16;
+                 ++matrixIndex) {
+                constants.model.m[
+                    matrixIndex] =
+                    instance.worldMatrix[
+                        matrixIndex];
+            }
+
+            constants.viewProjection =
+                viewProjection;
+
+            for (std::size_t colorIndex = 0;
+                 colorIndex < 4;
+                 ++colorIndex) {
+                constants.baseColorFactor[
+                    colorIndex] =
+                    renderMesh
+                        .baseColorFactor[
+                            colorIndex];
+            }
+
+            if (!constantBuffers[
+                    instanceIndex]
+                    ->Update(
+                        &constants,
+                        sizeof(constants),
+                        0)) {
+                return false;
+            }
+        }
 
         ICommandList* commands =
             backend->BeginFrame();
@@ -459,39 +693,52 @@ float4 PSMain(PSInput input) : SV_TARGET
 
         commands->BeginRenderPass(
             {
-                0.012f,
-                0.022f,
-                0.040f,
+                0.018f,
+                0.035f,
+                0.060f,
                 1.0f
             });
 
         commands->SetPipeline(
             *pipeline);
 
-        commands->SetConstantBuffer(
-            0,
-            *constantBuffer);
-
-        commands->SetTexture(
-            0,
-            *texture);
-
         commands->SetSampler(
             0,
             *sampler);
 
-        commands->SetVertexBuffer(
-            *vertexBuffer,
-            sizeof(
-                Hamun::Assets::MeshVertex));
+        for (std::size_t instanceIndex = 0;
+             instanceIndex <
+                asset->instances.size();
+             ++instanceIndex) {
+            const auto& instance =
+                asset->instances[
+                    instanceIndex];
 
-        commands->SetIndexBuffer(
-            *indexBuffer,
-            IndexType::UInt32);
+            const RenderMesh& renderMesh =
+                renderMeshes[
+                    instance.meshIndex];
 
-        commands->DrawIndexed(
-            static_cast<std::uint32_t>(
-                mesh.indices.size()));
+            commands->SetConstantBuffer(
+                0,
+                *constantBuffers[
+                    instanceIndex]);
+
+            commands->SetTexture(
+                0,
+                *renderMesh.texture);
+
+            commands->SetVertexBuffer(
+                *renderMesh.vertexBuffer,
+                sizeof(
+                    Hamun::Assets::MeshVertex));
+
+            commands->SetIndexBuffer(
+                *renderMesh.indexBuffer,
+                IndexType::UInt32);
+
+            commands->DrawIndexed(
+                renderMesh.indexCount);
+        }
 
         commands->EndRenderPass();
 
@@ -518,6 +765,8 @@ float4 PSMain(PSInput input) : SV_TARGET
                 << camera.Position().y
                 << ", "
                 << camera.Position().z
+                << " | Draws: "
+                << asset->instances.size()
                 << '\n';
 
             fpsFrames = 0;
@@ -572,8 +821,8 @@ int main(
 
     windowDesc.title =
         useD3D11
-            ? "BDFR Hamun Engine - glTF Scene (DX11)"
-            : "BDFR Hamun Engine - glTF Scene (DX12)";
+            ? "BDFR Hamun Engine - Scene v0.2 (DX11)"
+            : "BDFR Hamun Engine - Scene v0.2 (DX12)";
 
     windowDesc.width = 1280;
     windowDesc.height = 720;
@@ -588,8 +837,9 @@ int main(
     if (!RunAssetScene(
             *window,
             smokeTest,
-            backendType))
+            backendType)) {
         return 3;
+    }
 #else
     (void)smokeTest;
 
