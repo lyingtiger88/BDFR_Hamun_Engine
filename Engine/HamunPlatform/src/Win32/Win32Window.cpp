@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Hamun::Platform {
 namespace {
@@ -460,6 +462,32 @@ std::unique_ptr<IWindow> CreateNativeWindow(
         return {};
 
     return window;
+}
+
+std::filesystem::path ExecutableDirectory()
+{
+    std::vector<wchar_t> buffer(
+        32768,
+        L'\0');
+
+    const DWORD length =
+        GetModuleFileNameW(
+            nullptr,
+            buffer.data(),
+            static_cast<DWORD>(
+                buffer.size()));
+
+    if (length == 0 ||
+        length >= buffer.size()) {
+        return
+            std::filesystem::current_path();
+    }
+
+    return std::filesystem::path(
+        std::wstring(
+            buffer.data(),
+            length))
+        .parent_path();
 }
 
 } // namespace Hamun::Platform

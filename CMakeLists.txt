@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Keep Windows test builds self-contained and avoid requiring the VC runtime DLLs.
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 option(HAMUN_BUILD_SANDBOX "Build Hamun Engine sandbox" ON)
 option(HAMUN_BUILD_ANDROID_GAME "Build Hamun Android game bootstrap" OFF)
 option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend" ${WIN32})

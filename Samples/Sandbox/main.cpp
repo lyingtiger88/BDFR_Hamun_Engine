@@ -106,16 +106,10 @@ struct alignas(256) SceneConstants {
 
 std::filesystem::path DefaultScenePath()
 {
-#if defined(HAMUN_SANDBOX_ASSET_DIR)
     return
-        std::filesystem::path(
-            HAMUN_SANDBOX_ASSET_DIR) /
+        Hamun::Platform::ExecutableDirectory() /
+        "Assets" /
         "TestScene.gltf";
-#else
-    return
-        std::filesystem::path(
-            "Assets/TestScene.gltf");
-#endif
 }
 
 bool RunAssetScene(

@@ -1,6 +1,8 @@
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Platform/Window.hpp>
 
+#include <filesystem>
+
 namespace Hamun::Platform {
 
 namespace {
@@ -36,6 +38,11 @@ std::unique_ptr<IWindow> CreateNativeWindow(
         Core::LogLevel::Warning,
         "Native window creation is not implemented for this platform yet.");
     return {};
+}
+
+std::filesystem::path ExecutableDirectory()
+{
+    return std::filesystem::current_path();
 }
 
 } // namespace Hamun::Platform

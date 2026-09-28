@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -54,5 +55,7 @@ public:
 
 std::unique_ptr<IWindow> CreateNativeWindow(
     const WindowDesc& desc);
+
+[[nodiscard]] std::filesystem::path ExecutableDirectory();
 
 } // namespace Hamun::Platform
