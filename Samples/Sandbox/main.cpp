@@ -8,6 +8,7 @@
 #include <Hamun/Renderer/FreeCamera.hpp>
 #include <Hamun/Renderer/Material.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
+#include <Hamun/Renderer/TemporalFrameState.hpp>
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
@@ -886,6 +887,15 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     Hamun::Renderer::Renderer sceneRenderer;
 
+    Hamun::Renderer::TemporalFrameState
+        temporalState;
+
+    temporalState.Configure(
+        window.Width(),
+        window.Height(),
+        window.Width(),
+        window.Height());
+
     std::vector<Hamun::Renderer::IndexedDraw>
         sceneDraws;
 
@@ -976,6 +986,24 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             viewProjection =
                 camera.ViewProjection(
                     aspect);
+
+        const auto& temporalFrame =
+            temporalState.BeginFrame(
+                viewProjection);
+
+        if (renderedFrames == 0) {
+            std::cout
+                << "Temporal foundation: jitter="
+                << temporalFrame.currentJitter.xPixels
+                << ", "
+                << temporalFrame.currentJitter.yPixels
+                << " px | history="
+                << (
+                    temporalFrame.historyValid
+                        ? "valid"
+                        : "warmup")
+                << '\n';
+        }
 
         const ISwapChain* swapChain =
             backend->SwapChain();

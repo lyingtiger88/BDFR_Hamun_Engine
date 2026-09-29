@@ -6,6 +6,7 @@ add_library(HamunRenderer STATIC
   src/MainRenderPass.cpp
   src/RenderGraph.cpp
   src/Renderer.cpp
+  src/TemporalFrameState.cpp
 )
 
 target_include_directories(HamunRenderer PUBLIC include)

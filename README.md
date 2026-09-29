@@ -527,7 +527,8 @@ Win32 Window
 - [ ] GPU culling
 - [ ] Indirect rendering
 - [ ] Post-processing
-- [ ] Motion-vector / temporal frame resources
+- [x] Temporal frame-state foundation (history + Halton jitter + render/display sizing)
+- [ ] Motion-vector render target / temporal GPU resources
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [ ] AMD FSR integration
 - [ ] Hair rendering interface
