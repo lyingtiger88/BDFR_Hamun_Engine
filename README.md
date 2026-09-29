@@ -111,6 +111,8 @@ Hamun Engine is being designed around a dedicated **Render Hardware Interface (R
 | DirectX 11 | Windows compatibility backend |
 | Vulkan | Primary cross-platform backend |
 | OpenGL ES | Compatibility / mobile / embedded backend |
+| Metal | Planned Apple backend for macOS / iOS / iPadOS / visionOS |
+| Console SDK backends | Planned RHI backends using official platform SDKs/devkits |
 
 The renderer will not be restricted to the lowest common denominator. Hardware capabilities will be exposed through feature tiers so advanced GPUs can use features unavailable on lower-end devices.
 
@@ -477,7 +479,7 @@ Win32 Window
 
 ---
 
-## Phase 3 — Vulkan + OpenGL ES
+## Phase 3 — Vulkan + OpenGL ES + Metal / Apple
 
 ### Vulkan
 
@@ -497,15 +499,26 @@ Win32 Window
 - [ ] Reduced rendering feature tier
 - [ ] Mobile/embedded validation
 
-**Milestone:** one renderer architecture operating across all three target APIs.
+### Metal / Apple
+
+- [ ] Metal backend foundation
+- [ ] macOS application target
+- [ ] iOS device target
+- [ ] iOS simulator target
+- [ ] Xcode/CMake presets
+- [ ] one-command Apple build scripts
+- [ ] Apple asset/resource packaging
+- [ ] macOS CI validation
+
+**Milestone:** one renderer architecture operating across desktop, mobile and Apple graphics backends.
 
 ---
 
 ## Phase 4 — Modern Renderer
 
-- [ ] Render Graph
+- [x] Render Graph foundation (pass registration / compile / execute)
 - [x] Mesh system (initial file-backed glTF path)
-- [x] Material system foundation (glTF base-color texture path)
+- [x] Material system foundation (runtime Material + MaterialInstance + glTF parameters)
 - [ ] PBR
 - [x] Camera system (free camera)
 - [x] Lighting foundation (directional + ambient)
@@ -514,6 +527,13 @@ Win32 Window
 - [ ] GPU culling
 - [ ] Indirect rendering
 - [ ] Post-processing
+- [ ] Motion-vector / temporal frame resources
+- [ ] Compute pipeline support
+- [ ] AMD FSR integration
+- [ ] Hair rendering interface
+- [ ] AMD TressFX integration
+- [ ] Hair simulation / collision / LOD
+- [ ] Mobile/card-hair fallback
 - [ ] Sky/atmosphere
 - [ ] Debug renderer
 - [ ] Renderer profiler
@@ -667,8 +687,26 @@ The portable Windows package is now automated through GitHub Actions.
 - [x] Multi-draw scene rendering on DX11
 - [x] Portable Windows v0.2 artifact
 
-The next renderer step is a proper material/PBR foundation, followed by a more
-structured scene/world representation and renderer-owned draw submission.
+### Test v0.3
+
+- [x] RenderGraph runtime foundation
+- [x] MainRenderPass bootstrap
+- [x] HamunRenderer -> RenderGraph execution path
+- [x] Runtime Material + MaterialInstance foundation
+- [x] Base-color / metallic / roughness material parameters
+- [x] GPU adapter and memory reporting on DX11 / DX12
+- [x] DX11 capability report
+- [x] DX12 resource-binding capability query
+- [x] DX12 mesh-shader capability query
+- [x] DX12 ray-tracing capability query
+- [x] Windows DX12/DX11 CI regression validation
+- [x] Linux foundation CI validation
+- [x] Android APK CI validation
+- [ ] Local Windows v0.3 validation by project owner
+
+Next renderer work: move actual scene draw submission into renderer-owned
+passes, then add frame resources / compute support required by PBR, FSR and
+TressFX.
 
 ---
 

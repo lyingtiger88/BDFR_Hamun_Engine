@@ -855,8 +855,8 @@ int main(
 
     windowDesc.title =
         useD3D11
-            ? "BDFR Hamun Engine - Scene v0.2 (DX11)"
-            : "BDFR Hamun Engine - Scene v0.2 (DX12)";
+            ? "BDFR Hamun Engine - Test v0.3 (DX11)"
+            : "BDFR Hamun Engine - Test v0.3 (DX12)";
 
     windowDesc.width = 1280;
     windowDesc.height = 720;

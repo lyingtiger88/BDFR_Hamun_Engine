@@ -1,7 +1,7 @@
 param(
     [string]$BuildDir = "build",
     [string]$Configuration = "Release",
-    [string]$Version = "v0.2",
+    [string]$Version = "v0.3",
     [string]$OutputDir = ""
 )
 
@@ -77,14 +77,17 @@ Controls:
   Shift         : Sprint
   Esc           : Exit
 
-Test $Version adds:
-  - multi-object glTF scene rendering
-  - glTF node/world transforms
-  - multiple scene instances
-  - vertex normals
-  - base-color material factor
-  - simple directional + ambient lighting
-  - a larger scene for free-camera traversal
+Test $Version includes the v0.2 scene features plus:
+  - RenderGraph runtime foundation
+  - MainRenderPass bootstrap managed by HamunRenderer
+  - runtime Material + MaterialInstance foundation
+  - material base-color / metallic / roughness parameter foundation
+  - GPU adapter name and memory report
+  - DX11 capability reporting
+  - DX12 hardware queries for resource binding, mesh shaders and ray tracing
+
+The rendered scene remains intentionally compatible with v0.2 so this build can
+be used as a regression test for the new renderer architecture.
 
 DX12 is the primary Windows backend.
 DX11 is the compatibility backend.
