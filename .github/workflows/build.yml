@@ -51,7 +51,7 @@ jobs:
           retention-days: 30
 
       - name: Create v0.4 ZIP
-        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4'))
+        if: "${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4')) }}"
         shell: pwsh
         run: |
           $Zip = "dist/Hamun-Test-v0.4-Windows-x64.zip"
@@ -61,7 +61,7 @@ jobs:
           Compress-Archive -Path "dist/Hamun_Test_v0.4/*" -DestinationPath $Zip -Force
 
       - name: Publish v0.4 GitHub Release
-        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4'))
+        if: "${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4')) }}"
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
