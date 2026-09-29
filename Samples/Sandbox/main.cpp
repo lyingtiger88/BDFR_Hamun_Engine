@@ -3,6 +3,7 @@
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Platform/Window.hpp>
+#include <Hamun/Renderer/FrameResources.hpp>
 #include <Hamun/Renderer/FreeCamera.hpp>
 #include <Hamun/Renderer/Material.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
@@ -411,32 +412,22 @@ bool RunAssetScene(
     if (!sampler)
         return false;
 
-    std::vector<
-        std::unique_ptr<IBuffer>>
-        constantBuffers;
+    Hamun::Renderer::FrameResources
+        frameResources;
 
-    constantBuffers.reserve(
-        asset->instances.size());
+    Hamun::Renderer::FrameResourcesDesc
+        frameResourcesDesc;
 
-    for (std::size_t i = 0;
-         i < asset->instances.size();
-         ++i) {
-        BufferDesc constantDesc;
-        constantDesc.size =
-            sizeof(SceneConstants);
-        constantDesc.usage =
-            BufferUsage::Constant;
+    frameResourcesDesc.frameCount = 2;
+    frameResourcesDesc.constantBufferCount =
+        asset->instances.size();
+    frameResourcesDesc.constantBufferSize =
+        sizeof(SceneConstants);
 
-        auto constantBuffer =
-            backend->CreateBuffer(
-                constantDesc);
-
-        if (!constantBuffer)
-            return false;
-
-        constantBuffers.push_back(
-            std::move(
-                constantBuffer));
+    if (!frameResources.Initialize(
+            *backend,
+            frameResourcesDesc)) {
+        return false;
     }
 
     const std::string shaderSource = R"(
@@ -648,8 +639,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         draw.indexBuffer =
             renderMesh.indexBuffer.get();
         draw.constantBuffer =
-            constantBuffers[
-                instanceIndex].get();
+            nullptr;
         draw.texture =
             renderMesh.texture.get();
         draw.vertexStride =
@@ -712,6 +702,15 @@ float4 PSMain(PSInput input) : SV_TARGET
                 camera.ViewProjection(
                     aspect);
 
+        const ISwapChain* swapChain =
+            backend->SwapChain();
+
+        if (!swapChain ||
+            !frameResources.SelectFrame(
+                swapChain->FrameIndex())) {
+            return false;
+        }
+
         for (std::size_t instanceIndex = 0;
              instanceIndex <
                 asset->instances.size();
@@ -755,12 +754,23 @@ float4 PSMain(PSInput input) : SV_TARGET
                             colorIndex];
             }
 
-            if (!constantBuffers[
+            if (!frameResources.UpdateConstantBuffer(
+                    instanceIndex,
+                    &constants,
+                    sizeof(constants),
+                    0)) {
+                return false;
+            }
+
+            sceneDraws[
+                instanceIndex]
+                .constantBuffer =
+                    frameResources.ConstantBuffer(
+                        instanceIndex);
+
+            if (!sceneDraws[
                     instanceIndex]
-                    ->Update(
-                        &constants,
-                        sizeof(constants),
-                        0)) {
+                    .constantBuffer) {
                 return false;
             }
         }
