@@ -87,6 +87,28 @@ void ReadBaseColorFactor(
         factor.begin());
 }
 
+void ReadMetallicRoughnessFactors(
+    const cgltf_primitive& primitive,
+    float& metallicFactor,
+    float& roughnessFactor)
+{
+    if (!primitive.material ||
+        !primitive.material
+             ->has_pbr_metallic_roughness) {
+        return;
+    }
+
+    const auto& source =
+        primitive.material
+            ->pbr_metallic_roughness;
+
+    metallicFactor =
+        source.metallic_factor;
+
+    roughnessFactor =
+        source.roughness_factor;
+}
+
 void AppendNodeInstances(
     const cgltf_node* node,
     const cgltf_data* data,
@@ -390,6 +412,11 @@ std::optional<GltfAsset> LoadGltf(
             ReadBaseColorFactor(
                 primitive,
                 mesh.baseColorFactor);
+
+            ReadMetallicRoughnessFactors(
+                primitive,
+                mesh.metallicFactor,
+                mesh.roughnessFactor);
 
             const std::uint32_t assetMeshIndex =
                 static_cast<std::uint32_t>(

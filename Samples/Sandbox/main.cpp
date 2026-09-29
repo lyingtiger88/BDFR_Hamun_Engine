@@ -142,10 +142,24 @@ struct alignas(256) SceneConstants {
     };
 
     float lightingParams[4]{
-        0.24f,
-        0.95f,
+        0.08f,
+        1.35f,
         0.0f,
         0.0f
+    };
+
+    float materialParams[4]{
+        0.0f,
+        1.0f,
+        0.0f,
+        0.0f
+    };
+
+    float cameraPosition[4]{
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f
     };
 };
 
@@ -290,8 +304,10 @@ bool BuildRenderMeshes(
                 : mesh.name + "_Material";
         materialDesc.parameters.baseColorFactor =
             mesh.baseColorFactor;
-        materialDesc.parameters.metallic = 0.0f;
-        materialDesc.parameters.roughness = 0.8f;
+        materialDesc.parameters.metallic =
+            mesh.metallicFactor;
+        materialDesc.parameters.roughness =
+            mesh.roughnessFactor;
         materialDesc.depthTest = true;
 
         renderMesh.baseMaterial =
@@ -440,6 +456,8 @@ cbuffer SceneConstants : register(b0)
     float4 lightDirection;
     float4 lightColor;
     float4 lightingParams;
+    float4 materialParams;
+    float4 cameraPosition;
 };
 
 Texture2D BaseColor : register(t0);
@@ -456,8 +474,108 @@ struct PSInput
 {
     float4 position : SV_POSITION;
     float3 normalWS : NORMAL0;
+    float3 worldPosition : TEXCOORD1;
     float2 uv : TEXCOORD0;
 };
+
+static const float PI =
+    3.14159265359f;
+
+float DistributionGGX(
+    float3 normal,
+    float3 halfway,
+    float roughness)
+{
+    const float alpha =
+        max(
+            roughness * roughness,
+            0.0025f);
+
+    const float alpha2 =
+        alpha * alpha;
+
+    const float nDotH =
+        saturate(
+            dot(
+                normal,
+                halfway));
+
+    const float nDotH2 =
+        nDotH * nDotH;
+
+    const float denominatorTerm =
+        nDotH2 *
+        (alpha2 - 1.0f) +
+        1.0f;
+
+    return
+        alpha2 /
+        max(
+            PI *
+            denominatorTerm *
+            denominatorTerm,
+            0.0001f);
+}
+
+float GeometrySchlickGGX(
+    float nDotV,
+    float roughness)
+{
+    const float r =
+        roughness + 1.0f;
+
+    const float k =
+        (r * r) /
+        8.0f;
+
+    return
+        nDotV /
+        max(
+            nDotV *
+            (1.0f - k) +
+            k,
+            0.0001f);
+}
+
+float GeometrySmith(
+    float3 normal,
+    float3 viewDirection,
+    float3 lightDirectionValue,
+    float roughness)
+{
+    const float nDotV =
+        saturate(
+            dot(
+                normal,
+                viewDirection));
+
+    const float nDotL =
+        saturate(
+            dot(
+                normal,
+                lightDirectionValue));
+
+    return
+        GeometrySchlickGGX(
+            nDotV,
+            roughness) *
+        GeometrySchlickGGX(
+            nDotL,
+            roughness);
+}
+
+float3 FresnelSchlick(
+    float cosTheta,
+    float3 f0)
+{
+    return
+        f0 +
+        (1.0f - f0) *
+        pow(
+            1.0f -
+            saturate(cosTheta),
+            5.0f);
+}
 
 PSInput VSMain(VSInput input)
 {
@@ -475,6 +593,9 @@ PSInput VSMain(VSInput input)
             worldPosition,
             viewProjection);
 
+    output.worldPosition =
+        worldPosition.xyz;
+
     output.normalWS =
         normalize(
             mul(
@@ -491,40 +612,131 @@ PSInput VSMain(VSInput input)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    const float3 normal =
-        normalize(
-            input.normalWS);
-
-    const float3 towardLight =
-        normalize(
-            -lightDirection.xyz);
-
-    const float diffuse =
-        saturate(
-            dot(
-                normal,
-                towardLight));
-
-    const float illumination =
-        lightingParams.x +
-        diffuse *
-        lightingParams.y;
-
-    const float3 lighting =
-        lightColor.rgb *
-        illumination;
-
     const float4 sampled =
         BaseColor.Sample(
             BaseSampler,
             input.uv);
 
-    return
-        sampled *
-        baseColorFactor *
-        float4(
-            lighting,
+    const float3 albedo =
+        saturate(
+            sampled.rgb *
+            baseColorFactor.rgb);
+
+    const float metallic =
+        saturate(
+            materialParams.x);
+
+    const float roughness =
+        clamp(
+            materialParams.y,
+            0.045f,
             1.0f);
+
+    const float3 normal =
+        normalize(
+            input.normalWS);
+
+    const float3 viewDirection =
+        normalize(
+            cameraPosition.xyz -
+            input.worldPosition);
+
+    const float3 towardLight =
+        normalize(
+            -lightDirection.xyz);
+
+    const float3 halfway =
+        normalize(
+            viewDirection +
+            towardLight);
+
+    const float nDotL =
+        saturate(
+            dot(
+                normal,
+                towardLight));
+
+    const float nDotV =
+        saturate(
+            dot(
+                normal,
+                viewDirection));
+
+    const float3 f0 =
+        lerp(
+            float3(
+                0.04f,
+                0.04f,
+                0.04f),
+            albedo,
+            metallic);
+
+    const float distribution =
+        DistributionGGX(
+            normal,
+            halfway,
+            roughness);
+
+    const float geometry =
+        GeometrySmith(
+            normal,
+            viewDirection,
+            towardLight,
+            roughness);
+
+    const float3 fresnel =
+        FresnelSchlick(
+            saturate(
+                dot(
+                    halfway,
+                    viewDirection)),
+            f0);
+
+    const float3 numerator =
+        distribution *
+        geometry *
+        fresnel;
+
+    const float denominator =
+        max(
+            4.0f *
+            nDotV *
+            nDotL,
+            0.001f);
+
+    const float3 specular =
+        numerator /
+        denominator;
+
+    const float3 kS =
+        fresnel;
+
+    const float3 kD =
+        (1.0f - kS) *
+        (1.0f - metallic);
+
+    const float3 radiance =
+        lightColor.rgb *
+        lightingParams.y;
+
+    const float3 direct =
+        (
+            kD *
+            albedo /
+            PI +
+            specular
+        ) *
+        radiance *
+        nDotL;
+
+    const float3 ambient =
+        albedo *
+        lightingParams.x;
+
+    return float4(
+        ambient + direct,
+        sampled.a *
+        baseColorFactor.a);
 }
 )";
 
@@ -817,6 +1029,27 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                         .baseColorFactor[
                             colorIndex];
             }
+
+            constants.materialParams[0] =
+                renderMesh
+                    .material
+                    ->Parameters()
+                    .metallic;
+
+            constants.materialParams[1] =
+                renderMesh
+                    .material
+                    ->Parameters()
+                    .roughness;
+
+            constants.cameraPosition[0] =
+                camera.Position().x;
+
+            constants.cameraPosition[1] =
+                camera.Position().y;
+
+            constants.cameraPosition[2] =
+                camera.Position().z;
 
             if (!frameResources.UpdateConstantBuffer(
                     instanceIndex,

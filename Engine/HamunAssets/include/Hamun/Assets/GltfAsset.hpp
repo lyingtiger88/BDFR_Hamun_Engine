@@ -23,6 +23,9 @@ struct MeshAsset {
     std::array<float, 4> baseColorFactor{
         1.0f, 1.0f, 1.0f, 1.0f
     };
+
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
 };
 
 struct SceneInstance {

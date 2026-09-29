@@ -519,7 +519,7 @@ Win32 Window
 - [x] Render Graph foundation (pass registration / compile / execute)
 - [x] Mesh system (initial file-backed glTF path)
 - [x] Material system foundation (runtime Material + MaterialInstance + glTF parameters)
-- [ ] PBR
+- [x] PBR foundation (glTF metallic/roughness factors + GGX/Schlick direct lighting)
 - [x] Camera system (free camera)
 - [x] Lighting foundation (directional + ambient)
 - [ ] Shadowing
@@ -528,7 +528,7 @@ Win32 Window
 - [ ] Indirect rendering
 - [ ] Post-processing
 - [ ] Motion-vector / temporal frame resources
-- [ ] Compute pipeline support
+- [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [ ] AMD FSR integration
 - [ ] Hair rendering interface
 - [ ] AMD TressFX integration
