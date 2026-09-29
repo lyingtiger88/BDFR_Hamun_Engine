@@ -186,6 +186,11 @@ public:
     [[nodiscard]] virtual std::uint64_t Size() const noexcept = 0;
     [[nodiscard]] virtual BufferUsage Usage() const noexcept = 0;
 
+    virtual void* NativeResourceHandle() noexcept
+    {
+        return nullptr;
+    }
+
     virtual bool Update(
         const void* data,
         std::uint64_t size,
@@ -200,6 +205,11 @@ public:
     [[nodiscard]] virtual std::uint32_t Height() const noexcept = 0;
     [[nodiscard]] virtual TextureFormat Format() const noexcept = 0;
     [[nodiscard]] virtual TextureUsage Usage() const noexcept = 0;
+
+    virtual void* NativeResourceHandle() noexcept
+    {
+        return nullptr;
+    }
 };
 
 class ISampler {
@@ -224,6 +234,11 @@ public:
     [[nodiscard]] virtual std::uint32_t Width() const noexcept = 0;
     [[nodiscard]] virtual std::uint32_t Height() const noexcept = 0;
     [[nodiscard]] virtual std::uint32_t FrameIndex() const noexcept = 0;
+
+    virtual void* NativeSwapChainHandle() noexcept
+    {
+        return nullptr;
+    }
 };
 
 class IFence {
@@ -235,6 +250,11 @@ public:
 class ICommandList {
 public:
     virtual ~ICommandList() = default;
+
+    virtual void* NativeCommandListHandle() noexcept
+    {
+        return nullptr;
+    }
 
     virtual void SetComputePipeline(IPipeline& pipeline)
     {
@@ -307,6 +327,16 @@ public:
     {
         static const AdapterInfo unknown{};
         return unknown;
+    }
+
+    virtual void* NativeDeviceHandle() noexcept
+    {
+        return nullptr;
+    }
+
+    virtual void* NativeCommandQueueHandle() noexcept
+    {
+        return nullptr;
     }
 
     virtual bool Initialize(const BackendCreateInfo& createInfo) = 0;

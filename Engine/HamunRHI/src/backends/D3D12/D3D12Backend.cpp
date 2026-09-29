@@ -499,6 +499,11 @@ public:
 
     ID3D12Resource* Native() const noexcept { return resource_.Get(); }
 
+    void* NativeResourceHandle() noexcept override
+    {
+        return resource_.Get();
+    }
+
 private:
     ComPtr<ID3D12Resource> resource_;
     std::uint64_t size_ = 0;
@@ -538,6 +543,11 @@ public:
     D3D12_GPU_DESCRIPTOR_HANDLE UavGpuHandle() const noexcept
     {
         return uavGpuHandle_;
+    }
+
+    void* NativeResourceHandle() noexcept override
+    {
+        return resource_.Get();
     }
 
 private:
@@ -717,6 +727,11 @@ public:
         return swapChain_ ? swapChain_->GetCurrentBackBufferIndex() : 0;
     }
 
+    void* NativeSwapChainHandle() noexcept override
+    {
+        return swapChain_;
+    }
+
 private:
     IDXGISwapChain3* swapChain_ = nullptr;
     std::uint32_t width_ = 0;
@@ -738,6 +753,11 @@ private:
 
 class D3D12CommandList final : public ICommandList {
 public:
+    void* NativeCommandListHandle() noexcept override
+    {
+        return commandList_;
+    }
+
     void Prepare(
         ID3D12GraphicsCommandList* commandList,
         ID3D12Resource* renderTarget,
@@ -1047,6 +1067,24 @@ public:
     BackendType Type() const noexcept override { return BackendType::D3D12; }
     const Capabilities& Caps() const noexcept override { return caps_; }
     const AdapterInfo& Adapter() const noexcept override { return adapterInfo_; }
+
+    void* NativeDeviceHandle() noexcept override
+    {
+#if defined(HAMUN_ENABLE_D3D12) && defined(_WIN32)
+        return device_.Get();
+#else
+        return nullptr;
+#endif
+    }
+
+    void* NativeCommandQueueHandle() noexcept override
+    {
+#if defined(HAMUN_ENABLE_D3D12) && defined(_WIN32)
+        return queue_.Get();
+#else
+        return nullptr;
+#endif
+    }
 
     bool Initialize(const BackendCreateInfo& createInfo) override;
     void Shutdown() override;

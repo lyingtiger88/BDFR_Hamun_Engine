@@ -232,6 +232,11 @@ public:
         return buffer_.Get();
     }
 
+    void* NativeResourceHandle() noexcept override
+    {
+        return buffer_.Get();
+    }
+
     ID3D11UnorderedAccessView* Uav() const noexcept
     {
         return uav_.Get();
@@ -279,6 +284,11 @@ public:
     ID3D11UnorderedAccessView* Uav() const noexcept
     {
         return uav_.Get();
+    }
+
+    void* NativeResourceHandle() noexcept override
+    {
+        return texture_.Get();
     }
 
 private:
@@ -439,6 +449,11 @@ public:
             : 0u;
     }
 
+    void* NativeSwapChainHandle() noexcept override
+    {
+        return nullptr;
+    }
+
 private:
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
@@ -465,6 +480,11 @@ private:
 
 class D3D11CommandList final : public ICommandList {
 public:
+    void* NativeCommandListHandle() noexcept override
+    {
+        return context_;
+    }
+
     void Prepare(
         ID3D11DeviceContext* context,
         ID3D11RenderTargetView* rtv,
@@ -807,6 +827,24 @@ public:
     const AdapterInfo& Adapter() const noexcept override
     {
         return adapterInfo_;
+    }
+
+    void* NativeDeviceHandle() noexcept override
+    {
+#if defined(HAMUN_ENABLE_D3D11) && defined(_WIN32)
+        return device_.Get();
+#else
+        return nullptr;
+#endif
+    }
+
+    void* NativeCommandQueueHandle() noexcept override
+    {
+#if defined(HAMUN_ENABLE_D3D11) && defined(_WIN32)
+        return context_.Get();
+#else
+        return nullptr;
+#endif
     }
 
     bool Initialize(

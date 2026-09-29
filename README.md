@@ -539,6 +539,7 @@ Win32 Window
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [x] Structured storage/UAV buffer foundation (DX12/DX11)
 - [x] Compute storage texture/UAV foundation (DX12/DX11, HDR/motion formats)
+- [x] Controlled native RHI interop bridge for external GPU SDKs
 - [ ] AMD FSR integration
 - [x] Hair runtime interface / capability planner
 - [ ] AMD TressFX SDK integration
