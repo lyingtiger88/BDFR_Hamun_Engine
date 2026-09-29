@@ -7,6 +7,7 @@ add_library(HamunRenderer STATIC
   src/RenderGraph.cpp
   src/Renderer.cpp
   src/TemporalFrameState.cpp
+  src/TemporalGpuResources.cpp
 )
 
 target_include_directories(HamunRenderer PUBLIC include)

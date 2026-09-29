@@ -10,6 +10,7 @@
 #include <Hamun/Renderer/Material.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 #include <Hamun/Renderer/TemporalFrameState.hpp>
+#include <Hamun/Renderer/TemporalGpuResources.hpp>
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
@@ -470,6 +471,41 @@ bool RunAssetScene(
         return false;
     }
 
+    Hamun::Renderer::TemporalGpuResources
+        temporalGpuResources;
+
+    Hamun::Renderer::TemporalGpuResourcesDesc
+        temporalGpuDesc;
+
+    temporalGpuDesc.renderWidth =
+        window.Width();
+
+    temporalGpuDesc.renderHeight =
+        window.Height();
+
+    temporalGpuDesc.displayWidth =
+        window.Width();
+
+    temporalGpuDesc.displayHeight =
+        window.Height();
+
+    if (!temporalGpuResources.Initialize(
+            *backend,
+            temporalGpuDesc)) {
+        return false;
+    }
+
+    std::cout
+        << "Temporal GPU resources: "
+        << temporalGpuDesc.renderWidth
+        << "x"
+        << temporalGpuDesc.renderHeight
+        << " render / "
+        << temporalGpuDesc.displayWidth
+        << "x"
+        << temporalGpuDesc.displayHeight
+        << " display\n";
+
     const std::string shaderSource = R"(
 cbuffer SceneConstants : register(b0)
 {
@@ -860,12 +896,21 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (backend->Caps().compute) {
         const std::string computeSource = R"(
 RWStructuredBuffer<uint> Output : register(u0);
+RWTexture2D<float4> ReactiveMask : register(u1);
 
 [numthreads(1, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     Output[dispatchThreadId.x] =
         0x48414D55u;
+
+    ReactiveMask[
+        dispatchThreadId.xy] =
+        float4(
+            0.0f,
+            0.0f,
+            0.0f,
+            1.0f);
 }
 )";
 
@@ -891,6 +936,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             computeShader.get();
 
         computePipelineDesc.storageBufferCount =
+            1;
+
+        computePipelineDesc.storageTextureCount =
             1;
 
         computePipeline =
@@ -924,6 +972,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         dispatch.storageBuffers.push_back(
             computeStorageBuffer.get());
 
+        dispatch.storageTextures.push_back(
+            temporalGpuResources.ReactiveMask());
+
         dispatch.groupCountX = 1;
         dispatch.groupCountY = 1;
         dispatch.groupCountZ = 1;
@@ -932,7 +983,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             dispatch);
 
         std::cout
-            << "Compute UAV smoke dispatch: enabled\n";
+            << "Compute buffer + texture UAV smoke dispatch: enabled\n";
     }
 
     Hamun::Renderer::Renderer sceneRenderer;
