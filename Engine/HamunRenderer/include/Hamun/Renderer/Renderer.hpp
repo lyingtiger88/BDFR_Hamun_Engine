@@ -1,24 +1,20 @@
 #pragma once
 
-#include <Hamun/Renderer/ComputeDispatch.hpp>
-#include <Hamun/Renderer/RenderDraw.hpp>
+#include <Hamun/Renderer/RenderFrameSubmission.hpp>
 #include <Hamun/Renderer/RenderGraph.hpp>
 
-#include <array>
 #include <cstddef>
 #include <memory>
-#include <span>
 
 namespace Hamun::RHI {
 class IBackend;
-class IPipeline;
-class ISampler;
 }
 
 namespace Hamun::Renderer {
 
 class ComputePass;
 class MainRenderPass;
+class PresentPass;
 
 class Renderer {
 public:
@@ -30,16 +26,7 @@ public:
 
     bool RenderFrame(
         RHI::IBackend& backend,
-        RHI::IPipeline& pipeline,
-        RHI::ISampler& sampler,
-        std::span<const IndexedDraw> draws,
-        std::span<const ComputeDispatch> computeDispatches = {},
-        const std::array<float, 4>& clearColor = {
-            0.018f,
-            0.035f,
-            0.060f,
-            1.0f
-        });
+        const RenderFrameSubmission& submission);
 
     [[nodiscard]] std::size_t RenderPassCount() const noexcept
     {
@@ -49,6 +36,7 @@ public:
 private:
     std::shared_ptr<ComputePass> computePass_;
     std::shared_ptr<MainRenderPass> mainPass_;
+    std::shared_ptr<PresentPass> presentPass_;
     RenderGraph renderGraph_;
 };
 

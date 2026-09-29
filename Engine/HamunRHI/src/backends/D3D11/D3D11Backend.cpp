@@ -871,11 +871,15 @@ public:
         std::uint32_t vertexCount,
         std::uint32_t firstVertex) override
     {
-        if (context_) {
-            context_->Draw(
-                vertexCount,
-                firstVertex);
-        }
+        if (!context_)
+            return;
+
+        context_->IASetPrimitiveTopology(
+            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        context_->Draw(
+            vertexCount,
+            firstVertex);
     }
 
     void DrawIndexed(

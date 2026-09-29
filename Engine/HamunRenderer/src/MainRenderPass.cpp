@@ -12,11 +12,15 @@ void MainRenderPass::Configure(
     RHI::IPipeline& pipeline,
     RHI::ISampler& sampler,
     std::span<const IndexedDraw> draws,
+    RHI::ITexture* colorTarget,
+    RHI::ITexture* depthTarget,
     const std::array<float, 4>& clearColor) noexcept
 {
     commands_ = &commands;
     pipeline_ = &pipeline;
     sampler_ = &sampler;
+    colorTarget_ = colorTarget;
+    depthTarget_ = depthTarget;
     draws_ = draws;
     clearColor_ = clearColor;
 }
@@ -26,6 +30,8 @@ void MainRenderPass::Reset() noexcept
     commands_ = nullptr;
     pipeline_ = nullptr;
     sampler_ = nullptr;
+    colorTarget_ = nullptr;
+    depthTarget_ = nullptr;
     draws_ = {};
 }
 
@@ -37,8 +43,15 @@ void MainRenderPass::Execute()
         return;
     }
 
-    commands_->BeginRenderPass(
-        clearColor_);
+    if (colorTarget_) {
+        commands_->BeginRenderPassToTexture(
+            *colorTarget_,
+            depthTarget_,
+            clearColor_);
+    } else {
+        commands_->BeginRenderPass(
+            clearColor_);
+    }
 
     commands_->SetPipeline(
         *pipeline_);

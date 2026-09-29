@@ -19,6 +19,8 @@ public:
         RHI::IPipeline& pipeline,
         RHI::ISampler& sampler,
         std::span<const IndexedDraw> draws,
+        RHI::ITexture* colorTarget,
+        RHI::ITexture* depthTarget,
         const std::array<float, 4>& clearColor) noexcept;
 
     void Reset() noexcept;
@@ -29,6 +31,8 @@ private:
     RHI::ICommandList* commands_ = nullptr;
     RHI::IPipeline* pipeline_ = nullptr;
     RHI::ISampler* sampler_ = nullptr;
+    RHI::ITexture* colorTarget_ = nullptr;
+    RHI::ITexture* depthTarget_ = nullptr;
     std::span<const IndexedDraw> draws_{};
 
     std::array<float, 4> clearColor_{

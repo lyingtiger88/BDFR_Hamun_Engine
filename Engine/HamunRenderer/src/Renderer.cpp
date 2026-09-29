@@ -1,5 +1,6 @@
 #include <Hamun/Renderer/ComputePass.hpp>
 #include <Hamun/Renderer/MainRenderPass.hpp>
+#include <Hamun/Renderer/PresentPass.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 
 #include <Hamun/RHI/RHI.hpp>
@@ -13,12 +14,17 @@ Renderer::Renderer()
         std::make_shared<ComputePass>())
     , mainPass_(
         std::make_shared<MainRenderPass>())
+    , presentPass_(
+        std::make_shared<PresentPass>())
 {
     renderGraph_.AddPass(
         computePass_);
 
     renderGraph_.AddPass(
         mainPass_);
+
+    renderGraph_.AddPass(
+        presentPass_);
 }
 
 void Renderer::BeginFrame()
@@ -39,13 +45,15 @@ void Renderer::EndFrame()
 
 bool Renderer::RenderFrame(
     RHI::IBackend& backend,
-    RHI::IPipeline& pipeline,
-    RHI::ISampler& sampler,
-    std::span<const IndexedDraw> draws,
-    std::span<const ComputeDispatch> computeDispatches,
-    const std::array<float, 4>& clearColor)
+    const RenderFrameSubmission& submission)
 {
-    for (const IndexedDraw& draw : draws) {
+    if (!submission.scenePipeline ||
+        !submission.sceneSampler) {
+        return false;
+    }
+
+    for (const IndexedDraw& draw :
+         submission.draws) {
         if (!draw.vertexBuffer ||
             !draw.indexBuffer ||
             !draw.constantBuffer ||
@@ -57,7 +65,7 @@ bool Renderer::RenderFrame(
     }
 
     for (const ComputeDispatch& dispatch :
-         computeDispatches) {
+         submission.computeDispatches) {
         if (!dispatch.pipeline ||
             dispatch.groupCountX == 0 ||
             dispatch.groupCountY == 0 ||
@@ -85,6 +93,35 @@ bool Renderer::RenderFrame(
         }
     }
 
+    if (submission.sceneColorTarget &&
+        !RHI::HasTextureUsage(
+            submission.sceneColorTarget->Usage(),
+            RHI::TextureUsage::RenderTarget)) {
+        return false;
+    }
+
+    if (submission.sceneDepthTarget &&
+        !RHI::HasTextureUsage(
+            submission.sceneDepthTarget->Usage(),
+            RHI::TextureUsage::DepthStencil)) {
+        return false;
+    }
+
+    const bool presentRequested =
+        submission.presentPipeline ||
+        submission.presentSampler ||
+        submission.presentSource;
+
+    if (presentRequested &&
+        (!submission.presentPipeline ||
+         !submission.presentSampler ||
+         !submission.presentSource ||
+         !RHI::HasTextureUsage(
+             submission.presentSource->Usage(),
+             RHI::TextureUsage::ShaderResource))) {
+        return false;
+    }
+
     RHI::ICommandList* commands =
         backend.BeginFrame();
 
@@ -93,14 +130,22 @@ bool Renderer::RenderFrame(
 
     computePass_->Configure(
         *commands,
-        computeDispatches);
+        submission.computeDispatches);
 
     mainPass_->Configure(
         *commands,
-        pipeline,
-        sampler,
-        draws,
-        clearColor);
+        *submission.scenePipeline,
+        *submission.sceneSampler,
+        submission.draws,
+        submission.sceneColorTarget,
+        submission.sceneDepthTarget,
+        submission.clearColor);
+
+    presentPass_->Configure(
+        *commands,
+        submission.presentPipeline,
+        submission.presentSampler,
+        submission.presentSource);
 
     BeginFrame();
     Render();
@@ -108,6 +153,7 @@ bool Renderer::RenderFrame(
 
     computePass_->Reset();
     mainPass_->Reset();
+    presentPass_->Reset();
 
     return backend.SubmitFrame();
 }

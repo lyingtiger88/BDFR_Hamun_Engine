@@ -860,6 +860,10 @@ float4 PSMain(PSInput input) : SV_TARGET
         1;
     pipelineDesc.samplerCount =
         1;
+    pipelineDesc.renderTargetFormat =
+        TextureFormat::RGBA16_Float;
+    pipelineDesc.depthFormat =
+        TextureFormat::R32_Float;
     pipelineDesc.depthTest =
         true;
 
@@ -898,6 +902,142 @@ float4 PSMain(PSInput input) : SV_TARGET
             pipelineDesc);
 
     if (!pipeline)
+        return false;
+
+    const std::string presentShaderSource = R"(
+Texture2D SceneColor : register(t0);
+SamplerState SceneSampler : register(s0);
+
+struct PresentVertex
+{
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+};
+
+PresentVertex PresentVS(
+    uint vertexId : SV_VertexID)
+{
+    PresentVertex output;
+
+    const float2 positions[3] = {
+        float2(-1.0f, -1.0f),
+        float2(-1.0f,  3.0f),
+        float2( 3.0f, -1.0f)
+    };
+
+    const float2 uvs[3] = {
+        float2(0.0f, 1.0f),
+        float2(0.0f, -1.0f),
+        float2(2.0f, 1.0f)
+    };
+
+    output.position =
+        float4(
+            positions[vertexId],
+            0.0f,
+            1.0f);
+
+    output.uv =
+        uvs[vertexId];
+
+    return output;
+}
+
+float4 PresentPS(
+    PresentVertex input) : SV_TARGET
+{
+    float3 hdr =
+        max(
+            SceneColor.Sample(
+                SceneSampler,
+                input.uv).rgb,
+            0.0f);
+
+    float3 mapped =
+        hdr /
+        (1.0f + hdr);
+
+    mapped =
+        pow(
+            mapped,
+            1.0f / 2.2f);
+
+    return float4(
+        mapped,
+        1.0f);
+}
+)";
+
+    ShaderDesc presentVsDesc;
+    presentVsDesc.stage =
+        ShaderStage::Vertex;
+    presentVsDesc.source =
+        presentShaderSource;
+    presentVsDesc.entryPoint =
+        "PresentVS";
+
+    ShaderDesc presentPsDesc;
+    presentPsDesc.stage =
+        ShaderStage::Pixel;
+    presentPsDesc.source =
+        presentShaderSource;
+    presentPsDesc.entryPoint =
+        "PresentPS";
+
+    auto presentVertexShader =
+        backend->CreateShader(
+            presentVsDesc);
+
+    auto presentPixelShader =
+        backend->CreateShader(
+            presentPsDesc);
+
+    if (!presentVertexShader ||
+        !presentPixelShader) {
+        return false;
+    }
+
+    GraphicsPipelineDesc
+        presentPipelineDesc;
+
+    presentPipelineDesc.vertexShader =
+        presentVertexShader.get();
+
+    presentPipelineDesc.pixelShader =
+        presentPixelShader.get();
+
+    presentPipelineDesc.textureCount =
+        1;
+
+    presentPipelineDesc.samplerCount =
+        1;
+
+    presentPipelineDesc.renderTargetFormat =
+        TextureFormat::RGBA8_UNorm;
+
+    presentPipelineDesc.depthTest =
+        false;
+
+    auto presentPipeline =
+        backend->CreateGraphicsPipeline(
+            presentPipelineDesc);
+
+    if (!presentPipeline)
+        return false;
+
+    SamplerDesc presentSamplerDesc;
+    presentSamplerDesc.filter =
+        SamplerFilter::Linear;
+    presentSamplerDesc.addressU =
+        SamplerAddressMode::Clamp;
+    presentSamplerDesc.addressV =
+        SamplerAddressMode::Clamp;
+
+    auto presentSampler =
+        backend->CreateSampler(
+            presentSamplerDesc);
+
+    if (!presentSampler)
         return false;
 
     std::unique_ptr<IShader>
@@ -1219,12 +1359,39 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             }
         }
 
+        Hamun::Renderer::RenderFrameSubmission
+            submission;
+
+        submission.scenePipeline =
+            pipeline.get();
+
+        submission.sceneSampler =
+            sampler.get();
+
+        submission.draws =
+            sceneDraws;
+
+        submission.computeDispatches =
+            computeDispatches;
+
+        submission.sceneColorTarget =
+            temporalGpuResources.SceneColor();
+
+        submission.sceneDepthTarget =
+            temporalGpuResources.SceneDepth();
+
+        submission.presentPipeline =
+            presentPipeline.get();
+
+        submission.presentSampler =
+            presentSampler.get();
+
+        submission.presentSource =
+            temporalGpuResources.SceneColor();
+
         if (!sceneRenderer.RenderFrame(
                 *backend,
-                *pipeline,
-                *sampler,
-                sceneDraws,
-                computeDispatches)) {
+                submission)) {
             return false;
         }
 

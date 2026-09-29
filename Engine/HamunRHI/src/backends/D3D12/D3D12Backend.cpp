@@ -1180,9 +1180,17 @@ public:
         std::uint32_t vertexCount,
         std::uint32_t firstVertex) override
     {
-        if (commandList_)
-            commandList_->DrawInstanced(
-                vertexCount, 1, firstVertex, 0);
+        if (!commandList_)
+            return;
+
+        commandList_->IASetPrimitiveTopology(
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        commandList_->DrawInstanced(
+            vertexCount,
+            1,
+            firstVertex,
+            0);
     }
 
     void DrawIndexed(
