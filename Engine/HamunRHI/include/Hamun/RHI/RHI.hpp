@@ -49,6 +49,7 @@ enum class VertexSemantic : std::uint8_t {
 };
 
 enum class TextureFormat : std::uint8_t {
+    R8_UNorm,
     RGBA8_UNorm,
     RG16_Float,
     RGBA16_Float,
@@ -279,6 +280,22 @@ public:
     {
         (void)slot;
         (void)texture;
+    }
+
+    virtual void PrepareTextureForExternalRead(
+        ITexture& texture)
+    {
+        (void)texture;
+    }
+
+    virtual void PrepareTextureForExternalWrite(
+        ITexture& texture)
+    {
+        (void)texture;
+    }
+
+    virtual void RestoreBackendBindings()
+    {
     }
 
     virtual void Dispatch(

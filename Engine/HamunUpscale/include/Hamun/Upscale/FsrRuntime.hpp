@@ -1,9 +1,11 @@
 #pragma once
 
+#include <Hamun/Renderer/IPostSceneProcessor.hpp>
 #include <Hamun/RHI/RHI.hpp>
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 
 namespace Hamun::Upscale {
@@ -34,6 +36,30 @@ struct FsrContextDesc {
     bool enableDebugChecking = true;
 };
 
+struct FsrDispatchDesc {
+    RHI::ITexture* color = nullptr;
+    RHI::ITexture* depth = nullptr;
+    RHI::ITexture* motionVectors = nullptr;
+    RHI::ITexture* reactiveMask = nullptr;
+    RHI::ITexture* output = nullptr;
+
+    UpscaleDimensions dimensions{};
+
+    float jitterOffsetX = 0.0f;
+    float jitterOffsetY = 0.0f;
+
+    float frameTimeDeltaMs = 16.6667f;
+    float preExposure = 1.0f;
+
+    float cameraNear = 0.1f;
+    float cameraFar = 1000.0f;
+    float cameraFovYRadians = 1.0471975512f;
+
+    bool reset = false;
+    bool enableSharpening = true;
+    float sharpness = 0.2f;
+};
+
 struct FsrRuntimeStatus {
     bool backendCompatible = false;
     bool nativeInteropAvailable = false;
@@ -42,14 +68,16 @@ struct FsrRuntimeStatus {
     bool apiFunctionsResolved = false;
     bool sdkHeadersEnabled = false;
     bool contextCreated = false;
+    bool lastDispatchSucceeded = false;
 
     std::string detail;
 };
 
-class FsrRuntime {
+class FsrRuntime final :
+    public Renderer::IPostSceneProcessor {
 public:
-    FsrRuntime() = default;
-    ~FsrRuntime();
+    FsrRuntime();
+    ~FsrRuntime() override;
 
     FsrRuntime(const FsrRuntime&) = delete;
     FsrRuntime& operator=(const FsrRuntime&) = delete;
@@ -61,6 +89,12 @@ public:
     bool CreateContext(
         RHI::IBackend& backend,
         const FsrContextDesc& desc);
+
+    void ConfigureDispatch(
+        const FsrDispatchDesc& desc) noexcept;
+
+    bool Execute(
+        RHI::ICommandList& commands) override;
 
     void DestroyContext() noexcept;
     void Shutdown() noexcept;
@@ -78,6 +112,9 @@ public:
     }
 
 private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+
     void* loaderModule_ = nullptr;
     void* upscalerModule_ = nullptr;
 
@@ -88,6 +125,9 @@ private:
     void* configureFn_ = nullptr;
 
     void* context_ = nullptr;
+
+    FsrDispatchDesc dispatchDesc_{};
+    bool dispatchConfigured_ = false;
 
     FsrRuntimeStatus status_{};
 };

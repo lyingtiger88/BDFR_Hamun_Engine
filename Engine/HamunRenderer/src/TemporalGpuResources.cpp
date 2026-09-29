@@ -109,7 +109,7 @@ bool TemporalGpuResources::Initialize(
             backend,
             desc_.renderWidth,
             desc_.renderHeight,
-            RHI::TextureFormat::RGBA8_UNorm);
+            RHI::TextureFormat::R8_UNorm);
 
     upscaledColor_ =
         CreateTemporalTexture(

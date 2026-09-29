@@ -41,6 +41,10 @@ public:
     const TemporalFrameData& BeginFrame(
         const Mat4& currentViewProjection) noexcept;
 
+    const TemporalFrameData& BeginFrame(
+        const Mat4& view,
+        const Mat4& projection) noexcept;
+
     void ResetHistory() noexcept;
 
     [[nodiscard]] const TemporalFrameData& Data() const noexcept

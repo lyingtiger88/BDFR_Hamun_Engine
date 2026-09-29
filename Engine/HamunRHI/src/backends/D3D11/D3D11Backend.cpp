@@ -91,6 +91,9 @@ DXGI_FORMAT ToDxgiFormat(Hamun::RHI::TextureFormat format)
 {
     using Hamun::RHI::TextureFormat;
     switch (format) {
+        case TextureFormat::R8_UNorm:
+            return DXGI_FORMAT_R8_UNORM;
+
         case TextureFormat::RGBA8_UNorm:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
 

@@ -60,6 +60,20 @@ void* Resolve(
 
 } // namespace
 
+struct FsrRuntime::Impl {
+#if defined(HAMUN_WITH_FSR_SDK) && defined(_WIN32)
+    ffxCreateBackendDX12Desc backendDesc{};
+    ffxCreateContextDescUpscaleVersion versionDesc{};
+    ffxCreateContextDescUpscale upscaleDesc{};
+#endif
+};
+
+FsrRuntime::FsrRuntime()
+    : impl_(
+        std::make_unique<Impl>())
+{
+}
+
 FsrRuntime::~FsrRuntime()
 {
     Shutdown();
@@ -194,76 +208,71 @@ bool FsrRuntime::CreateContext(
     if (!createContext)
         return false;
 
-    ffxCreateBackendDX12Desc
-        backendDesc{};
+    impl_->backendDesc = {};
+    impl_->versionDesc = {};
+    impl_->upscaleDesc = {};
 
-    backendDesc.header.type =
+    impl_->backendDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
 
-    backendDesc.device =
+    impl_->backendDesc.device =
         static_cast<ID3D12Device*>(
             backend.NativeDeviceHandle());
 
-    ffxCreateContextDescUpscaleVersion
-        versionDesc{};
-
-    versionDesc.header.type =
+    impl_->versionDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION;
 
-    versionDesc.version =
+    impl_->versionDesc.version =
         FFX_UPSCALER_VERSION;
 
-    versionDesc.header.pNext =
-        &backendDesc.header;
+    impl_->versionDesc.header.pNext =
+        &impl_->backendDesc.header;
 
-    ffxCreateContextDescUpscale
-        upscaleDesc{};
-
-    upscaleDesc.header.type =
+    impl_->upscaleDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
 
-    upscaleDesc.header.pNext =
-        &versionDesc.header;
+    impl_->upscaleDesc.header.pNext =
+        &impl_->versionDesc.header;
 
-    upscaleDesc.maxRenderSize.width =
+    impl_->upscaleDesc.maxRenderSize.width =
         desc.dimensions.renderWidth;
 
-    upscaleDesc.maxRenderSize.height =
+    impl_->upscaleDesc.maxRenderSize.height =
         desc.dimensions.renderHeight;
 
-    upscaleDesc.maxUpscaleSize.width =
+    impl_->upscaleDesc.maxUpscaleSize.width =
         desc.dimensions.displayWidth;
 
-    upscaleDesc.maxUpscaleSize.height =
+    impl_->upscaleDesc.maxUpscaleSize.height =
         desc.dimensions.displayHeight;
 
     if (desc.highDynamicRange) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
     }
 
     if (desc.autoExposure) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
     }
 
     if (desc.depthInverted) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
     }
 
     if (desc.depthInfinite) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_DEPTH_INFINITE;
     }
 
     if (desc.dynamicResolution) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION;
     }
 
     if (desc.enableDebugChecking) {
-        upscaleDesc.flags |=
+        impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_DEBUG_CHECKING;
     }
 
@@ -273,7 +282,7 @@ bool FsrRuntime::CreateContext(
     const ffxReturnCode_t result =
         createContext(
             &nativeContext,
-            &upscaleDesc.header,
+            &impl_->upscaleDesc.header,
             nullptr);
 
     if (result !=
@@ -306,6 +315,202 @@ bool FsrRuntime::CreateContext(
         status_.detail =
             "FSR context unavailable because the runtime DLLs were not resolved.";
     }
+
+    return false;
+#endif
+}
+
+void FsrRuntime::ConfigureDispatch(
+    const FsrDispatchDesc& desc) noexcept
+{
+    dispatchDesc_ =
+        desc;
+
+    dispatchConfigured_ =
+        desc.color &&
+        desc.depth &&
+        desc.motionVectors &&
+        desc.output;
+}
+
+bool FsrRuntime::Execute(
+    RHI::ICommandList& commands)
+{
+    status_.lastDispatchSucceeded =
+        false;
+
+#if defined(HAMUN_WITH_FSR_SDK) && defined(_WIN32)
+    if (!ReadyForDispatch() ||
+        !dispatchConfigured_ ||
+        !commands.NativeCommandListHandle()) {
+        status_.detail =
+            "FSR dispatch skipped because the context or frame resources are incomplete.";
+        return false;
+    }
+
+    commands.PrepareTextureForExternalRead(
+        *dispatchDesc_.color);
+
+    commands.PrepareTextureForExternalRead(
+        *dispatchDesc_.depth);
+
+    commands.PrepareTextureForExternalRead(
+        *dispatchDesc_.motionVectors);
+
+    if (dispatchDesc_.reactiveMask) {
+        commands.PrepareTextureForExternalRead(
+            *dispatchDesc_.reactiveMask);
+    }
+
+    commands.PrepareTextureForExternalWrite(
+        *dispatchDesc_.output);
+
+    auto dispatch =
+        reinterpret_cast<
+            PfnFfxDispatch>(
+                dispatchFn_);
+
+    if (!dispatch) {
+        status_.detail =
+            "ffxDispatch entry point is unavailable.";
+        return false;
+    }
+
+    ffxDispatchDescUpscale
+        nativeDesc{};
+
+    nativeDesc.header.type =
+        FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+
+    nativeDesc.commandList =
+        commands.NativeCommandListHandle();
+
+    nativeDesc.color =
+        ffxApiGetResourceDX12(
+            static_cast<ID3D12Resource*>(
+                dispatchDesc_.color
+                    ->NativeResourceHandle()),
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+
+    nativeDesc.depth =
+        ffxApiGetResourceDX12(
+            static_cast<ID3D12Resource*>(
+                dispatchDesc_.depth
+                    ->NativeResourceHandle()),
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+            FFX_API_RESOURCE_USAGE_DEPTHTARGET);
+
+    nativeDesc.motionVectors =
+        ffxApiGetResourceDX12(
+            static_cast<ID3D12Resource*>(
+                dispatchDesc_.motionVectors
+                    ->NativeResourceHandle()),
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+
+    nativeDesc.exposure =
+        ffxApiGetResourceDX12(
+            nullptr,
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+
+    nativeDesc.output =
+        ffxApiGetResourceDX12(
+            static_cast<ID3D12Resource*>(
+                dispatchDesc_.output
+                    ->NativeResourceHandle()),
+            FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    if (dispatchDesc_.reactiveMask) {
+        nativeDesc.reactive =
+            ffxApiGetResourceDX12(
+                static_cast<ID3D12Resource*>(
+                    dispatchDesc_.reactiveMask
+                        ->NativeResourceHandle()),
+                FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    }
+
+    nativeDesc.transparencyAndComposition =
+        ffxApiGetResourceDX12(
+            nullptr,
+            FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+
+    nativeDesc.jitterOffset.x =
+        -dispatchDesc_.jitterOffsetX;
+
+    nativeDesc.jitterOffset.y =
+        -dispatchDesc_.jitterOffsetY;
+
+    nativeDesc.motionVectorScale.x =
+        static_cast<float>(
+            dispatchDesc_.dimensions.renderWidth);
+
+    nativeDesc.motionVectorScale.y =
+        static_cast<float>(
+            dispatchDesc_.dimensions.renderHeight);
+
+    nativeDesc.reset =
+        dispatchDesc_.reset;
+
+    nativeDesc.enableSharpening =
+        dispatchDesc_.enableSharpening;
+
+    nativeDesc.sharpness =
+        dispatchDesc_.sharpness;
+
+    nativeDesc.frameTimeDelta =
+        dispatchDesc_.frameTimeDeltaMs;
+
+    nativeDesc.preExposure =
+        dispatchDesc_.preExposure;
+
+    nativeDesc.renderSize.width =
+        dispatchDesc_.dimensions.renderWidth;
+
+    nativeDesc.renderSize.height =
+        dispatchDesc_.dimensions.renderHeight;
+
+    nativeDesc.upscaleSize.width =
+        dispatchDesc_.dimensions.displayWidth;
+
+    nativeDesc.upscaleSize.height =
+        dispatchDesc_.dimensions.displayHeight;
+
+    nativeDesc.cameraFovAngleVertical =
+        dispatchDesc_.cameraFovYRadians;
+
+    nativeDesc.cameraFar =
+        dispatchDesc_.cameraFar;
+
+    nativeDesc.cameraNear =
+        dispatchDesc_.cameraNear;
+
+    nativeDesc.flags =
+        0;
+
+    const ffxReturnCode_t result =
+        dispatch(
+            reinterpret_cast<
+                ffxContext*>(
+                    &context_),
+            &nativeDesc.header);
+
+    commands.RestoreBackendBindings();
+
+    status_.lastDispatchSucceeded =
+        result ==
+        FFX_API_RETURN_OK;
+
+    status_.detail =
+        status_.lastDispatchSucceeded
+            ? "AMD FSR upscale dispatch completed."
+            : "AMD FSR upscale dispatch returned an error.";
+
+    return
+        status_.lastDispatchSucceeded;
+#else
+    (void)commands;
+
+    status_.detail =
+        "FSR live dispatch requires HAMUN_WITH_FSR_SDK on Windows DX12.";
 
     return false;
 #endif
@@ -355,6 +560,8 @@ void FsrRuntime::Shutdown() noexcept
     queryFn_ = nullptr;
     configureFn_ = nullptr;
 
+    dispatchDesc_ = {};
+    dispatchConfigured_ = false;
     status_ = {};
 }
 

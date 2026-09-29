@@ -202,6 +202,9 @@ DXGI_FORMAT ToDxgiFormat(Hamun::RHI::TextureFormat format)
 {
     using Hamun::RHI::TextureFormat;
     switch (format) {
+        case TextureFormat::R8_UNorm:
+            return DXGI_FORMAT_R8_UNORM;
+
         case TextureFormat::RGBA8_UNorm:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
 
@@ -817,6 +820,8 @@ public:
         dsv_ = dsv;
         viewport_ = viewport;
         scissor_ = scissor;
+        srvHeap_ = srvHeap;
+        samplerHeap_ = samplerHeap;
         currentPipeline_ = nullptr;
         currentComputePipeline_ = nullptr;
         activeColorTarget_ = nullptr;
@@ -914,6 +919,65 @@ public:
                     ->StorageTextureRootIndex(
                         slot),
                 handle);
+    }
+
+    void PrepareTextureForExternalRead(
+        ITexture& texture) override
+    {
+        auto* native =
+            dynamic_cast<D3D12Texture*>(
+                &texture);
+
+        if (!native ||
+            !commandList_) {
+            return;
+        }
+
+        constexpr D3D12_RESOURCE_STATES
+            readableState =
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+        native->Transition(
+            commandList_,
+            readableState);
+    }
+
+    void PrepareTextureForExternalWrite(
+        ITexture& texture) override
+    {
+        auto* native =
+            dynamic_cast<D3D12Texture*>(
+                &texture);
+
+        if (!native ||
+            !commandList_) {
+            return;
+        }
+
+        native->Transition(
+            commandList_,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    void RestoreBackendBindings() override
+    {
+        if (!commandList_ ||
+            !srvHeap_ ||
+            !samplerHeap_) {
+            return;
+        }
+
+        ID3D12DescriptorHeap*
+            heaps[] = {
+                srvHeap_,
+                samplerHeap_
+            };
+
+        commandList_->SetDescriptorHeaps(
+            static_cast<UINT>(
+                std::size(heaps)),
+            heaps);
     }
 
     void Dispatch(
@@ -1252,6 +1316,8 @@ public:
 
 private:
     ID3D12GraphicsCommandList* commandList_ = nullptr;
+    ID3D12DescriptorHeap* srvHeap_ = nullptr;
+    ID3D12DescriptorHeap* samplerHeap_ = nullptr;
     ID3D12Resource* renderTarget_ = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv_{};
     D3D12_CPU_DESCRIPTOR_HANDLE dsv_{};

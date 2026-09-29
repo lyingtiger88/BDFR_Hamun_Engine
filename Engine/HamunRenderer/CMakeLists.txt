@@ -5,6 +5,7 @@ add_library(HamunRenderer STATIC
   src/Material.cpp
   src/MainRenderPass.cpp
   src/MotionVectorPass.cpp
+  src/PostScenePass.cpp
   src/PresentPass.cpp
   src/RenderGraph.cpp
   src/Renderer.cpp

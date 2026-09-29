@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Hamun/Renderer/ComputeDispatch.hpp>
+#include <Hamun/Renderer/IPostSceneProcessor.hpp>
 #include <Hamun/Renderer/RenderDraw.hpp>
 #include <Hamun/RHI/RHI.hpp>
 
@@ -20,6 +21,8 @@ struct RenderFrameSubmission {
 
     RHI::IPipeline* motionPipeline = nullptr;
     RHI::ITexture* motionTarget = nullptr;
+
+    IPostSceneProcessor* postSceneProcessor = nullptr;
 
     RHI::IPipeline* presentPipeline = nullptr;
     RHI::ISampler* presentSampler = nullptr;

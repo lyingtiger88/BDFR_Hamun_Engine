@@ -15,6 +15,7 @@ namespace Hamun::Renderer {
 class ComputePass;
 class MainRenderPass;
 class MotionVectorPass;
+class PostScenePass;
 class PresentPass;
 
 class Renderer {
@@ -38,6 +39,7 @@ private:
     std::shared_ptr<ComputePass> computePass_;
     std::shared_ptr<MainRenderPass> mainPass_;
     std::shared_ptr<MotionVectorPass> motionVectorPass_;
+    std::shared_ptr<PostScenePass> postScenePass_;
     std::shared_ptr<PresentPass> presentPass_;
     RenderGraph renderGraph_;
 };

@@ -98,6 +98,72 @@ const TemporalFrameData& TemporalFrameState::BeginFrame(
     return data_;
 }
 
+const TemporalFrameData& TemporalFrameState::BeginFrame(
+    const Mat4& view,
+    const Mat4& projection) noexcept
+{
+    const std::uint64_t sampleIndex =
+        nextFrameNumber_ + 1;
+
+    const float jitterX =
+        Halton(
+            sampleIndex,
+            2u) -
+        0.5f;
+
+    const float jitterY =
+        Halton(
+            sampleIndex,
+            3u) -
+        0.5f;
+
+    TemporalJitter jitter;
+    jitter.xPixels =
+        jitterX;
+    jitter.yPixels =
+        jitterY;
+    jitter.xNdc =
+        (2.0f * jitterX) /
+        static_cast<float>(
+            data_.renderWidth);
+    jitter.yNdc =
+        (-2.0f * jitterY) /
+        static_cast<float>(
+            data_.renderHeight);
+
+    Mat4 jitteredProjection =
+        projection;
+
+    jitteredProjection.m[8] +=
+        jitter.xNdc;
+
+    jitteredProjection.m[9] +=
+        jitter.yNdc;
+
+    const Mat4 jitteredViewProjection =
+        Multiply(
+            view,
+            jitteredProjection);
+
+    data_.currentJitter =
+        jitter;
+
+    const TemporalJitter generatedJitter =
+        data_.currentJitter;
+
+    const auto& result =
+        BeginFrame(
+            jitteredViewProjection);
+
+    data_.currentJitter =
+        generatedJitter;
+
+    previousJitter_ =
+        generatedJitter;
+
+    return result;
+}
+
 void TemporalFrameState::ResetHistory() noexcept
 {
     nextFrameNumber_ = 0;

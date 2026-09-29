@@ -8,6 +8,7 @@ target_link_libraries(HamunUpscale
   PUBLIC
     HamunCore
     HamunRHI
+    HamunRenderer
 )
 
 target_compile_features(HamunUpscale PUBLIC cxx_std_20)

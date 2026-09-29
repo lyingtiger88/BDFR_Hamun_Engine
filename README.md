@@ -549,7 +549,8 @@ Win32 Window
 - [x] Compute storage texture/UAV foundation (DX12/DX11, HDR/motion formats)
 - [x] Controlled native RHI interop bridge for external GPU SDKs
 - [x] AMD FSR runtime loader / ABI bridge foundation
-- [ ] AMD FSR live upscaling dispatch integration
+- [x] FSR post-scene dispatch path (SDK-enabled DX12 builds)
+- [ ] Package/validate official FSR runtime in Windows test build
 - [x] Hair runtime interface / capability planner
 - [ ] AMD TressFX SDK integration
 - [ ] Hair simulation / collision / LOD

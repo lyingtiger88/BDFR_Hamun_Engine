@@ -1,6 +1,7 @@
 #include <Hamun/Renderer/ComputePass.hpp>
 #include <Hamun/Renderer/MainRenderPass.hpp>
 #include <Hamun/Renderer/MotionVectorPass.hpp>
+#include <Hamun/Renderer/PostScenePass.hpp>
 #include <Hamun/Renderer/PresentPass.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 
@@ -17,6 +18,8 @@ Renderer::Renderer()
         std::make_shared<MainRenderPass>())
     , motionVectorPass_(
         std::make_shared<MotionVectorPass>())
+    , postScenePass_(
+        std::make_shared<PostScenePass>())
     , presentPass_(
         std::make_shared<PresentPass>())
 {
@@ -28,6 +31,9 @@ Renderer::Renderer()
 
     renderGraph_.AddPass(
         motionVectorPass_);
+
+    renderGraph_.AddPass(
+        postScenePass_);
 
     renderGraph_.AddPass(
         presentPass_);
@@ -167,6 +173,10 @@ bool Renderer::RenderFrame(
         submission.motionTarget,
         submission.sceneDepthTarget);
 
+    postScenePass_->Configure(
+        *commands,
+        submission.postSceneProcessor);
+
     presentPass_->Configure(
         *commands,
         submission.presentPipeline,
@@ -177,12 +187,21 @@ bool Renderer::RenderFrame(
     Render();
     EndFrame();
 
+    const bool postSceneSucceeded =
+        postScenePass_->Succeeded();
+
     computePass_->Reset();
     mainPass_->Reset();
     motionVectorPass_->Reset();
+    postScenePass_->Reset();
     presentPass_->Reset();
 
-    return backend.SubmitFrame();
+    const bool submitted =
+        backend.SubmitFrame();
+
+    return
+        submitted &&
+        postSceneSucceeded;
 }
 
 } // namespace Hamun::Renderer

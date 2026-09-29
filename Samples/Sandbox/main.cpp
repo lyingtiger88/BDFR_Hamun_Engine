@@ -515,6 +515,38 @@ bool RunAssetScene(
         return false;
     }
 
+    bool fsrEnabled = false;
+
+    if (fsrRuntimeFound &&
+        fsrRuntime.Status().sdkHeadersEnabled &&
+        backend->Type() ==
+            BackendType::D3D12) {
+        Hamun::Upscale::FsrContextDesc
+            fsrContextDesc;
+
+        fsrContextDesc.dimensions = {
+            temporalGpuDesc.renderWidth,
+            temporalGpuDesc.renderHeight,
+            temporalGpuDesc.displayWidth,
+            temporalGpuDesc.displayHeight
+        };
+
+        fsrEnabled =
+            fsrRuntime.CreateContext(
+                *backend,
+                fsrContextDesc);
+
+        std::cout
+            << "FSR context: "
+            << (
+                fsrEnabled
+                    ? "enabled"
+                    : "failed")
+            << " | "
+            << fsrRuntime.Status().detail
+            << '\n';
+    }
+
     std::cout
         << "Temporal GPU resources: "
         << temporalGpuDesc.renderWidth
@@ -1389,13 +1421,22 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                 window.Height());
 
         const Hamun::Renderer::Mat4
-            viewProjection =
-                camera.ViewProjection(
+            view =
+                camera.ViewMatrix();
+
+        const Hamun::Renderer::Mat4
+            projection =
+                camera.ProjectionMatrix(
                     aspect);
 
         const auto& temporalFrame =
             temporalState.BeginFrame(
-                viewProjection);
+                view,
+                projection);
+
+        const Hamun::Renderer::Mat4&
+            viewProjection =
+                temporalFrame.currentViewProjection;
 
         if (renderedFrames == 0) {
             std::cout
@@ -1508,6 +1549,58 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             }
         }
 
+        if (fsrEnabled) {
+            Hamun::Upscale::FsrDispatchDesc
+                fsrDispatch;
+
+            fsrDispatch.color =
+                temporalGpuResources.SceneColor();
+
+            fsrDispatch.depth =
+                temporalGpuResources.SceneDepth();
+
+            fsrDispatch.motionVectors =
+                temporalGpuResources.MotionVectors();
+
+            fsrDispatch.reactiveMask =
+                temporalGpuResources.ReactiveMask();
+
+            fsrDispatch.output =
+                temporalGpuResources.UpscaledColor();
+
+            fsrDispatch.dimensions = {
+                temporalGpuDesc.renderWidth,
+                temporalGpuDesc.renderHeight,
+                temporalGpuDesc.displayWidth,
+                temporalGpuDesc.displayHeight
+            };
+
+            fsrDispatch.jitterOffsetX =
+                temporalFrame.currentJitter.xPixels;
+
+            fsrDispatch.jitterOffsetY =
+                temporalFrame.currentJitter.yPixels;
+
+            fsrDispatch.frameTimeDeltaMs =
+                deltaSeconds *
+                1000.0f;
+
+            fsrDispatch.cameraNear =
+                camera.nearPlane;
+
+            fsrDispatch.cameraFar =
+                camera.farPlane;
+
+            fsrDispatch.cameraFovYRadians =
+                camera.verticalFovRadians;
+
+            fsrDispatch.reset =
+                !temporalFrame.historyValid;
+
+            fsrRuntime.ConfigureDispatch(
+                fsrDispatch);
+        }
+
         Hamun::Renderer::RenderFrameSubmission
             submission;
 
@@ -1535,6 +1628,11 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         submission.motionTarget =
             temporalGpuResources.MotionVectors();
 
+        submission.postSceneProcessor =
+            fsrEnabled
+                ? &fsrRuntime
+                : nullptr;
+
         submission.presentPipeline =
             presentPipeline.get();
 
@@ -1542,7 +1640,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             presentSampler.get();
 
         submission.presentSource =
-            temporalGpuResources.SceneColor();
+            fsrEnabled
+                ? temporalGpuResources.UpscaledColor()
+                : temporalGpuResources.SceneColor();
 
         if (!sceneRenderer.RenderFrame(
                 *backend,
