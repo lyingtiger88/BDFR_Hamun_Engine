@@ -4,6 +4,7 @@
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Platform/Window.hpp>
 #include <Hamun/Renderer/FreeCamera.hpp>
+#include <Hamun/Renderer/Renderer.hpp>
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
@@ -98,6 +99,16 @@ void RunFoundationSelfTests()
             << *result
             << '\n';
     }
+
+    Hamun::Renderer::Renderer renderer;
+    renderer.BeginFrame();
+    renderer.Render();
+    renderer.EndFrame();
+
+    std::cout
+        << "RenderGraph bootstrap: passes="
+        << renderer.RenderPassCount()
+        << '\n';
 }
 
 #if defined(_WIN32)
