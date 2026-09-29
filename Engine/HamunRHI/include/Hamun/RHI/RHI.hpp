@@ -49,8 +49,37 @@ enum class VertexSemantic : std::uint8_t {
 };
 
 enum class TextureFormat : std::uint8_t {
-    RGBA8_UNorm
+    RGBA8_UNorm,
+    RG16_Float,
+    RGBA16_Float,
+    R32_Float
 };
+
+enum class TextureUsage : std::uint32_t {
+    None = 0,
+    ShaderResource = 1u << 0,
+    Storage = 1u << 1
+};
+
+constexpr TextureUsage operator|(
+    TextureUsage left,
+    TextureUsage right) noexcept
+{
+    return static_cast<TextureUsage>(
+        static_cast<std::uint32_t>(left) |
+        static_cast<std::uint32_t>(right));
+}
+
+constexpr bool HasTextureUsage(
+    TextureUsage value,
+    TextureUsage flag) noexcept
+{
+    return
+        (
+            static_cast<std::uint32_t>(value) &
+            static_cast<std::uint32_t>(flag)
+        ) != 0;
+}
 
 enum class SamplerFilter : std::uint8_t {
     Nearest,
@@ -99,6 +128,7 @@ struct TextureDesc {
     std::uint32_t width = 1;
     std::uint32_t height = 1;
     TextureFormat format = TextureFormat::RGBA8_UNorm;
+    TextureUsage usage = TextureUsage::ShaderResource;
     const void* initialData = nullptr;
     std::uint32_t rowPitch = 0;
 };
@@ -146,6 +176,7 @@ struct GraphicsPipelineDesc {
 struct ComputePipelineDesc {
     IShader* computeShader = nullptr;
     std::uint32_t storageBufferCount = 0;
+    std::uint32_t storageTextureCount = 0;
 };
 
 class IBuffer {
@@ -168,6 +199,7 @@ public:
     [[nodiscard]] virtual std::uint32_t Width() const noexcept = 0;
     [[nodiscard]] virtual std::uint32_t Height() const noexcept = 0;
     [[nodiscard]] virtual TextureFormat Format() const noexcept = 0;
+    [[nodiscard]] virtual TextureUsage Usage() const noexcept = 0;
 };
 
 class ISampler {
@@ -215,6 +247,14 @@ public:
     {
         (void)slot;
         (void)buffer;
+    }
+
+    virtual void SetComputeStorageTexture(
+        std::uint32_t slot,
+        ITexture& texture)
+    {
+        (void)slot;
+        (void)texture;
     }
 
     virtual void Dispatch(

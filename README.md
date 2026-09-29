@@ -537,6 +537,7 @@ Win32 Window
 - [ ] Motion-vector render target / temporal GPU resources
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [x] Structured storage/UAV buffer foundation (DX12/DX11)
+- [x] Compute storage texture/UAV foundation (DX12/DX11, HDR/motion formats)
 - [ ] AMD FSR integration
 - [x] Hair runtime interface / capability planner
 - [ ] AMD TressFX SDK integration

@@ -93,7 +93,17 @@ DXGI_FORMAT ToDxgiFormat(Hamun::RHI::TextureFormat format)
     switch (format) {
         case TextureFormat::RGBA8_UNorm:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        case TextureFormat::RG16_Float:
+            return DXGI_FORMAT_R16G16_FLOAT;
+
+        case TextureFormat::RGBA16_Float:
+            return DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+        case TextureFormat::R32_Float:
+            return DXGI_FORMAT_R32_FLOAT;
     }
+
     return DXGI_FORMAT_R8G8B8A8_UNORM;
 }
 
@@ -241,32 +251,44 @@ public:
     D3D11Texture(
         ComPtr<ID3D11Texture2D> texture,
         ComPtr<ID3D11ShaderResourceView> srv,
+        ComPtr<ID3D11UnorderedAccessView> uav,
         std::uint32_t width,
         std::uint32_t height,
-        TextureFormat format)
+        TextureFormat format,
+        TextureUsage usage)
         : texture_(std::move(texture))
         , srv_(std::move(srv))
+        , uav_(std::move(uav))
         , width_(width)
         , height_(height)
         , format_(format)
+        , usage_(usage)
     {
     }
 
     std::uint32_t Width() const noexcept override { return width_; }
     std::uint32_t Height() const noexcept override { return height_; }
     TextureFormat Format() const noexcept override { return format_; }
+    TextureUsage Usage() const noexcept override { return usage_; }
 
     ID3D11ShaderResourceView* Srv() const noexcept
     {
         return srv_.Get();
     }
 
+    ID3D11UnorderedAccessView* Uav() const noexcept
+    {
+        return uav_.Get();
+    }
+
 private:
     ComPtr<ID3D11Texture2D> texture_;
     ComPtr<ID3D11ShaderResourceView> srv_;
+    ComPtr<ID3D11UnorderedAccessView> uav_;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
     TextureFormat format_ = TextureFormat::RGBA8_UNorm;
+    TextureUsage usage_ = TextureUsage::ShaderResource;
 };
 
 class D3D11Sampler final : public ISampler {
@@ -485,6 +507,35 @@ public:
             !native->Uav() ||
             !context_ ||
             buffer.Usage() != BufferUsage::Storage) {
+            return;
+        }
+
+        ID3D11UnorderedAccessView*
+            views[] = {
+                native->Uav()
+            };
+
+        context_->CSSetUnorderedAccessViews(
+            slot,
+            1,
+            views,
+            nullptr);
+    }
+
+    void SetComputeStorageTexture(
+        std::uint32_t slot,
+        ITexture& texture) override
+    {
+        auto* native =
+            dynamic_cast<D3D11Texture*>(
+                &texture);
+
+        if (!native ||
+            !native->Uav() ||
+            !context_ ||
+            !HasTextureUsage(
+                texture.Usage(),
+                TextureUsage::Storage)) {
             return;
         }
 
@@ -1089,8 +1140,20 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
 #if defined(HAMUN_ENABLE_D3D11) && defined(_WIN32)
     if (!initialized_ ||
         desc.width == 0 ||
-        desc.height == 0)
+        desc.height == 0 ||
+        desc.usage == TextureUsage::None) {
         return {};
+    }
+
+    const bool shaderResource =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::ShaderResource);
+
+    const bool storage =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::Storage);
 
     D3D11_TEXTURE2D_DESC nativeDesc{};
     nativeDesc.Width = desc.width;
@@ -1102,8 +1165,17 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
     nativeDesc.SampleDesc.Count = 1;
     nativeDesc.Usage =
         D3D11_USAGE_DEFAULT;
-    nativeDesc.BindFlags =
-        D3D11_BIND_SHADER_RESOURCE;
+    nativeDesc.BindFlags = 0;
+
+    if (shaderResource) {
+        nativeDesc.BindFlags |=
+            D3D11_BIND_SHADER_RESOURCE;
+    }
+
+    if (storage) {
+        nativeDesc.BindFlags |=
+            D3D11_BIND_UNORDERED_ACCESS;
+    }
 
     D3D11_SUBRESOURCE_DATA initial{};
     const D3D11_SUBRESOURCE_DATA* initialPtr = nullptr;
@@ -1124,25 +1196,42 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
                 &nativeDesc,
                 initialPtr,
                 &texture),
-            "CreateTexture2D"))
+            "CreateTexture2D")) {
         return {};
+    }
 
     ComPtr<ID3D11ShaderResourceView> srv;
 
-    if (Failed(
+    if (shaderResource &&
+        Failed(
             device_->CreateShaderResourceView(
                 texture.Get(),
                 nullptr,
                 &srv),
-            "CreateShaderResourceView"))
+            "CreateShaderResourceView")) {
         return {};
+    }
+
+    ComPtr<ID3D11UnorderedAccessView> uav;
+
+    if (storage &&
+        Failed(
+            device_->CreateUnorderedAccessView(
+                texture.Get(),
+                nullptr,
+                &uav),
+            "CreateUnorderedAccessView(storage texture)")) {
+        return {};
+    }
 
     return std::make_unique<D3D11Texture>(
         std::move(texture),
         std::move(srv),
+        std::move(uav),
         desc.width,
         desc.height,
-        desc.format);
+        desc.format,
+        desc.usage);
 #else
     (void)desc;
     return {};

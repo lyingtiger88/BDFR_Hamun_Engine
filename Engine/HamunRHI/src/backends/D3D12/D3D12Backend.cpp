@@ -202,7 +202,17 @@ DXGI_FORMAT ToDxgiFormat(Hamun::RHI::TextureFormat format)
     switch (format) {
         case TextureFormat::RGBA8_UNorm:
             return DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        case TextureFormat::RG16_Float:
+            return DXGI_FORMAT_R16G16_FLOAT;
+
+        case TextureFormat::RGBA16_Float:
+            return DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+        case TextureFormat::R32_Float:
+            return DXGI_FORMAT_R32_FLOAT;
     }
+
     return DXGI_FORMAT_R8G8B8A8_UNORM;
 }
 
@@ -502,22 +512,32 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         TextureFormat format,
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle)
+        TextureUsage usage,
+        D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle,
+        D3D12_GPU_DESCRIPTOR_HANDLE uavGpuHandle)
         : resource_(std::move(resource))
         , width_(width)
         , height_(height)
         , format_(format)
-        , gpuHandle_(gpuHandle)
+        , usage_(usage)
+        , srvGpuHandle_(srvGpuHandle)
+        , uavGpuHandle_(uavGpuHandle)
     {
     }
 
     std::uint32_t Width() const noexcept override { return width_; }
     std::uint32_t Height() const noexcept override { return height_; }
     TextureFormat Format() const noexcept override { return format_; }
+    TextureUsage Usage() const noexcept override { return usage_; }
 
     D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle() const noexcept
     {
-        return gpuHandle_;
+        return srvGpuHandle_;
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE UavGpuHandle() const noexcept
+    {
+        return uavGpuHandle_;
     }
 
 private:
@@ -525,7 +545,9 @@ private:
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
     TextureFormat format_ = TextureFormat::RGBA8_UNorm;
-    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle_{};
+    TextureUsage usage_ = TextureUsage::ShaderResource;
+    D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle_{};
+    D3D12_GPU_DESCRIPTOR_HANDLE uavGpuHandle_{};
 };
 
 class D3D12Sampler final : public ISampler {
@@ -633,10 +655,12 @@ public:
     D3D12ComputePipeline(
         ComPtr<ID3D12RootSignature> rootSignature,
         ComPtr<ID3D12PipelineState> pipelineState,
-        std::uint32_t storageBufferCount)
+        std::uint32_t storageBufferCount,
+        std::uint32_t storageTextureCount)
         : rootSignature_(std::move(rootSignature))
         , pipelineState_(std::move(pipelineState))
         , storageBufferCount_(storageBufferCount)
+        , storageTextureCount_(storageTextureCount)
     {
     }
 
@@ -655,10 +679,22 @@ public:
         return storageBufferCount_;
     }
 
+    std::uint32_t StorageTextureCount() const noexcept
+    {
+        return storageTextureCount_;
+    }
+
+    std::uint32_t StorageTextureRootIndex(
+        std::uint32_t slot) const noexcept
+    {
+        return storageBufferCount_ + slot;
+    }
+
 private:
     ComPtr<ID3D12RootSignature> rootSignature_;
     ComPtr<ID3D12PipelineState> pipelineState_;
     std::uint32_t storageBufferCount_ = 0;
+    std::uint32_t storageTextureCount_ = 0;
 };
 
 class D3D12SwapChainView final : public ISwapChain {
@@ -774,6 +810,40 @@ public:
                 slot,
                 native->Native()
                     ->GetGPUVirtualAddress());
+    }
+
+    void SetComputeStorageTexture(
+        std::uint32_t slot,
+        ITexture& texture) override
+    {
+        auto* native =
+            dynamic_cast<D3D12Texture*>(
+                &texture);
+
+        if (!native ||
+            !commandList_ ||
+            !currentComputePipeline_ ||
+            !HasTextureUsage(
+                texture.Usage(),
+                TextureUsage::Storage) ||
+            slot >=
+                currentComputePipeline_
+                    ->StorageTextureCount()) {
+            return;
+        }
+
+        const auto handle =
+            native->UavGpuHandle();
+
+        if (handle.ptr == 0)
+            return;
+
+        commandList_
+            ->SetComputeRootDescriptorTable(
+                currentComputePipeline_
+                    ->StorageTextureRootIndex(
+                        slot),
+                handle);
     }
 
     void Dispatch(
@@ -1221,66 +1291,180 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
     if (!initialized_ ||
         desc.width == 0 ||
         desc.height == 0 ||
-        nextSrvDescriptor_ >= kSrvDescriptorCapacity)
+        desc.usage == TextureUsage::None) {
         return {};
+    }
 
-    const DXGI_FORMAT format = ToDxgiFormat(desc.format);
-    const D3D12_HEAP_PROPERTIES heapProps = DefaultHeapProperties();
-    const D3D12_RESOURCE_DESC resourceDesc =
-        TextureResourceDesc(desc.width, desc.height, format);
+    const bool shaderResource =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::ShaderResource);
+
+    const bool storage =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::Storage);
+
+    const std::uint32_t descriptorCount =
+        (shaderResource ? 1u : 0u) +
+        (storage ? 1u : 0u);
+
+    if (nextSrvDescriptor_ +
+            descriptorCount >
+        kSrvDescriptorCapacity) {
+        return {};
+    }
+
+    if (desc.initialData &&
+        storage) {
+        Core::Log(
+            Core::LogLevel::Error,
+            "D3D12 storage textures do not support direct initialData upload yet.");
+        return {};
+    }
+
+    const DXGI_FORMAT format =
+        ToDxgiFormat(
+            desc.format);
+
+    const D3D12_HEAP_PROPERTIES heapProps =
+        DefaultHeapProperties();
+
+    auto resourceDesc =
+        TextureResourceDesc(
+            desc.width,
+            desc.height,
+            format);
+
+    if (storage) {
+        resourceDesc.Flags |=
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
+    const D3D12_RESOURCE_STATES initialState =
+        desc.initialData
+            ? D3D12_RESOURCE_STATE_COPY_DEST
+            : storage
+                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
     ComPtr<ID3D12Resource> texture;
+
     if (Failed(
             device_->CreateCommittedResource(
                 &heapProps,
                 D3D12_HEAP_FLAG_NONE,
                 &resourceDesc,
-                desc.initialData
-                    ? D3D12_RESOURCE_STATE_COPY_DEST
-                    : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                initialState,
                 nullptr,
                 IID_PPV_ARGS(&texture)),
-            "CreateCommittedResource(texture)"))
+            "CreateCommittedResource(texture)")) {
         return {};
+    }
 
     if (desc.initialData &&
-        !UploadTexture(texture.Get(), desc))
+        !UploadTexture(
+            texture.Get(),
+            desc)) {
         return {};
+    }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu =
-        srvHeap_->GetCPUDescriptorHandleForHeapStart();
-    cpu.ptr +=
-        static_cast<SIZE_T>(nextSrvDescriptor_) *
-        srvDescriptorSize_;
+    D3D12_GPU_DESCRIPTOR_HANDLE
+        srvGpu{};
 
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu =
-        srvHeap_->GetGPUDescriptorHandleForHeapStart();
-    gpu.ptr +=
-        static_cast<UINT64>(nextSrvDescriptor_) *
-        srvDescriptorSize_;
+    D3D12_GPU_DESCRIPTOR_HANDLE
+        uavGpu{};
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Shader4ComponentMapping =
-        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Format = format;
-    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv.Texture2D.MostDetailedMip = 0;
-    srv.Texture2D.MipLevels = 1;
-    srv.Texture2D.ResourceMinLODClamp = 0.0f;
+    if (shaderResource) {
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            srvHeap_
+                ->GetCPUDescriptorHandleForHeapStart();
 
-    device_->CreateShaderResourceView(
-        texture.Get(),
-        &srv,
-        cpu);
+        cpu.ptr +=
+            static_cast<SIZE_T>(
+                nextSrvDescriptor_) *
+            srvDescriptorSize_;
 
-    ++nextSrvDescriptor_;
+        srvGpu =
+            srvHeap_
+                ->GetGPUDescriptorHandleForHeapStart();
+
+        srvGpu.ptr +=
+            static_cast<UINT64>(
+                nextSrvDescriptor_) *
+            srvDescriptorSize_;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC
+            srv{};
+
+        srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+        srv.Format =
+            format;
+
+        srv.ViewDimension =
+            D3D12_SRV_DIMENSION_TEXTURE2D;
+
+        srv.Texture2D.MostDetailedMip =
+            0;
+
+        srv.Texture2D.MipLevels =
+            1;
+
+        device_->CreateShaderResourceView(
+            texture.Get(),
+            &srv,
+            cpu);
+
+        ++nextSrvDescriptor_;
+    }
+
+    if (storage) {
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            srvHeap_
+                ->GetCPUDescriptorHandleForHeapStart();
+
+        cpu.ptr +=
+            static_cast<SIZE_T>(
+                nextSrvDescriptor_) *
+            srvDescriptorSize_;
+
+        uavGpu =
+            srvHeap_
+                ->GetGPUDescriptorHandleForHeapStart();
+
+        uavGpu.ptr +=
+            static_cast<UINT64>(
+                nextSrvDescriptor_) *
+            srvDescriptorSize_;
+
+        D3D12_UNORDERED_ACCESS_VIEW_DESC
+            uav{};
+
+        uav.Format =
+            format;
+
+        uav.ViewDimension =
+            D3D12_UAV_DIMENSION_TEXTURE2D;
+
+        device_->CreateUnorderedAccessView(
+            texture.Get(),
+            nullptr,
+            &uav,
+            cpu);
+
+        ++nextSrvDescriptor_;
+    }
 
     return std::make_unique<D3D12Texture>(
         std::move(texture),
         desc.width,
         desc.height,
         desc.format,
-        gpu);
+        desc.usage,
+        srvGpu,
+        uavGpu);
 #else
     (void)desc;
     return {};
@@ -1569,9 +1753,17 @@ D3D12Backend::CreateComputePipeline(
         return {};
     }
 
+    const std::uint32_t rootParameterCount =
+        desc.storageBufferCount +
+        desc.storageTextureCount;
+
     std::vector<D3D12_ROOT_PARAMETER>
         rootParameters(
-            desc.storageBufferCount);
+            rootParameterCount);
+
+    std::vector<D3D12_DESCRIPTOR_RANGE>
+        storageTextureRanges(
+            desc.storageTextureCount);
 
     for (std::uint32_t i = 0;
          i < desc.storageBufferCount;
@@ -1587,6 +1779,46 @@ D3D12Backend::CreateComputePipeline(
 
         parameter.Descriptor.RegisterSpace =
             0;
+
+        parameter.ShaderVisibility =
+            D3D12_SHADER_VISIBILITY_ALL;
+    }
+
+    for (std::uint32_t i = 0;
+         i < desc.storageTextureCount;
+         ++i) {
+        auto& range =
+            storageTextureRanges[i];
+
+        range.RangeType =
+            D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+
+        range.NumDescriptors =
+            1;
+
+        range.BaseShaderRegister =
+            desc.storageBufferCount +
+            i;
+
+        range.RegisterSpace =
+            0;
+
+        range.OffsetInDescriptorsFromTableStart =
+            0;
+
+        auto& parameter =
+            rootParameters[
+                desc.storageBufferCount +
+                i];
+
+        parameter.ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+
+        parameter.DescriptorTable.NumDescriptorRanges =
+            1;
+
+        parameter.DescriptorTable.pDescriptorRanges =
+            &range;
 
         parameter.ShaderVisibility =
             D3D12_SHADER_VISIBILITY_ALL;
@@ -1667,7 +1899,8 @@ D3D12Backend::CreateComputePipeline(
             D3D12ComputePipeline>(
                 std::move(rootSignature),
                 std::move(pipelineState),
-                desc.storageBufferCount);
+                desc.storageBufferCount,
+                desc.storageTextureCount);
 #else
     (void)desc;
     return {};

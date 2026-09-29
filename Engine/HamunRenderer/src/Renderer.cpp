@@ -73,6 +73,16 @@ bool Renderer::RenderFrame(
                 return false;
             }
         }
+
+        for (RHI::ITexture* texture :
+             dispatch.storageTextures) {
+            if (!texture ||
+                !RHI::HasTextureUsage(
+                    texture->Usage(),
+                    RHI::TextureUsage::Storage)) {
+                return false;
+            }
+        }
     }
 
     RHI::ICommandList* commands =

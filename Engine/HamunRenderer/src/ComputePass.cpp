@@ -55,6 +55,28 @@ void ComputePass::Execute()
                 *buffer);
         }
 
+        const std::uint32_t textureSlotBase =
+            static_cast<std::uint32_t>(
+                dispatch.storageBuffers.size());
+
+        for (std::uint32_t textureIndex = 0;
+             textureIndex <
+                static_cast<std::uint32_t>(
+                    dispatch.storageTextures.size());
+             ++textureIndex) {
+            RHI::ITexture* texture =
+                dispatch.storageTextures[
+                    textureIndex];
+
+            if (!texture)
+                continue;
+
+            commands_->SetComputeStorageTexture(
+                textureSlotBase +
+                    textureIndex,
+                *texture);
+        }
+
         commands_->Dispatch(
             dispatch.groupCountX,
             dispatch.groupCountY,
