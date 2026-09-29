@@ -382,6 +382,10 @@ bool RunAssetScene(
             createInfo))
         return false;
 
+    std::cout
+        << BuildCapabilityReport(
+            *backend);
+
     std::vector<RenderMesh>
         renderMeshes;
 

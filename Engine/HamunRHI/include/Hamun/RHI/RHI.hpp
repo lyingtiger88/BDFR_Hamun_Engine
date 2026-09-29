@@ -69,6 +69,14 @@ struct Capabilities {
     bool rayTracing = false;
 };
 
+struct AdapterInfo {
+    std::string name;
+    std::uint64_t dedicatedVideoMemory = 0;
+    std::uint64_t sharedSystemMemory = 0;
+    std::uint32_t vendorId = 0;
+    std::uint32_t deviceId = 0;
+};
+
 struct BackendCreateInfo {
     void* nativeWindowHandle = nullptr;
     std::uint32_t width = 1280;
@@ -222,6 +230,12 @@ public:
     [[nodiscard]] virtual BackendType Type() const noexcept = 0;
     [[nodiscard]] virtual const Capabilities& Caps() const noexcept = 0;
 
+    [[nodiscard]] virtual const AdapterInfo& Adapter() const noexcept
+    {
+        static const AdapterInfo unknown{};
+        return unknown;
+    }
+
     virtual bool Initialize(const BackendCreateInfo& createInfo) = 0;
     virtual void Shutdown() = 0;
 
@@ -244,5 +258,8 @@ public:
 };
 
 std::unique_ptr<IBackend> CreateBackend(BackendType type);
+
+std::string BuildCapabilityReport(
+    const IBackend& backend);
 
 } // namespace Hamun::RHI

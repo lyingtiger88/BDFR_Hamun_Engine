@@ -74,6 +74,47 @@ std::wstring ToWide(std::string_view text)
     return result;
 }
 
+std::string FromWide(const wchar_t* text)
+{
+    if (!text || !*text)
+        return {};
+
+    const int length =
+        WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            text,
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+
+    if (length <= 1)
+        return {};
+
+    std::string result(
+        static_cast<std::size_t>(length),
+        '\0');
+
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text,
+        -1,
+        result.data(),
+        length,
+        nullptr,
+        nullptr);
+
+    if (!result.empty() &&
+        result.back() == '\0') {
+        result.pop_back();
+    }
+
+    return result;
+}
+
 D3D12_HEAP_PROPERTIES UploadHeapProperties()
 {
     D3D12_HEAP_PROPERTIES props{};
@@ -815,6 +856,7 @@ public:
     std::string_view Name() const noexcept override { return "Direct3D 12"; }
     BackendType Type() const noexcept override { return BackendType::D3D12; }
     const Capabilities& Caps() const noexcept override { return caps_; }
+    const AdapterInfo& Adapter() const noexcept override { return adapterInfo_; }
 
     bool Initialize(const BackendCreateInfo& createInfo) override;
     void Shutdown() override;
@@ -885,7 +927,8 @@ private:
     bool initialized_ = false;
 #endif
 
-    Capabilities caps_{true, true, true, true, false, false};
+    AdapterInfo adapterInfo_{};
+    Capabilities caps_{};
 };
 
 D3D12Backend::D3D12Backend() = default;
@@ -1528,6 +1571,66 @@ bool D3D12Backend::CreateDeviceAndQueue(bool enableValidation)
                 IID_PPV_ARGS(&device_)),
             "D3D12CreateDevice"))
         return false;
+
+    DXGI_ADAPTER_DESC1 adapterDesc{};
+    if (SUCCEEDED(
+            adapter_->GetDesc1(
+                &adapterDesc))) {
+        adapterInfo_.name =
+            FromWide(
+                adapterDesc.Description);
+
+        adapterInfo_.dedicatedVideoMemory =
+            static_cast<std::uint64_t>(
+                adapterDesc.DedicatedVideoMemory);
+
+        adapterInfo_.sharedSystemMemory =
+            static_cast<std::uint64_t>(
+                adapterDesc.SharedSystemMemory);
+
+        adapterInfo_.vendorId =
+            adapterDesc.VendorId;
+
+        adapterInfo_.deviceId =
+            adapterDesc.DeviceId;
+    }
+
+    caps_.compute = true;
+    caps_.asyncCompute = true;
+    caps_.indirectDraw = true;
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+    if (SUCCEEDED(
+            device_->CheckFeatureSupport(
+                D3D12_FEATURE_D3D12_OPTIONS,
+                &options,
+                sizeof(options)))) {
+        caps_.bindless =
+            options.ResourceBindingTier >=
+            D3D12_RESOURCE_BINDING_TIER_2;
+    }
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
+    if (SUCCEEDED(
+            device_->CheckFeatureSupport(
+                D3D12_FEATURE_D3D12_OPTIONS5,
+                &options5,
+                sizeof(options5)))) {
+        caps_.rayTracing =
+            options5.RaytracingTier !=
+            D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+    }
+
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
+    if (SUCCEEDED(
+            device_->CheckFeatureSupport(
+                D3D12_FEATURE_D3D12_OPTIONS7,
+                &options7,
+                sizeof(options7)))) {
+        caps_.meshShaders =
+            options7.MeshShaderTier !=
+            D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    }
 
     D3D12_COMMAND_QUEUE_DESC queueDesc{};
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;

@@ -35,6 +35,47 @@ bool Failed(HRESULT hr, const char* operation)
     return true;
 }
 
+std::string FromWide(const wchar_t* text)
+{
+    if (!text || !*text)
+        return {};
+
+    const int length =
+        WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            text,
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+
+    if (length <= 1)
+        return {};
+
+    std::string result(
+        static_cast<std::size_t>(length),
+        '\0');
+
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text,
+        -1,
+        result.data(),
+        length,
+        nullptr,
+        nullptr);
+
+    if (!result.empty() &&
+        result.back() == '\0') {
+        result.pop_back();
+    }
+
+    return result;
+}
+
 DXGI_FORMAT ToDxgiFormat(Hamun::RHI::VertexFormat format)
 {
     using Hamun::RHI::VertexFormat;
@@ -615,6 +656,11 @@ public:
         return caps_;
     }
 
+    const AdapterInfo& Adapter() const noexcept override
+    {
+        return adapterInfo_;
+    }
+
     bool Initialize(
         const BackendCreateInfo& createInfo) override;
 
@@ -678,6 +724,7 @@ private:
     bool initialized_ = false;
 #endif
 
+    AdapterInfo adapterInfo_{};
     Capabilities caps_{};
 };
 
@@ -699,6 +746,41 @@ bool D3D11Backend::Initialize(
             createInfo.height,
             createInfo.enableValidation))
         return false;
+
+    ComPtr<IDXGIDevice> dxgiDevice;
+    if (SUCCEEDED(
+            device_.As(
+                &dxgiDevice))) {
+        ComPtr<IDXGIAdapter> adapter;
+
+        if (SUCCEEDED(
+                dxgiDevice->GetAdapter(
+                    &adapter))) {
+            DXGI_ADAPTER_DESC adapterDesc{};
+
+            if (SUCCEEDED(
+                    adapter->GetDesc(
+                        &adapterDesc))) {
+                adapterInfo_.name =
+                    FromWide(
+                        adapterDesc.Description);
+
+                adapterInfo_.dedicatedVideoMemory =
+                    static_cast<std::uint64_t>(
+                        adapterDesc.DedicatedVideoMemory);
+
+                adapterInfo_.sharedSystemMemory =
+                    static_cast<std::uint64_t>(
+                        adapterDesc.SharedSystemMemory);
+
+                adapterInfo_.vendorId =
+                    adapterDesc.VendorId;
+
+                adapterInfo_.deviceId =
+                    adapterDesc.DeviceId;
+            }
+        }
+    }
 
     if (!CreateFrameTargets(
             createInfo.width,
