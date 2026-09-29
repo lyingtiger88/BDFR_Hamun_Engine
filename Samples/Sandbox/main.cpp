@@ -12,6 +12,7 @@
 #include <Hamun/Renderer/TemporalFrameState.hpp>
 #include <Hamun/Renderer/TemporalGpuResources.hpp>
 #include <Hamun/RHI/RHI.hpp>
+#include <Hamun/Upscale/FsrRuntime.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
 
 #include <array>
@@ -426,6 +427,24 @@ bool RunAssetScene(
             hairPlan.apiSupportedByTressFX
                 ? "yes"
                 : "no")
+        << '\n';
+
+    Hamun::Upscale::FsrRuntime
+        fsrRuntime;
+
+    const bool fsrRuntimeFound =
+        fsrRuntime.Probe(
+            *backend,
+            Hamun::Platform::ExecutableDirectory());
+
+    std::cout
+        << "FSR runtime: "
+        << (
+            fsrRuntimeFound
+                ? "ready"
+                : "not bundled")
+        << " | "
+        << fsrRuntime.Status().detail
         << '\n';
 
     std::vector<RenderMesh>

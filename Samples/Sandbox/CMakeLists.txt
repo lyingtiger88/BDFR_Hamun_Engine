@@ -8,6 +8,7 @@ target_link_libraries(HamunSandbox PRIVATE
   HamunWorld
   HamunGraph
   HamunHair
+  HamunUpscale
 )
 
 add_custom_command(TARGET HamunSandbox POST_BUILD

@@ -164,6 +164,11 @@ BDFR Hamun Engine
 |   +-- Culling
 |   +-- Post Processing
 |
++-- HamunUpscale
+|   +-- AMD FSR runtime loader
+|   +-- Upscale quality/resolution policy
+|   +-- DX12 SDK bridge
+|
 +-- HamunHair
 |   +-- TressFX bridge
 |   +-- Strand simulation
@@ -540,7 +545,8 @@ Win32 Window
 - [x] Structured storage/UAV buffer foundation (DX12/DX11)
 - [x] Compute storage texture/UAV foundation (DX12/DX11, HDR/motion formats)
 - [x] Controlled native RHI interop bridge for external GPU SDKs
-- [ ] AMD FSR integration
+- [x] AMD FSR runtime loader / ABI bridge foundation
+- [ ] AMD FSR live upscaling dispatch integration
 - [x] Hair runtime interface / capability planner
 - [ ] AMD TressFX SDK integration
 - [ ] Hair simulation / collision / LOD
