@@ -1,6 +1,5 @@
 add_library(HamunGraph STATIC
   src/VM.cpp
-  src/RenderGraph.cpp
 )
 
 target_include_directories(HamunGraph PUBLIC include)

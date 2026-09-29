@@ -1,6 +1,6 @@
 #pragma once
 
-#include <HamunGraph/RenderGraph.hpp>
+#include <Hamun/Renderer/RenderGraph.hpp>
 
 #include <cstddef>
 
@@ -20,7 +20,7 @@ public:
     }
 
 private:
-    Hamun::RenderGraph renderGraph_;
+    RenderGraph renderGraph_;
 };
 
 } // namespace Hamun::Renderer
