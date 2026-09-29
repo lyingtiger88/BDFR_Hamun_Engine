@@ -283,24 +283,33 @@ public:
         ShaderStage stage,
         ComPtr<ID3DBlob> bytecode,
         ComPtr<ID3D11VertexShader> vertexShader,
-        ComPtr<ID3D11PixelShader> pixelShader)
+        ComPtr<ID3D11PixelShader> pixelShader,
+        ComPtr<ID3D11ComputeShader> computeShader)
         : stage_(stage)
         , bytecode_(std::move(bytecode))
         , vertexShader_(std::move(vertexShader))
         , pixelShader_(std::move(pixelShader))
+        , computeShader_(std::move(computeShader))
     {
     }
 
     ShaderStage Stage() const noexcept override { return stage_; }
 
     ID3DBlob* Bytecode() const noexcept { return bytecode_.Get(); }
+
     ID3D11VertexShader* VertexShader() const noexcept
     {
         return vertexShader_.Get();
     }
+
     ID3D11PixelShader* PixelShader() const noexcept
     {
         return pixelShader_.Get();
+    }
+
+    ID3D11ComputeShader* ComputeShader() const noexcept
+    {
+        return computeShader_.Get();
     }
 
 private:
@@ -308,6 +317,7 @@ private:
     ComPtr<ID3DBlob> bytecode_;
     ComPtr<ID3D11VertexShader> vertexShader_;
     ComPtr<ID3D11PixelShader> pixelShader_;
+    ComPtr<ID3D11ComputeShader> computeShader_;
 };
 
 class D3D11Pipeline final : public IPipeline {
@@ -357,6 +367,24 @@ private:
     ComPtr<ID3D11PixelShader> pixelShader_;
     ComPtr<ID3D11DepthStencilState> depthState_;
     ComPtr<ID3D11RasterizerState> rasterizerState_;
+};
+
+class D3D11ComputePipeline final : public IPipeline {
+public:
+    explicit D3D11ComputePipeline(
+        ComPtr<ID3D11ComputeShader> computeShader)
+        : computeShader_(
+            std::move(computeShader))
+    {
+    }
+
+    ID3D11ComputeShader* ComputeShader() const noexcept
+    {
+        return computeShader_.Get();
+    }
+
+private:
+    ComPtr<ID3D11ComputeShader> computeShader_;
 };
 
 class D3D11SwapChainView final : public ISwapChain {
@@ -419,6 +447,40 @@ public:
         dsv_ = dsv;
         viewport_ = viewport;
         scissor_ = scissor;
+    }
+
+    void SetComputePipeline(
+        IPipeline& pipeline) override
+    {
+        auto* native =
+            dynamic_cast<D3D11ComputePipeline*>(
+                &pipeline);
+
+        if (!native || !context_)
+            return;
+
+        context_->CSSetShader(
+            native->ComputeShader(),
+            nullptr,
+            0);
+    }
+
+    void Dispatch(
+        std::uint32_t groupCountX,
+        std::uint32_t groupCountY,
+        std::uint32_t groupCountZ) override
+    {
+        if (!context_ ||
+            groupCountX == 0 ||
+            groupCountY == 0 ||
+            groupCountZ == 0) {
+            return;
+        }
+
+        context_->Dispatch(
+            groupCountX,
+            groupCountY,
+            groupCountZ);
     }
 
     void BeginRenderPass(
@@ -680,6 +742,9 @@ public:
 
     std::unique_ptr<IPipeline> CreateGraphicsPipeline(
         const GraphicsPipelineDesc& desc) override;
+
+    std::unique_ptr<IPipeline> CreateComputePipeline(
+        const ComputePipelineDesc& desc) override;
 
     ICommandList* BeginFrame() override;
     bool SubmitFrame() override;
@@ -1044,7 +1109,9 @@ std::unique_ptr<IShader> D3D11Backend::CreateShader(
 #if defined(HAMUN_ENABLE_D3D11) && defined(_WIN32)
     if (!initialized_ ||
         desc.source.empty() ||
-        desc.entryPoint.empty())
+        desc.entryPoint.empty() ||
+        (desc.stage == ShaderStage::Compute &&
+         !caps_.compute))
         return {};
 
     UINT flags =
@@ -1087,32 +1154,52 @@ std::unique_ptr<IShader> D3D11Backend::CreateShader(
 
     ComPtr<ID3D11VertexShader> vertexShader;
     ComPtr<ID3D11PixelShader> pixelShader;
+    ComPtr<ID3D11ComputeShader> computeShader;
 
-    if (desc.stage == ShaderStage::Vertex) {
-        if (Failed(
-                device_->CreateVertexShader(
-                    bytecode->GetBufferPointer(),
-                    bytecode->GetBufferSize(),
-                    nullptr,
-                    &vertexShader),
-                "CreateVertexShader"))
-            return {};
-    } else {
-        if (Failed(
-                device_->CreatePixelShader(
-                    bytecode->GetBufferPointer(),
-                    bytecode->GetBufferSize(),
-                    nullptr,
-                    &pixelShader),
-                "CreatePixelShader"))
-            return {};
+    switch (desc.stage) {
+        case ShaderStage::Vertex:
+            if (Failed(
+                    device_->CreateVertexShader(
+                        bytecode->GetBufferPointer(),
+                        bytecode->GetBufferSize(),
+                        nullptr,
+                        &vertexShader),
+                    "CreateVertexShader")) {
+                return {};
+            }
+            break;
+
+        case ShaderStage::Pixel:
+            if (Failed(
+                    device_->CreatePixelShader(
+                        bytecode->GetBufferPointer(),
+                        bytecode->GetBufferSize(),
+                        nullptr,
+                        &pixelShader),
+                    "CreatePixelShader")) {
+                return {};
+            }
+            break;
+
+        case ShaderStage::Compute:
+            if (Failed(
+                    device_->CreateComputeShader(
+                        bytecode->GetBufferPointer(),
+                        bytecode->GetBufferSize(),
+                        nullptr,
+                        &computeShader),
+                    "CreateComputeShader")) {
+                return {};
+            }
+            break;
     }
 
     return std::make_unique<D3D11Shader>(
         desc.stage,
         std::move(bytecode),
         std::move(vertexShader),
-        std::move(pixelShader));
+        std::move(pixelShader),
+        std::move(computeShader));
 #else
     (void)desc;
     return {};
@@ -1227,6 +1314,37 @@ D3D11Backend::CreateGraphicsPipeline(
         std::move(pixelShader),
         std::move(depthState),
         std::move(rasterizerState));
+#else
+    (void)desc;
+    return {};
+#endif
+}
+
+std::unique_ptr<IPipeline>
+D3D11Backend::CreateComputePipeline(
+    const ComputePipelineDesc& desc)
+{
+#if defined(HAMUN_ENABLE_D3D11) && defined(_WIN32)
+    auto* cs =
+        dynamic_cast<D3D11Shader*>(
+            desc.computeShader);
+
+    if (!initialized_ ||
+        !caps_.compute ||
+        !cs ||
+        cs->Stage() != ShaderStage::Compute ||
+        !cs->ComputeShader()) {
+        return {};
+    }
+
+    ComPtr<ID3D11ComputeShader>
+        computeShader =
+            cs->ComputeShader();
+
+    return
+        std::make_unique<
+            D3D11ComputePipeline>(
+                std::move(computeShader));
 #else
     (void)desc;
     return {};
@@ -1481,6 +1599,9 @@ bool D3D11Backend::CreateFrameTargets(
 const char* D3D11Backend::ShaderTarget(
     ShaderStage stage) const noexcept
 {
+    if (stage == ShaderStage::Compute)
+        return "cs_5_0";
+
     const bool vertex =
         stage == ShaderStage::Vertex;
 

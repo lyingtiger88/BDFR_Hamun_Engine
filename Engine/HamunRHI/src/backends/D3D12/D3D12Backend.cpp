@@ -242,10 +242,21 @@ bool CompileLegacy(
     const Hamun::RHI::ShaderDesc& desc,
     std::vector<std::uint8_t>& bytecode)
 {
-    const char* target =
-        desc.stage == Hamun::RHI::ShaderStage::Vertex
-            ? "vs_5_1"
-            : "ps_5_1";
+    const char* target = "ps_5_1";
+
+    switch (desc.stage) {
+        case Hamun::RHI::ShaderStage::Vertex:
+            target = "vs_5_1";
+            break;
+
+        case Hamun::RHI::ShaderStage::Pixel:
+            target = "ps_5_1";
+            break;
+
+        case Hamun::RHI::ShaderStage::Compute:
+            target = "cs_5_1";
+            break;
+    }
 
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #if defined(_DEBUG)
@@ -321,10 +332,21 @@ bool CompileDxc(
     }
 
     const std::wstring entryPoint = ToWide(desc.entryPoint);
-    const wchar_t* profile =
-        desc.stage == Hamun::RHI::ShaderStage::Vertex
-            ? L"vs_6_0"
-            : L"ps_6_0";
+    const wchar_t* profile = L"ps_6_0";
+
+    switch (desc.stage) {
+        case Hamun::RHI::ShaderStage::Vertex:
+            profile = L"vs_6_0";
+            break;
+
+        case Hamun::RHI::ShaderStage::Pixel:
+            profile = L"ps_6_0";
+            break;
+
+        case Hamun::RHI::ShaderStage::Compute:
+            profile = L"cs_6_0";
+            break;
+    }
 
     std::vector<LPCWSTR> arguments = {
         L"-E",
@@ -606,6 +628,31 @@ private:
     std::uint32_t samplerCount_ = 0;
 };
 
+class D3D12ComputePipeline final : public IPipeline {
+public:
+    D3D12ComputePipeline(
+        ComPtr<ID3D12RootSignature> rootSignature,
+        ComPtr<ID3D12PipelineState> pipelineState)
+        : rootSignature_(std::move(rootSignature))
+        , pipelineState_(std::move(pipelineState))
+    {
+    }
+
+    ID3D12RootSignature* RootSignature() const noexcept
+    {
+        return rootSignature_.Get();
+    }
+
+    ID3D12PipelineState* PipelineState() const noexcept
+    {
+        return pipelineState_.Get();
+    }
+
+private:
+    ComPtr<ID3D12RootSignature> rootSignature_;
+    ComPtr<ID3D12PipelineState> pipelineState_;
+};
+
 class D3D12SwapChainView final : public ISwapChain {
 public:
     void Bind(
@@ -673,6 +720,41 @@ public:
         commandList_->SetDescriptorHeaps(
             static_cast<UINT>(std::size(heaps)),
             heaps);
+    }
+
+    void SetComputePipeline(
+        IPipeline& pipeline) override
+    {
+        auto* native =
+            dynamic_cast<D3D12ComputePipeline*>(
+                &pipeline);
+
+        if (!native || !commandList_)
+            return;
+
+        commandList_->SetComputeRootSignature(
+            native->RootSignature());
+
+        commandList_->SetPipelineState(
+            native->PipelineState());
+    }
+
+    void Dispatch(
+        std::uint32_t groupCountX,
+        std::uint32_t groupCountY,
+        std::uint32_t groupCountZ) override
+    {
+        if (!commandList_ ||
+            groupCountX == 0 ||
+            groupCountY == 0 ||
+            groupCountZ == 0) {
+            return;
+        }
+
+        commandList_->Dispatch(
+            groupCountX,
+            groupCountY,
+            groupCountZ);
     }
 
     void BeginRenderPass(
@@ -871,6 +953,9 @@ public:
         const ShaderDesc& desc) override;
     std::unique_ptr<IPipeline> CreateGraphicsPipeline(
         const GraphicsPipelineDesc& desc) override;
+
+    std::unique_ptr<IPipeline> CreateComputePipeline(
+        const ComputePipelineDesc& desc) override;
 
     ICommandList* BeginFrame() override;
     bool SubmitFrame() override;
@@ -1398,6 +1483,93 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
         desc.constantBufferCount,
         desc.textureCount,
         desc.samplerCount);
+#else
+    (void)desc;
+    return {};
+#endif
+}
+
+std::unique_ptr<IPipeline>
+D3D12Backend::CreateComputePipeline(
+    const ComputePipelineDesc& desc)
+{
+#if defined(HAMUN_ENABLE_D3D12) && defined(_WIN32)
+    auto* cs =
+        dynamic_cast<D3D12Shader*>(
+            desc.computeShader);
+
+    if (!initialized_ ||
+        !cs ||
+        cs->Stage() != ShaderStage::Compute) {
+        return {};
+    }
+
+    D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+    rootDesc.Flags =
+        D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    ComPtr<ID3DBlob> serializedRoot;
+    ComPtr<ID3DBlob> errors;
+
+    const HRESULT rootHr =
+        D3D12SerializeRootSignature(
+            &rootDesc,
+            D3D_ROOT_SIGNATURE_VERSION_1,
+            &serializedRoot,
+            &errors);
+
+    if (FAILED(rootHr)) {
+        if (errors) {
+            Core::Log(
+                Core::LogLevel::Error,
+                std::string_view(
+                    static_cast<const char*>(
+                        errors->GetBufferPointer()),
+                    errors->GetBufferSize()));
+        }
+        return {};
+    }
+
+    ComPtr<ID3D12RootSignature>
+        rootSignature;
+
+    if (Failed(
+            device_->CreateRootSignature(
+                0,
+                serializedRoot->GetBufferPointer(),
+                serializedRoot->GetBufferSize(),
+                IID_PPV_ARGS(
+                    &rootSignature)),
+            "Create compute root signature")) {
+        return {};
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC
+        pipelineDesc{};
+
+    pipelineDesc.pRootSignature =
+        rootSignature.Get();
+
+    pipelineDesc.CS =
+        cs->NativeBytecode();
+
+    ComPtr<ID3D12PipelineState>
+        pipelineState;
+
+    if (Failed(
+            device_->CreateComputePipelineState(
+                &pipelineDesc,
+                IID_PPV_ARGS(
+                    &pipelineState)),
+            "CreateComputePipelineState")) {
+        return {};
+    }
+
+    return
+        std::make_unique<
+            D3D12ComputePipeline>(
+                std::move(rootSignature),
+                std::move(pipelineState));
 #else
     (void)desc;
     return {};

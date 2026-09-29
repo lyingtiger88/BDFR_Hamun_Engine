@@ -30,7 +30,8 @@ enum class IndexType : std::uint8_t {
 
 enum class ShaderStage : std::uint8_t {
     Vertex,
-    Pixel
+    Pixel,
+    Compute
 };
 
 enum class VertexFormat : std::uint8_t {
@@ -138,6 +139,10 @@ struct GraphicsPipelineDesc {
     bool depthTest = true;
 };
 
+struct ComputePipelineDesc {
+    IShader* computeShader = nullptr;
+};
+
 class IBuffer {
 public:
     virtual ~IBuffer() = default;
@@ -194,6 +199,21 @@ class ICommandList {
 public:
     virtual ~ICommandList() = default;
 
+    virtual void SetComputePipeline(IPipeline& pipeline)
+    {
+        (void)pipeline;
+    }
+
+    virtual void Dispatch(
+        std::uint32_t groupCountX,
+        std::uint32_t groupCountY = 1,
+        std::uint32_t groupCountZ = 1)
+    {
+        (void)groupCountX;
+        (void)groupCountY;
+        (void)groupCountZ;
+    }
+
     virtual void BeginRenderPass(
         const std::array<float, 4>& clearColor) = 0;
     virtual void SetPipeline(IPipeline& pipeline) = 0;
@@ -249,6 +269,13 @@ public:
         const ShaderDesc& desc) = 0;
     virtual std::unique_ptr<IPipeline> CreateGraphicsPipeline(
         const GraphicsPipelineDesc& desc) = 0;
+
+    virtual std::unique_ptr<IPipeline> CreateComputePipeline(
+        const ComputePipelineDesc& desc)
+    {
+        (void)desc;
+        return {};
+    }
 
     virtual ICommandList* BeginFrame() = 0;
     virtual bool SubmitFrame() = 0;
