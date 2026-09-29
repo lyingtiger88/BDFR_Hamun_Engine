@@ -836,7 +836,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 [numthreads(1, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    (void)dispatchThreadId;
 }
 )";
 
