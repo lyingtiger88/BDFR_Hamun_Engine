@@ -41,6 +41,11 @@ New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
 
 Copy-Item (Join-Path $BinaryDir "HamunSandbox.exe") $PackageDir
 
+$FidelityFxDlls = Get-ChildItem -Path $BinaryDir -Filter "amd_fidelityfx_*.dll" -File -ErrorAction SilentlyContinue
+foreach ($Dll in $FidelityFxDlls) {
+    Copy-Item $Dll.FullName $PackageDir
+}
+
 $AssetsSource = Join-Path $BinaryDir "Assets"
 if (-not (Test-Path $AssetsSource)) {
     throw "Assets folder was not found next to HamunSandbox.exe."
@@ -103,6 +108,12 @@ Shader note:
 Hamun uses DXC Shader Model 6 when dxcompiler.dll is available.
 Otherwise this bootstrap build falls back to the Windows D3DCompile path.
 "@ | Set-Content -Encoding UTF8 (Join-Path $PackageDir "README_TEST.txt")
+
+$FsrRuntimeBundled = Test-Path (Join-Path $PackageDir "amd_fidelityfx_loader_dx12.dll")
+
+@"
+FSR Runtime Bundled: $FsrRuntimeBundled
+"@ | Add-Content -Encoding UTF8 (Join-Path $PackageDir "README_TEST.txt")
 
 $Commit = "unknown"
 try {

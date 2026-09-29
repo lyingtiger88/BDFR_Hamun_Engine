@@ -81,6 +81,52 @@ jobs:
         if: runner.os == 'Linux'
         run: ./build/Samples/Sandbox/HamunSandbox --smoke-test
 
+  fsr-dx12:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch AMD FidelityFX SDK v2.3.0
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ThirdParty | Out-Null
+          git clone --depth 1 --branch v2.3.0 https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git ThirdParty/FidelityFX-SDK
+
+      - name: Configure FSR-enabled DX12 build
+        shell: pwsh
+        run: |
+          $Sdk = (Resolve-Path "ThirdParty/FidelityFX-SDK").Path
+          cmake -S . -B build-fsr -A x64 -DHAMUN_BUILD_SANDBOX=ON -DHAMUN_WITH_FSR_SDK=ON "-DHAMUN_FSR_SDK_DIR=$Sdk"
+
+      - name: Build FSR-enabled DX12
+        run: cmake --build build-fsr --config Release
+
+      - name: Stage official AMD FSR runtime DLLs
+        shell: pwsh
+        run: |
+          $Bin = "build-fsr/Samples/Sandbox/Release"
+          $Signed = "ThirdParty/FidelityFX-SDK/Kits/FidelityFX/signedbin"
+          Copy-Item "$Signed/amd_fidelityfx_loader_dx12.dll" $Bin
+          Copy-Item "$Signed/amd_fidelityfx_upscaler_dx12.dll" $Bin
+
+      - name: Run live FSR DX12 smoke test
+        shell: pwsh
+        run: ./build-fsr/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
+
+      - name: Package FSR DX12 development test
+        shell: pwsh
+        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build-fsr -Configuration Release -Version FSR-Dev -OutputDir dist/Hamun_FSR_DX12_Dev
+
+      - name: Upload FSR DX12 development test
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamun-FSR-DX12-Dev-Windows-x64
+          path: dist/Hamun_FSR_DX12_Dev/
+          if-no-files-found: error
+          retention-days: 14
+
   android:
     runs-on: ubuntu-latest
 
