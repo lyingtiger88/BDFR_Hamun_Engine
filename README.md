@@ -661,15 +661,15 @@ Win32 Window
 
 ## Download Latest Windows Test
 
-The current portable Windows technical test is **Hamun Test v0.3**.
+The current portable Windows technical test is **Hamun Test v0.4**.
 
 Release asset:
 
 ```text
-Hamun-Test-v0.3-Windows-x64.zip
+Hamun-Test-v0.4-Windows-x64.zip
 ```
 
-Open the repository's **Releases** section and download the v0.3 Windows x64 ZIP.
+Open the repository's **Releases** section and download the v0.4 Windows x64 ZIP.
 The package contains separate DX12 and DX11 launchers.
 
 ---
@@ -729,6 +729,28 @@ The portable Windows package is now automated through GitHub Actions.
 Next renderer work: move actual scene draw submission into renderer-owned
 passes, then add frame resources / compute support required by PBR, FSR and
 TressFX.
+
+### Test v0.4
+
+- [x] RenderGraph moved into HamunRenderer; HamunGraph remains visual scripting
+- [x] Renderer-owned indexed scene draw submission
+- [x] Double-buffered frame resources
+- [x] DX12 compute shader / compute pipeline / dispatch
+- [x] DX11 compute shader / compute pipeline / dispatch on supported feature levels
+- [x] RenderGraph ComputePass before MainRenderPass
+- [x] glTF metallic and roughness factor import
+- [x] GGX/Schlick metallic-roughness PBR direct-light foundation
+- [x] Temporal frame history foundation
+- [x] Halton jitter generation for future temporal upscaling
+- [x] HamunHair module
+- [x] TressFX runtime capability planning
+- [x] Card-hair fallback selection
+- [x] DX12/DX11 Windows smoke tests
+- [x] Linux and Android CI validation
+- [ ] Project-owner local Windows v0.4 validation
+
+The external AMD FSR and TressFX SDKs remain intentionally unbundled in v0.4.
+The engine-side prerequisites are now in place for the next integration phase.
 
 ---
 

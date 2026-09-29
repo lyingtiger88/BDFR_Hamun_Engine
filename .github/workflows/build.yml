@@ -36,45 +36,45 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test --d3d11
 
-      - name: Package Windows Test v0.3
+      - name: Package Windows Test v0.4
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -Version v0.3 -OutputDir dist/Hamun_Test_v0.3
+        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -Version v0.4 -OutputDir dist/Hamun_Test_v0.4
 
-      - name: Upload Windows Test v0.3
+      - name: Upload Windows Test v0.4
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Hamun-Test-v0.3-Windows-x64
-          path: dist/Hamun_Test_v0.3/
+          name: Hamun-Test-v0.4-Windows-x64
+          path: dist/Hamun_Test_v0.4/
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create v0.3 ZIP
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+      - name: Create v0.4 ZIP
+        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4'))
         shell: pwsh
         run: |
-          $Zip = "dist/Hamun-Test-v0.3-Windows-x64.zip"
+          $Zip = "dist/Hamun-Test-v0.4-Windows-x64.zip"
           if (Test-Path $Zip) {
             Remove-Item $Zip -Force
           }
-          Compress-Archive -Path "dist/Hamun_Test_v0.3/*" -DestinationPath $Zip -Force
+          Compress-Archive -Path "dist/Hamun_Test_v0.4/*" -DestinationPath $Zip -Force
 
-      - name: Publish v0.3 GitHub Release
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+      - name: Publish v0.4 GitHub Release
+        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $Tag = "v0.3"
-          $Zip = "dist/Hamun-Test-v0.3-Windows-x64.zip"
+          $Tag = "v0.4"
+          $Zip = "dist/Hamun-Test-v0.4-Windows-x64.zip"
 
           gh release view $Tag --repo "${{ github.repository }}" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $Tag $Zip --clobber --repo "${{ github.repository }}"
           }
           else {
-            gh release create $Tag $Zip --repo "${{ github.repository }}" --title "Hamun Test v0.3" --notes "Windows x64 technical test build. Includes DX12 and DX11 launchers, RenderGraph foundation, Material/MaterialInstance foundation, and GPU capability reporting."
+            gh release create $Tag $Zip --repo "${{ github.repository }}" --title "Hamun Test v0.4" --target "${{ github.sha }}" --notes "Windows x64 technical test build. Adds renderer-owned draw submission, double-buffered frame resources, DX12/DX11 compute dispatch, PBR metallic/roughness lighting, temporal FSR prerequisites, and the HamunHair/TressFX runtime foundation."
           }
 
       - name: Run sandbox (Linux foundation smoke test)

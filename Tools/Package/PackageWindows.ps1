@@ -1,7 +1,7 @@
 param(
     [string]$BuildDir = "build",
     [string]$Configuration = "Release",
-    [string]$Version = "v0.3",
+    [string]$Version = "v0.4",
     [string]$OutputDir = ""
 )
 
@@ -77,17 +77,24 @@ Controls:
   Shift         : Sprint
   Esc           : Exit
 
-Test $Version includes the v0.2 scene features plus:
-  - RenderGraph runtime foundation
-  - MainRenderPass bootstrap managed by HamunRenderer
-  - runtime Material + MaterialInstance foundation
-  - material base-color / metallic / roughness parameter foundation
-  - GPU adapter name and memory report
-  - DX11 capability reporting
-  - DX12 hardware queries for resource binding, mesh shaders and ray tracing
+Test $Version includes:
+  - renderer-owned RenderGraph (separate from HamunGraph visual scripting)
+  - renderer-owned indexed scene draw submission
+  - MainRenderPass + ComputePass ordering
+  - double-buffered per-frame constant resources
+  - DX12 and DX11 compute shader/pipeline/dispatch foundation
+  - runtime Material + MaterialInstance system
+  - glTF metallic/roughness factor import
+  - GGX/Schlick metallic-roughness PBR direct-light foundation
+  - GPU adapter, VRAM and capability reporting
+  - temporal frame history and Halton jitter foundation for FSR
+  - HamunHair runtime capability planner
+  - TressFX-ready DX12/Vulkan strand path selection
+  - card-hair fallback selection when TressFX is unavailable
 
-The rendered scene remains intentionally compatible with v0.2 so this build can
-be used as a regression test for the new renderer architecture.
+The external AMD FSR and TressFX SDK binaries are not bundled yet. This build
+validates the engine-side prerequisites and renderer architecture before those
+third-party SDK bridges are linked.
 
 DX12 is the primary Windows backend.
 DX11 is the compatibility backend.
