@@ -1,3 +1,4 @@
+#include <Hamun/Renderer/ComputePass.hpp>
 #include <Hamun/Renderer/MainRenderPass.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 
@@ -8,9 +9,14 @@
 namespace Hamun::Renderer {
 
 Renderer::Renderer()
-    : mainPass_(
+    : computePass_(
+        std::make_shared<ComputePass>())
+    , mainPass_(
         std::make_shared<MainRenderPass>())
 {
+    renderGraph_.AddPass(
+        computePass_);
+
     renderGraph_.AddPass(
         mainPass_);
 }
@@ -36,6 +42,7 @@ bool Renderer::RenderFrame(
     RHI::IPipeline& pipeline,
     RHI::ISampler& sampler,
     std::span<const IndexedDraw> draws,
+    std::span<const ComputeDispatch> computeDispatches,
     const std::array<float, 4>& clearColor)
 {
     for (const IndexedDraw& draw : draws) {
@@ -49,11 +56,25 @@ bool Renderer::RenderFrame(
         }
     }
 
+    for (const ComputeDispatch& dispatch :
+         computeDispatches) {
+        if (!dispatch.pipeline ||
+            dispatch.groupCountX == 0 ||
+            dispatch.groupCountY == 0 ||
+            dispatch.groupCountZ == 0) {
+            return false;
+        }
+    }
+
     RHI::ICommandList* commands =
         backend.BeginFrame();
 
     if (!commands)
         return false;
+
+    computePass_->Configure(
+        *commands,
+        computeDispatches);
 
     mainPass_->Configure(
         *commands,
@@ -66,6 +87,7 @@ bool Renderer::RenderFrame(
     Render();
     EndFrame();
 
+    computePass_->Reset();
     mainPass_->Reset();
 
     return backend.SubmitFrame();

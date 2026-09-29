@@ -3,6 +3,7 @@
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Platform/Window.hpp>
+#include <Hamun/Renderer/ComputeDispatch.hpp>
 #include <Hamun/Renderer/FrameResources.hpp>
 #include <Hamun/Renderer/FreeCamera.hpp>
 #include <Hamun/Renderer/Material.hpp>
@@ -609,6 +610,69 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (!pipeline)
         return false;
 
+    std::unique_ptr<IShader>
+        computeShader;
+
+    std::unique_ptr<IPipeline>
+        computePipeline;
+
+    std::vector<Hamun::Renderer::ComputeDispatch>
+        computeDispatches;
+
+    if (backend->Caps().compute) {
+        const std::string computeSource = R"(
+[numthreads(1, 1, 1)]
+void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    (void)dispatchThreadId;
+}
+)";
+
+        ShaderDesc computeShaderDesc;
+        computeShaderDesc.stage =
+            ShaderStage::Compute;
+        computeShaderDesc.source =
+            computeSource;
+        computeShaderDesc.entryPoint =
+            "CSMain";
+
+        computeShader =
+            backend->CreateShader(
+                computeShaderDesc);
+
+        if (!computeShader)
+            return false;
+
+        ComputePipelineDesc
+            computePipelineDesc;
+
+        computePipelineDesc.computeShader =
+            computeShader.get();
+
+        computePipeline =
+            backend->CreateComputePipeline(
+                computePipelineDesc);
+
+        if (!computePipeline)
+            return false;
+
+        Hamun::Renderer::ComputeDispatch
+            dispatch;
+
+        dispatch.pipeline =
+            computePipeline.get();
+
+        dispatch.groupCountX = 1;
+        dispatch.groupCountY = 1;
+        dispatch.groupCountZ = 1;
+
+        computeDispatches.push_back(
+            dispatch);
+
+        std::cout
+            << "Compute smoke dispatch: enabled\n";
+    }
+
     Hamun::Renderer::Renderer sceneRenderer;
 
     std::vector<Hamun::Renderer::IndexedDraw>
@@ -779,7 +843,8 @@ float4 PSMain(PSInput input) : SV_TARGET
                 *backend,
                 *pipeline,
                 *sampler,
-                sceneDraws)) {
+                sceneDraws,
+                computeDispatches)) {
             return false;
         }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Hamun/Renderer/ComputeDispatch.hpp>
 #include <Hamun/Renderer/RenderDraw.hpp>
 #include <Hamun/Renderer/RenderGraph.hpp>
 
@@ -16,6 +17,7 @@ class ISampler;
 
 namespace Hamun::Renderer {
 
+class ComputePass;
 class MainRenderPass;
 
 class Renderer {
@@ -31,6 +33,7 @@ public:
         RHI::IPipeline& pipeline,
         RHI::ISampler& sampler,
         std::span<const IndexedDraw> draws,
+        std::span<const ComputeDispatch> computeDispatches = {},
         const std::array<float, 4>& clearColor = {
             0.018f,
             0.035f,
@@ -44,6 +47,7 @@ public:
     }
 
 private:
+    std::shared_ptr<ComputePass> computePass_;
     std::shared_ptr<MainRenderPass> mainPass_;
     RenderGraph renderGraph_;
 };

@@ -1,4 +1,5 @@
 add_library(HamunRenderer STATIC
+  src/ComputePass.cpp
   src/FreeCamera.cpp
   src/FrameResources.cpp
   src/Material.cpp
