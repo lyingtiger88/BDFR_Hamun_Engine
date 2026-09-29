@@ -257,6 +257,8 @@ public:
         ComPtr<ID3D11Texture2D> texture,
         ComPtr<ID3D11ShaderResourceView> srv,
         ComPtr<ID3D11UnorderedAccessView> uav,
+        ComPtr<ID3D11RenderTargetView> rtv,
+        ComPtr<ID3D11DepthStencilView> dsv,
         std::uint32_t width,
         std::uint32_t height,
         TextureFormat format,
@@ -264,6 +266,8 @@ public:
         : texture_(std::move(texture))
         , srv_(std::move(srv))
         , uav_(std::move(uav))
+        , rtv_(std::move(rtv))
+        , dsv_(std::move(dsv))
         , width_(width)
         , height_(height)
         , format_(format)
@@ -286,6 +290,16 @@ public:
         return uav_.Get();
     }
 
+    ID3D11RenderTargetView* Rtv() const noexcept
+    {
+        return rtv_.Get();
+    }
+
+    ID3D11DepthStencilView* Dsv() const noexcept
+    {
+        return dsv_.Get();
+    }
+
     void* NativeResourceHandle() noexcept override
     {
         return texture_.Get();
@@ -295,6 +309,8 @@ private:
     ComPtr<ID3D11Texture2D> texture_;
     ComPtr<ID3D11ShaderResourceView> srv_;
     ComPtr<ID3D11UnorderedAccessView> uav_;
+    ComPtr<ID3D11RenderTargetView> rtv_;
+    ComPtr<ID3D11DepthStencilView> dsv_;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
     TextureFormat format_ = TextureFormat::RGBA8_UNorm;
@@ -497,6 +513,7 @@ public:
         dsv_ = dsv;
         viewport_ = viewport;
         scissor_ = scissor;
+        offscreenRenderPass_ = false;
     }
 
     void SetComputePipeline(
@@ -618,6 +635,90 @@ public:
             D3D11_CLEAR_DEPTH,
             1.0f,
             0);
+    }
+
+    void BeginRenderPassToTexture(
+        ITexture& colorTarget,
+        ITexture* depthTarget,
+        const std::array<float, 4>& clearColor) override
+    {
+        auto* color =
+            dynamic_cast<D3D11Texture*>(
+                &colorTarget);
+
+        auto* depth =
+            depthTarget
+                ? dynamic_cast<D3D11Texture*>(
+                    depthTarget)
+                : nullptr;
+
+        if (!context_ ||
+            !color ||
+            !color->Rtv()) {
+            return;
+        }
+
+        if (depthTarget &&
+            (!depth ||
+             !depth->Dsv())) {
+            return;
+        }
+
+        ID3D11RenderTargetView*
+            targets[] = {
+                color->Rtv()
+            };
+
+        context_->OMSetRenderTargets(
+            1,
+            targets,
+            depth
+                ? depth->Dsv()
+                : nullptr);
+
+        D3D11_VIEWPORT viewport{};
+        viewport.TopLeftX = 0.0f;
+        viewport.TopLeftY = 0.0f;
+        viewport.Width =
+            static_cast<float>(
+                color->Width());
+        viewport.Height =
+            static_cast<float>(
+                color->Height());
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        D3D11_RECT scissor{};
+        scissor.left = 0;
+        scissor.top = 0;
+        scissor.right =
+            static_cast<LONG>(
+                color->Width());
+        scissor.bottom =
+            static_cast<LONG>(
+                color->Height());
+
+        context_->RSSetViewports(
+            1,
+            &viewport);
+
+        context_->RSSetScissorRects(
+            1,
+            &scissor);
+
+        context_->ClearRenderTargetView(
+            color->Rtv(),
+            clearColor.data());
+
+        if (depth) {
+            context_->ClearDepthStencilView(
+                depth->Dsv(),
+                D3D11_CLEAR_DEPTH,
+                1.0f,
+                0);
+        }
+
+        offscreenRenderPass_ = true;
     }
 
     void SetPipeline(IPipeline& pipeline) override
@@ -792,6 +893,15 @@ public:
 
     void EndRenderPass() override
     {
+        if (offscreenRenderPass_ &&
+            context_) {
+            context_->OMSetRenderTargets(
+                0,
+                nullptr,
+                nullptr);
+
+            offscreenRenderPass_ = false;
+        }
     }
 
 private:
@@ -800,6 +910,7 @@ private:
     ID3D11DepthStencilView* dsv_ = nullptr;
     D3D11_VIEWPORT viewport_{};
     D3D11_RECT scissor_{};
+    bool offscreenRenderPass_ = false;
 };
 
 #endif
@@ -1193,13 +1304,37 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
             desc.usage,
             TextureUsage::Storage);
 
+    const bool renderTarget =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::RenderTarget);
+
+    const bool depthStencil =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::DepthStencil);
+
+    if (depthStencil &&
+        (storage || renderTarget)) {
+        return {};
+    }
+
     D3D11_TEXTURE2D_DESC nativeDesc{};
     nativeDesc.Width = desc.width;
     nativeDesc.Height = desc.height;
     nativeDesc.MipLevels = 1;
     nativeDesc.ArraySize = 1;
+    const DXGI_FORMAT viewFormat =
+        ToDxgiFormat(
+            desc.format);
+
     nativeDesc.Format =
-        ToDxgiFormat(desc.format);
+        depthStencil &&
+        shaderResource
+            ? DXGI_FORMAT_R32_TYPELESS
+            : depthStencil
+                ? DXGI_FORMAT_D32_FLOAT
+                : viewFormat;
     nativeDesc.SampleDesc.Count = 1;
     nativeDesc.Usage =
         D3D11_USAGE_DEFAULT;
@@ -1213,6 +1348,16 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
     if (storage) {
         nativeDesc.BindFlags |=
             D3D11_BIND_UNORDERED_ACCESS;
+    }
+
+    if (renderTarget) {
+        nativeDesc.BindFlags |=
+            D3D11_BIND_RENDER_TARGET;
+    }
+
+    if (depthStencil) {
+        nativeDesc.BindFlags |=
+            D3D11_BIND_DEPTH_STENCIL;
     }
 
     D3D11_SUBRESOURCE_DATA initial{};
@@ -1240,14 +1385,32 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
 
     ComPtr<ID3D11ShaderResourceView> srv;
 
-    if (shaderResource &&
-        Failed(
-            device_->CreateShaderResourceView(
-                texture.Get(),
-                nullptr,
-                &srv),
-            "CreateShaderResourceView")) {
-        return {};
+    if (shaderResource) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC
+            srvDesc{};
+
+        srvDesc.Format =
+            depthStencil
+                ? DXGI_FORMAT_R32_FLOAT
+                : viewFormat;
+
+        srvDesc.ViewDimension =
+            D3D11_SRV_DIMENSION_TEXTURE2D;
+
+        srvDesc.Texture2D.MostDetailedMip =
+            0;
+
+        srvDesc.Texture2D.MipLevels =
+            1;
+
+        if (Failed(
+                device_->CreateShaderResourceView(
+                    texture.Get(),
+                    &srvDesc,
+                    &srv),
+                "CreateShaderResourceView")) {
+            return {};
+        }
     }
 
     ComPtr<ID3D11UnorderedAccessView> uav;
@@ -1262,10 +1425,48 @@ std::unique_ptr<ITexture> D3D11Backend::CreateTexture(
         return {};
     }
 
+    ComPtr<ID3D11RenderTargetView>
+        rtv;
+
+    if (renderTarget &&
+        Failed(
+            device_->CreateRenderTargetView(
+                texture.Get(),
+                nullptr,
+                &rtv),
+            "CreateRenderTargetView(offscreen)")) {
+        return {};
+    }
+
+    ComPtr<ID3D11DepthStencilView>
+        dsv;
+
+    if (depthStencil) {
+        D3D11_DEPTH_STENCIL_VIEW_DESC
+            dsvDesc{};
+
+        dsvDesc.Format =
+            DXGI_FORMAT_D32_FLOAT;
+
+        dsvDesc.ViewDimension =
+            D3D11_DSV_DIMENSION_TEXTURE2D;
+
+        if (Failed(
+                device_->CreateDepthStencilView(
+                    texture.Get(),
+                    &dsvDesc,
+                    &dsv),
+                "CreateDepthStencilView(offscreen)")) {
+            return {};
+        }
+    }
+
     return std::make_unique<D3D11Texture>(
         std::move(texture),
         std::move(srv),
         std::move(uav),
+        std::move(rtv),
+        std::move(dsv),
         desc.width,
         desc.height,
         desc.format,

@@ -33,6 +33,8 @@ namespace {
 using Microsoft::WRL::ComPtr;
 
 constexpr UINT kFrameCount = 2;
+constexpr UINT kRtvDescriptorCapacity = 64;
+constexpr UINT kDsvDescriptorCapacity = 32;
 constexpr UINT kSrvDescriptorCapacity = 256;
 constexpr UINT kSamplerDescriptorCapacity = 64;
 
@@ -518,15 +520,21 @@ public:
         std::uint32_t height,
         TextureFormat format,
         TextureUsage usage,
+        D3D12_RESOURCE_STATES initialState,
         D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle,
-        D3D12_GPU_DESCRIPTOR_HANDLE uavGpuHandle)
+        D3D12_GPU_DESCRIPTOR_HANDLE uavGpuHandle,
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
+        D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle)
         : resource_(std::move(resource))
         , width_(width)
         , height_(height)
         , format_(format)
         , usage_(usage)
+        , state_(initialState)
         , srvGpuHandle_(srvGpuHandle)
         , uavGpuHandle_(uavGpuHandle)
+        , rtvHandle_(rtvHandle)
+        , dsvHandle_(dsvHandle)
     {
     }
 
@@ -545,6 +553,38 @@ public:
         return uavGpuHandle_;
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE RtvHandle() const noexcept
+    {
+        return rtvHandle_;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE DsvHandle() const noexcept
+    {
+        return dsvHandle_;
+    }
+
+    void Transition(
+        ID3D12GraphicsCommandList* commandList,
+        D3D12_RESOURCE_STATES nextState)
+    {
+        if (!commandList ||
+            state_ == nextState) {
+            return;
+        }
+
+        const auto barrier =
+            TransitionBarrier(
+                resource_.Get(),
+                state_,
+                nextState);
+
+        commandList->ResourceBarrier(
+            1,
+            &barrier);
+
+        state_ = nextState;
+    }
+
     void* NativeResourceHandle() noexcept override
     {
         return resource_.Get();
@@ -556,8 +596,11 @@ private:
     std::uint32_t height_ = 0;
     TextureFormat format_ = TextureFormat::RGBA8_UNorm;
     TextureUsage usage_ = TextureUsage::ShaderResource;
+    D3D12_RESOURCE_STATES state_ = D3D12_RESOURCE_STATE_COMMON;
     D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandle_{};
     D3D12_GPU_DESCRIPTOR_HANDLE uavGpuHandle_{};
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle_{};
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle_{};
 };
 
 class D3D12Sampler final : public ISampler {
@@ -776,6 +819,9 @@ public:
         scissor_ = scissor;
         currentPipeline_ = nullptr;
         currentComputePipeline_ = nullptr;
+        activeColorTarget_ = nullptr;
+        activeDepthTarget_ = nullptr;
+        offscreenRenderPass_ = false;
         renderPassOpen_ = false;
 
         ID3D12DescriptorHeap* heaps[] = {
@@ -858,6 +904,10 @@ public:
         if (handle.ptr == 0)
             return;
 
+        native->Transition(
+            commandList_,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
         commandList_
             ->SetComputeRootDescriptorTable(
                 currentComputePipeline_
@@ -909,6 +959,120 @@ public:
             0,
             nullptr);
 
+        renderPassOpen_ = true;
+    }
+
+    void BeginRenderPassToTexture(
+        ITexture& colorTarget,
+        ITexture* depthTarget,
+        const std::array<float, 4>& clearColor) override
+    {
+        auto* color =
+            dynamic_cast<D3D12Texture*>(
+                &colorTarget);
+
+        auto* depth =
+            depthTarget
+                ? dynamic_cast<D3D12Texture*>(
+                    depthTarget)
+                : nullptr;
+
+        if (!commandList_ ||
+            !color ||
+            !HasTextureUsage(
+                color->Usage(),
+                TextureUsage::RenderTarget) ||
+            color->RtvHandle().ptr == 0 ||
+            renderPassOpen_) {
+            return;
+        }
+
+        if (depthTarget &&
+            (!depth ||
+             !HasTextureUsage(
+                 depth->Usage(),
+                 TextureUsage::DepthStencil) ||
+             depth->DsvHandle().ptr == 0)) {
+            return;
+        }
+
+        color->Transition(
+            commandList_,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        if (depth) {
+            depth->Transition(
+                commandList_,
+                D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
+
+        D3D12_VIEWPORT viewport{};
+        viewport.TopLeftX = 0.0f;
+        viewport.TopLeftY = 0.0f;
+        viewport.Width =
+            static_cast<float>(
+                color->Width());
+        viewport.Height =
+            static_cast<float>(
+                color->Height());
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        D3D12_RECT scissor{};
+        scissor.left = 0;
+        scissor.top = 0;
+        scissor.right =
+            static_cast<LONG>(
+                color->Width());
+        scissor.bottom =
+            static_cast<LONG>(
+                color->Height());
+
+        const auto rtv =
+            color->RtvHandle();
+
+        if (depth) {
+            const auto dsv =
+                depth->DsvHandle();
+
+            commandList_->OMSetRenderTargets(
+                1,
+                &rtv,
+                FALSE,
+                &dsv);
+
+            commandList_->ClearDepthStencilView(
+                dsv,
+                D3D12_CLEAR_FLAG_DEPTH,
+                1.0f,
+                0,
+                0,
+                nullptr);
+        } else {
+            commandList_->OMSetRenderTargets(
+                1,
+                &rtv,
+                FALSE,
+                nullptr);
+        }
+
+        commandList_->RSSetViewports(
+            1,
+            &viewport);
+
+        commandList_->RSSetScissorRects(
+            1,
+            &scissor);
+
+        commandList_->ClearRenderTargetView(
+            rtv,
+            clearColor.data(),
+            0,
+            nullptr);
+
+        activeColorTarget_ = color;
+        activeDepthTarget_ = depth;
+        offscreenRenderPass_ = true;
         renderPassOpen_ = true;
     }
 
@@ -987,6 +1151,10 @@ public:
         if (slot >= currentPipeline_->TextureCount())
             return;
 
+        native->Transition(
+            commandList_,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
         commandList_->SetGraphicsRootDescriptorTable(
             currentPipeline_->TextureRootIndex(slot),
             native->GpuHandle());
@@ -1033,14 +1201,44 @@ public:
 
     void EndRenderPass() override
     {
-        if (!commandList_ || !renderTarget_ || !renderPassOpen_)
+        if (!commandList_ ||
+            !renderPassOpen_) {
             return;
+        }
 
-        const auto barrier = TransitionBarrier(
-            renderTarget_,
-            D3D12_RESOURCE_STATE_RENDER_TARGET,
-            D3D12_RESOURCE_STATE_PRESENT);
-        commandList_->ResourceBarrier(1, &barrier);
+        if (offscreenRenderPass_) {
+            constexpr D3D12_RESOURCE_STATES
+                readableState =
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+            if (activeColorTarget_) {
+                activeColorTarget_->Transition(
+                    commandList_,
+                    readableState);
+            }
+
+            if (activeDepthTarget_) {
+                activeDepthTarget_->Transition(
+                    commandList_,
+                    readableState);
+            }
+
+            activeColorTarget_ = nullptr;
+            activeDepthTarget_ = nullptr;
+            offscreenRenderPass_ = false;
+        } else if (renderTarget_) {
+            const auto barrier =
+                TransitionBarrier(
+                    renderTarget_,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET,
+                    D3D12_RESOURCE_STATE_PRESENT);
+
+            commandList_->ResourceBarrier(
+                1,
+                &barrier);
+        }
+
         renderPassOpen_ = false;
     }
 
@@ -1053,6 +1251,9 @@ private:
     D3D12_RECT scissor_{};
     D3D12Pipeline* currentPipeline_ = nullptr;
     D3D12ComputePipeline* currentComputePipeline_ = nullptr;
+    D3D12Texture* activeColorTarget_ = nullptr;
+    D3D12Texture* activeDepthTarget_ = nullptr;
+    bool offscreenRenderPass_ = false;
     bool renderPassOpen_ = false;
 };
 
@@ -1151,8 +1352,11 @@ private:
     std::uint64_t nextFenceValue_ = 1;
     std::uint32_t frameIndex_ = 0;
     UINT rtvDescriptorSize_ = 0;
+    UINT dsvDescriptorSize_ = 0;
     UINT srvDescriptorSize_ = 0;
     UINT samplerDescriptorSize_ = 0;
+    UINT nextRtvDescriptor_ = kFrameCount;
+    UINT nextDsvDescriptor_ = 1;
     UINT nextSrvDescriptor_ = 0;
     UINT nextSamplerDescriptor_ = 0;
     bool initialized_ = false;
@@ -1246,6 +1450,8 @@ void D3D12Backend::Shutdown()
     adapter_.Reset();
     factory_.Reset();
 
+    nextRtvDescriptor_ = kFrameCount;
+    nextDsvDescriptor_ = 1;
     nextSrvDescriptor_ = 0;
     nextSamplerDescriptor_ = 0;
     initialized_ = false;
@@ -1343,6 +1549,36 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
             desc.usage,
             TextureUsage::Storage);
 
+    const bool renderTarget =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::RenderTarget);
+
+    const bool depthStencil =
+        HasTextureUsage(
+            desc.usage,
+            TextureUsage::DepthStencil);
+
+    if (depthStencil &&
+        (storage || renderTarget)) {
+        Core::Log(
+            Core::LogLevel::Error,
+            "D3D12 depth textures cannot also be storage/render-target textures in this bootstrap path.");
+        return {};
+    }
+
+    if (renderTarget &&
+        nextRtvDescriptor_ >=
+            kRtvDescriptorCapacity) {
+        return {};
+    }
+
+    if (depthStencil &&
+        nextDsvDescriptor_ >=
+            kDsvDescriptorCapacity) {
+        return {};
+    }
+
     const std::uint32_t descriptorCount =
         (shaderResource ? 1u : 0u) +
         (storage ? 1u : 0u);
@@ -1365,6 +1601,14 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
         ToDxgiFormat(
             desc.format);
 
+    const DXGI_FORMAT resourceFormat =
+        depthStencil &&
+        shaderResource
+            ? DXGI_FORMAT_R32_TYPELESS
+            : depthStencil
+                ? DXGI_FORMAT_D32_FLOAT
+                : format;
+
     const D3D12_HEAP_PROPERTIES heapProps =
         DefaultHeapProperties();
 
@@ -1372,19 +1616,55 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
         TextureResourceDesc(
             desc.width,
             desc.height,
-            format);
+            resourceFormat);
 
     if (storage) {
         resourceDesc.Flags |=
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     }
 
+    if (renderTarget) {
+        resourceDesc.Flags |=
+            D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    }
+
+    if (depthStencil) {
+        resourceDesc.Flags |=
+            D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    }
+
     const D3D12_RESOURCE_STATES initialState =
         desc.initialData
             ? D3D12_RESOURCE_STATE_COPY_DEST
-            : storage
-                ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
-                : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            : depthStencil
+                ? D3D12_RESOURCE_STATE_DEPTH_WRITE
+                : storage
+                    ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                    : renderTarget
+                        ? D3D12_RESOURCE_STATE_RENDER_TARGET
+                        : D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+    D3D12_CLEAR_VALUE clearValue{};
+    const D3D12_CLEAR_VALUE* clearValuePtr =
+        nullptr;
+
+    if (renderTarget) {
+        clearValue.Format =
+            format;
+        clearValuePtr =
+            &clearValue;
+    }
+
+    if (depthStencil) {
+        clearValue.Format =
+            DXGI_FORMAT_D32_FLOAT;
+        clearValue.DepthStencil.Depth =
+            1.0f;
+        clearValue.DepthStencil.Stencil =
+            0;
+        clearValuePtr =
+            &clearValue;
+    }
 
     ComPtr<ID3D12Resource> texture;
 
@@ -1394,7 +1674,7 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
                 D3D12_HEAP_FLAG_NONE,
                 &resourceDesc,
                 initialState,
-                nullptr,
+                clearValuePtr,
                 IID_PPV_ARGS(&texture)),
             "CreateCommittedResource(texture)")) {
         return {};
@@ -1439,7 +1719,9 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
             D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
         srv.Format =
-            format;
+            depthStencil
+                ? DXGI_FORMAT_R32_FLOAT
+                : format;
 
         srv.ViewDimension =
             D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1495,14 +1777,77 @@ std::unique_ptr<ITexture> D3D12Backend::CreateTexture(
         ++nextSrvDescriptor_;
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE
+        rtvHandle{};
+
+    D3D12_CPU_DESCRIPTOR_HANDLE
+        dsvHandle{};
+
+    if (renderTarget) {
+        rtvHandle =
+            rtvHeap_
+                ->GetCPUDescriptorHandleForHeapStart();
+
+        rtvHandle.ptr +=
+            static_cast<SIZE_T>(
+                nextRtvDescriptor_) *
+            rtvDescriptorSize_;
+
+        D3D12_RENDER_TARGET_VIEW_DESC
+            rtvDesc{};
+
+        rtvDesc.Format =
+            format;
+
+        rtvDesc.ViewDimension =
+            D3D12_RTV_DIMENSION_TEXTURE2D;
+
+        device_->CreateRenderTargetView(
+            texture.Get(),
+            &rtvDesc,
+            rtvHandle);
+
+        ++nextRtvDescriptor_;
+    }
+
+    if (depthStencil) {
+        dsvHandle =
+            dsvHeap_
+                ->GetCPUDescriptorHandleForHeapStart();
+
+        dsvHandle.ptr +=
+            static_cast<SIZE_T>(
+                nextDsvDescriptor_) *
+            dsvDescriptorSize_;
+
+        D3D12_DEPTH_STENCIL_VIEW_DESC
+            dsvDesc{};
+
+        dsvDesc.Format =
+            DXGI_FORMAT_D32_FLOAT;
+
+        dsvDesc.ViewDimension =
+            D3D12_DSV_DIMENSION_TEXTURE2D;
+
+        device_->CreateDepthStencilView(
+            texture.Get(),
+            &dsvDesc,
+            dsvHandle);
+
+        ++nextDsvDescriptor_;
+    }
+
     return std::make_unique<D3D12Texture>(
         std::move(texture),
         desc.width,
         desc.height,
         desc.format,
         desc.usage,
+        initialState,
         srvGpu,
-        uavGpu);
+        uavGpu,
+        rtvHandle,
+        dsvHandle);
 #else
     (void)desc;
     return {};
@@ -1584,7 +1929,8 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
         !ps ||
         vs->Stage() != ShaderStage::Vertex ||
         ps->Stage() != ShaderStage::Pixel ||
-        desc.vertexStride == 0)
+        (!desc.vertexAttributes.empty() &&
+         desc.vertexStride == 0))
         return {};
 
     const std::uint32_t rootParameterCount =
@@ -1749,7 +2095,9 @@ std::unique_ptr<IPipeline> D3D12Backend::CreateGraphicsPipeline(
     pso.PrimitiveTopologyType =
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso.NumRenderTargets = 1;
-    pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso.RTVFormats[0] =
+        ToDxgiFormat(
+            desc.renderTargetFormat);
     pso.DSVFormat =
         desc.depthTest
             ? DXGI_FORMAT_D32_FLOAT
@@ -2241,7 +2589,8 @@ bool D3D12Backend::CreateFrameResources()
 {
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvHeapDesc.NumDescriptors = kFrameCount;
+    rtvHeapDesc.NumDescriptors =
+        kRtvDescriptorCapacity;
 
     if (Failed(
             device_->CreateDescriptorHeap(
@@ -2281,7 +2630,8 @@ bool D3D12Backend::CreateFrameResources()
 
     D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
     dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.NumDescriptors =
+        kDsvDescriptorCapacity;
 
     if (Failed(
             device_->CreateDescriptorHeap(
@@ -2312,6 +2662,10 @@ bool D3D12Backend::CreateFrameResources()
                 IID_PPV_ARGS(&depthBuffer_)),
             "Create depth buffer"))
         return false;
+
+    dsvDescriptorSize_ =
+        device_->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
     dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;

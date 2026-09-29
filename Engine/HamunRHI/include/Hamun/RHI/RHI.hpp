@@ -58,7 +58,9 @@ enum class TextureFormat : std::uint8_t {
 enum class TextureUsage : std::uint32_t {
     None = 0,
     ShaderResource = 1u << 0,
-    Storage = 1u << 1
+    Storage = 1u << 1,
+    RenderTarget = 1u << 2,
+    DepthStencil = 1u << 3
 };
 
 constexpr TextureUsage operator|(
@@ -170,6 +172,8 @@ struct GraphicsPipelineDesc {
     std::uint32_t constantBufferCount = 0;
     std::uint32_t textureCount = 0;
     std::uint32_t samplerCount = 0;
+    TextureFormat renderTargetFormat = TextureFormat::RGBA8_UNorm;
+    TextureFormat depthFormat = TextureFormat::R32_Float;
     bool depthTest = true;
 };
 
@@ -289,6 +293,16 @@ public:
 
     virtual void BeginRenderPass(
         const std::array<float, 4>& clearColor) = 0;
+
+    virtual void BeginRenderPassToTexture(
+        ITexture& colorTarget,
+        ITexture* depthTarget,
+        const std::array<float, 4>& clearColor)
+    {
+        (void)colorTarget;
+        (void)depthTarget;
+        (void)clearColor;
+    }
     virtual void SetPipeline(IPipeline& pipeline) = 0;
     virtual void SetVertexBuffer(
         IBuffer& buffer,

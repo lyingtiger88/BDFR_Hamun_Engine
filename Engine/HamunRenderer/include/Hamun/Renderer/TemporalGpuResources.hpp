@@ -22,6 +22,16 @@ public:
 
     void Reset() noexcept;
 
+    [[nodiscard]] RHI::ITexture* SceneColor() noexcept
+    {
+        return sceneColor_.get();
+    }
+
+    [[nodiscard]] RHI::ITexture* SceneDepth() noexcept
+    {
+        return sceneDepth_.get();
+    }
+
     [[nodiscard]] RHI::ITexture* HistoryColor() noexcept
     {
         return historyColor_.get();
@@ -55,6 +65,8 @@ public:
     [[nodiscard]] bool IsValid() const noexcept
     {
         return
+            sceneColor_ &&
+            sceneDepth_ &&
             historyColor_ &&
             motionVectors_ &&
             linearDepth_ &&
@@ -64,6 +76,12 @@ public:
 
 private:
     TemporalGpuResourcesDesc desc_{};
+
+    std::unique_ptr<RHI::ITexture>
+        sceneColor_;
+
+    std::unique_ptr<RHI::ITexture>
+        sceneDepth_;
 
     std::unique_ptr<RHI::ITexture>
         historyColor_;

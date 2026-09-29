@@ -9,7 +9,10 @@ std::unique_ptr<RHI::ITexture> CreateTemporalTexture(
     RHI::IBackend& backend,
     std::uint32_t width,
     std::uint32_t height,
-    RHI::TextureFormat format)
+    RHI::TextureFormat format,
+    RHI::TextureUsage usage =
+        RHI::TextureUsage::ShaderResource |
+        RHI::TextureUsage::Storage)
 {
     RHI::TextureDesc desc;
     desc.width =
@@ -23,8 +26,7 @@ std::unique_ptr<RHI::ITexture> CreateTemporalTexture(
     desc.format =
         format;
     desc.usage =
-        RHI::TextureUsage::ShaderResource |
-        RHI::TextureUsage::Storage;
+        usage;
 
     return
         backend.CreateTexture(
@@ -58,6 +60,25 @@ bool TemporalGpuResources::Initialize(
         std::max(
             desc.displayHeight,
             1u);
+
+    sceneColor_ =
+        CreateTemporalTexture(
+            backend,
+            desc_.renderWidth,
+            desc_.renderHeight,
+            RHI::TextureFormat::RGBA16_Float,
+            RHI::TextureUsage::ShaderResource |
+            RHI::TextureUsage::Storage |
+            RHI::TextureUsage::RenderTarget);
+
+    sceneDepth_ =
+        CreateTemporalTexture(
+            backend,
+            desc_.renderWidth,
+            desc_.renderHeight,
+            RHI::TextureFormat::R32_Float,
+            RHI::TextureUsage::ShaderResource |
+            RHI::TextureUsage::DepthStencil);
 
     historyColor_ =
         CreateTemporalTexture(
@@ -104,6 +125,8 @@ bool TemporalGpuResources::Initialize(
 
 void TemporalGpuResources::Reset() noexcept
 {
+    sceneColor_.reset();
+    sceneDepth_.reset();
     historyColor_.reset();
     motionVectors_.reset();
     linearDepth_.reset();
