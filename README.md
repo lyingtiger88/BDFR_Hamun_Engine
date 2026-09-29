@@ -164,6 +164,12 @@ BDFR Hamun Engine
 |   +-- Culling
 |   +-- Post Processing
 |
++-- HamunHair
+|   +-- TressFX bridge
+|   +-- Strand simulation
+|   +-- Strand rendering
+|   +-- Hair LOD / card fallback
+|
 +-- HamunWorld
 |   +-- World Partition
 |   +-- Streaming
@@ -531,10 +537,10 @@ Win32 Window
 - [ ] Motion-vector render target / temporal GPU resources
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [ ] AMD FSR integration
-- [ ] Hair rendering interface
-- [ ] AMD TressFX integration
+- [x] Hair runtime interface / capability planner
+- [ ] AMD TressFX SDK integration
 - [ ] Hair simulation / collision / LOD
-- [ ] Mobile/card-hair fallback
+- [x] Card-hair fallback selection foundation
 - [ ] Sky/atmosphere
 - [ ] Debug renderer
 - [ ] Renderer profiler

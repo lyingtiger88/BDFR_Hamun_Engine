@@ -2,6 +2,7 @@
 #include <Hamun/Assets/ImageAsset.hpp>
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Graph/VM.hpp>
+#include <Hamun/Hair/HairRuntime.hpp>
 #include <Hamun/Platform/Window.hpp>
 #include <Hamun/Renderer/ComputeDispatch.hpp>
 #include <Hamun/Renderer/FrameResources.hpp>
@@ -404,6 +405,27 @@ bool RunAssetScene(
     std::cout
         << BuildCapabilityReport(
             *backend);
+
+    const Hamun::Hair::HairRuntimePlan
+        hairPlan =
+            Hamun::Hair::BuildRuntimePlan(
+                *backend);
+
+    std::cout
+        << "Hair runtime: "
+        << Hamun::Hair::HairRenderPathName(
+            hairPlan.selectedPath)
+        << " | TressFX SDK linked="
+        << (
+            hairPlan.tressfxSdkLinked
+                ? "yes"
+                : "no")
+        << " | API compatible="
+        << (
+            hairPlan.apiSupportedByTressFX
+                ? "yes"
+                : "no")
+        << '\n';
 
     std::vector<RenderMesh>
         renderMeshes;

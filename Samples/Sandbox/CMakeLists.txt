@@ -7,6 +7,7 @@ target_link_libraries(HamunSandbox PRIVATE
   HamunRenderer
   HamunWorld
   HamunGraph
+  HamunHair
 )
 
 add_custom_command(TARGET HamunSandbox POST_BUILD
