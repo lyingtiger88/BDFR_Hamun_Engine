@@ -92,7 +92,10 @@ bool TemporalGpuResources::Initialize(
             backend,
             desc_.renderWidth,
             desc_.renderHeight,
-            RHI::TextureFormat::RG16_Float);
+            RHI::TextureFormat::RG16_Float,
+            RHI::TextureUsage::ShaderResource |
+            RHI::TextureUsage::Storage |
+            RHI::TextureUsage::RenderTarget);
 
     linearDepth_ =
         CreateTemporalTexture(

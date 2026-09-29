@@ -1,5 +1,6 @@
 #include <Hamun/Renderer/ComputePass.hpp>
 #include <Hamun/Renderer/MainRenderPass.hpp>
+#include <Hamun/Renderer/MotionVectorPass.hpp>
 #include <Hamun/Renderer/PresentPass.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 
@@ -14,6 +15,8 @@ Renderer::Renderer()
         std::make_shared<ComputePass>())
     , mainPass_(
         std::make_shared<MainRenderPass>())
+    , motionVectorPass_(
+        std::make_shared<MotionVectorPass>())
     , presentPass_(
         std::make_shared<PresentPass>())
 {
@@ -22,6 +25,9 @@ Renderer::Renderer()
 
     renderGraph_.AddPass(
         mainPass_);
+
+    renderGraph_.AddPass(
+        motionVectorPass_);
 
     renderGraph_.AddPass(
         presentPass_);
@@ -107,6 +113,19 @@ bool Renderer::RenderFrame(
         return false;
     }
 
+    const bool motionRequested =
+        submission.motionPipeline ||
+        submission.motionTarget;
+
+    if (motionRequested &&
+        (!submission.motionPipeline ||
+         !submission.motionTarget ||
+         !RHI::HasTextureUsage(
+             submission.motionTarget->Usage(),
+             RHI::TextureUsage::RenderTarget))) {
+        return false;
+    }
+
     const bool presentRequested =
         submission.presentPipeline ||
         submission.presentSampler ||
@@ -141,6 +160,13 @@ bool Renderer::RenderFrame(
         submission.sceneDepthTarget,
         submission.clearColor);
 
+    motionVectorPass_->Configure(
+        *commands,
+        submission.motionPipeline,
+        submission.draws,
+        submission.motionTarget,
+        submission.sceneDepthTarget);
+
     presentPass_->Configure(
         *commands,
         submission.presentPipeline,
@@ -153,6 +179,7 @@ bool Renderer::RenderFrame(
 
     computePass_->Reset();
     mainPass_->Reset();
+    motionVectorPass_->Reset();
     presentPass_->Reset();
 
     return backend.SubmitFrame();

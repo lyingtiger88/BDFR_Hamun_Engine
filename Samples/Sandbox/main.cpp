@@ -123,6 +123,7 @@ void RunFoundationSelfTests()
 struct alignas(256) SceneConstants {
     Hamun::Renderer::Mat4 model;
     Hamun::Renderer::Mat4 viewProjection;
+    Hamun::Renderer::Mat4 previousViewProjection;
 
     float baseColorFactor[4]{
         1.0f,
@@ -530,6 +531,7 @@ cbuffer SceneConstants : register(b0)
 {
     row_major float4x4 model;
     row_major float4x4 viewProjection;
+    row_major float4x4 previousViewProjection;
     float4 baseColorFactor;
     float4 lightDirection;
     float4 lightColor;
@@ -902,6 +904,150 @@ float4 PSMain(PSInput input) : SV_TARGET
             pipelineDesc);
 
     if (!pipeline)
+        return false;
+
+    const std::string motionShaderSource = R"(
+cbuffer MotionConstants : register(b0)
+{
+    row_major float4x4 model;
+    row_major float4x4 viewProjection;
+    row_major float4x4 previousViewProjection;
+};
+
+struct MotionInput
+{
+    float3 position : POSITION;
+};
+
+struct MotionOutput
+{
+    float4 position : SV_POSITION;
+    float4 currentClip : TEXCOORD0;
+    float4 previousClip : TEXCOORD1;
+};
+
+MotionOutput MotionVS(MotionInput input)
+{
+    MotionOutput output;
+
+    const float4 worldPosition =
+        mul(
+            float4(
+                input.position,
+                1.0f),
+            model);
+
+    output.currentClip =
+        mul(
+            worldPosition,
+            viewProjection);
+
+    output.previousClip =
+        mul(
+            worldPosition,
+            previousViewProjection);
+
+    output.position =
+        output.currentClip;
+
+    return output;
+}
+
+float2 MotionPS(
+    MotionOutput input) : SV_TARGET
+{
+    const float2 currentNdc =
+        input.currentClip.xy /
+        max(
+            abs(input.currentClip.w),
+            0.0001f);
+
+    const float2 previousNdc =
+        input.previousClip.xy /
+        max(
+            abs(input.previousClip.w),
+            0.0001f);
+
+    return
+        (currentNdc -
+         previousNdc) *
+        float2(
+            0.5f,
+            -0.5f);
+}
+)";
+
+    ShaderDesc motionVsDesc;
+    motionVsDesc.stage =
+        ShaderStage::Vertex;
+    motionVsDesc.source =
+        motionShaderSource;
+    motionVsDesc.entryPoint =
+        "MotionVS";
+
+    ShaderDesc motionPsDesc;
+    motionPsDesc.stage =
+        ShaderStage::Pixel;
+    motionPsDesc.source =
+        motionShaderSource;
+    motionPsDesc.entryPoint =
+        "MotionPS";
+
+    auto motionVertexShader =
+        backend->CreateShader(
+            motionVsDesc);
+
+    auto motionPixelShader =
+        backend->CreateShader(
+            motionPsDesc);
+
+    if (!motionVertexShader ||
+        !motionPixelShader) {
+        return false;
+    }
+
+    GraphicsPipelineDesc
+        motionPipelineDesc;
+
+    motionPipelineDesc.vertexShader =
+        motionVertexShader.get();
+
+    motionPipelineDesc.pixelShader =
+        motionPixelShader.get();
+
+    motionPipelineDesc.vertexStride =
+        sizeof(
+            Hamun::Assets::MeshVertex);
+
+    motionPipelineDesc.constantBufferCount =
+        1;
+
+    motionPipelineDesc.renderTargetFormat =
+        TextureFormat::RG16_Float;
+
+    motionPipelineDesc.depthFormat =
+        TextureFormat::R32_Float;
+
+    motionPipelineDesc.depthTest =
+        true;
+
+    motionPipelineDesc.vertexAttributes = {
+        {
+            VertexSemantic::Position,
+            0,
+            VertexFormat::Float3,
+            static_cast<std::uint32_t>(
+                offsetof(
+                    Hamun::Assets::MeshVertex,
+                    position))
+        }
+    };
+
+    auto motionPipeline =
+        backend->CreateGraphicsPipeline(
+            motionPipelineDesc);
+
+    if (!motionPipeline)
         return false;
 
     const std::string presentShaderSource = R"(
@@ -1305,6 +1451,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             constants.viewProjection =
                 viewProjection;
 
+            constants.previousViewProjection =
+                temporalFrame.previousViewProjection;
+
             for (std::size_t colorIndex = 0;
                  colorIndex < 4;
                  ++colorIndex) {
@@ -1379,6 +1528,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
         submission.sceneDepthTarget =
             temporalGpuResources.SceneDepth();
+
+        submission.motionPipeline =
+            motionPipeline.get();
+
+        submission.motionTarget =
+            temporalGpuResources.MotionVectors();
 
         submission.presentPipeline =
             presentPipeline.get();

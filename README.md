@@ -542,7 +542,8 @@ Win32 Window
 - [x] Temporal GPU allocation foundation (history color, motion, depth, reactive, upscaled color)
 - [x] Offscreen HDR/depth target allocation foundation (DX12/DX11)
 - [x] HDR offscreen scene + tonemap/present pass
-- [ ] Motion-vector render target / temporal GPU resources
+- [x] Motion-vector render target / pass foundation
+- [ ] Full temporal GPU resource/barrier integration
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
 - [x] Structured storage/UAV buffer foundation (DX12/DX11)
 - [x] Compute storage texture/UAV foundation (DX12/DX11, HDR/motion formats)

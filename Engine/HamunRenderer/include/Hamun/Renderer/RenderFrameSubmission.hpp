@@ -18,6 +18,9 @@ struct RenderFrameSubmission {
     RHI::ITexture* sceneColorTarget = nullptr;
     RHI::ITexture* sceneDepthTarget = nullptr;
 
+    RHI::IPipeline* motionPipeline = nullptr;
+    RHI::ITexture* motionTarget = nullptr;
+
     RHI::IPipeline* presentPipeline = nullptr;
     RHI::ISampler* presentSampler = nullptr;
     RHI::ITexture* presentSource = nullptr;
