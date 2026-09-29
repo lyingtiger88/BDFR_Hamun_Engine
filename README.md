@@ -652,6 +652,21 @@ Win32 Window
 
 ---
 
+## Download Latest Windows Test
+
+The current portable Windows technical test is **Hamun Test v0.3**.
+
+Release asset:
+
+```text
+Hamun-Test-v0.3-Windows-x64.zip
+```
+
+Open the repository's **Releases** section and download the v0.3 Windows x64 ZIP.
+The package contains separate DX12 and DX11 launchers.
+
+---
+
 ## Initial Test v0.1 Status
 
 The first interactive desktop test path is now functional:

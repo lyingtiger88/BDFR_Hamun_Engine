@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   desktop:
     strategy:
@@ -45,6 +48,33 @@ jobs:
           path: dist/Hamun_Test_v0.3/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Create v0.3 ZIP
+        if: runner.os == 'Windows' && github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $Zip = "dist/Hamun-Test-v0.3-Windows-x64.zip"
+          if (Test-Path $Zip) {
+            Remove-Item $Zip -Force
+          }
+          Compress-Archive -Path "dist/Hamun_Test_v0.3/*" -DestinationPath $Zip -Force
+
+      - name: Publish v0.3 GitHub Release
+        if: runner.os == 'Windows' && github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Tag = "v0.3"
+          $Zip = "dist/Hamun-Test-v0.3-Windows-x64.zip"
+
+          gh release view $Tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $Tag $Zip --clobber --repo "${{ github.repository }}"
+          }
+          else {
+            gh release create $Tag $Zip --repo "${{ github.repository }}" --title "Hamun Test v0.3" --notes "Windows x64 technical test build. Includes DX12 and DX11 launchers, RenderGraph foundation, Material/MaterialInstance foundation, and GPU capability reporting."
+          }
 
       - name: Run sandbox (Linux foundation smoke test)
         if: runner.os == 'Linux'
