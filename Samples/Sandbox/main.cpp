@@ -4,6 +4,7 @@
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Platform/Window.hpp>
 #include <Hamun/Renderer/FreeCamera.hpp>
+#include <Hamun/Renderer/Material.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
@@ -156,14 +157,13 @@ struct RenderMesh {
     std::unique_ptr<Hamun::RHI::ITexture>
         texture;
 
-    std::uint32_t indexCount = 0;
+    std::shared_ptr<Hamun::Renderer::Material>
+        baseMaterial;
 
-    std::array<float, 4> baseColorFactor{
-        1.0f,
-        1.0f,
-        1.0f,
-        1.0f
-    };
+    std::shared_ptr<Hamun::Renderer::MaterialInstance>
+        material;
+
+    std::uint32_t indexCount = 0;
 };
 
 std::filesystem::path DefaultScenePath()
@@ -281,12 +281,29 @@ bool BuildRenderMeshes(
             static_cast<std::uint32_t>(
                 mesh.indices.size());
 
-        renderMesh.baseColorFactor =
+        Hamun::Renderer::MaterialDesc materialDesc;
+        materialDesc.name =
+            mesh.name.empty()
+                ? "GltfMaterial"
+                : mesh.name + "_Material";
+        materialDesc.parameters.baseColorFactor =
             mesh.baseColorFactor;
+        materialDesc.parameters.metallic = 0.0f;
+        materialDesc.parameters.roughness = 0.8f;
+        materialDesc.depthTest = true;
+
+        renderMesh.baseMaterial =
+            std::make_shared<Hamun::Renderer::Material>(
+                std::move(materialDesc));
+
+        renderMesh.material =
+            std::make_shared<Hamun::Renderer::MaterialInstance>(
+                renderMesh.baseMaterial);
 
         if (!renderMesh.vertexBuffer ||
             !renderMesh.indexBuffer ||
-            !renderMesh.texture) {
+            !renderMesh.texture ||
+            !renderMesh.material) {
             return false;
         }
 
@@ -682,6 +699,8 @@ float4 PSMain(PSInput input) : SV_TARGET
                 constants.baseColorFactor[
                     colorIndex] =
                     renderMesh
+                        .material
+                        ->Parameters()
                         .baseColorFactor[
                             colorIndex];
             }
