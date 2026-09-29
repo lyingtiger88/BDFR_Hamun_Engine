@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
@@ -50,7 +51,7 @@ jobs:
           retention-days: 30
 
       - name: Create v0.3 ZIP
-        if: runner.os == 'Windows' && github.event_name == 'push'
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $Zip = "dist/Hamun-Test-v0.3-Windows-x64.zip"
@@ -60,7 +61,7 @@ jobs:
           Compress-Archive -Path "dist/Hamun_Test_v0.3/*" -DestinationPath $Zip -Force
 
       - name: Publish v0.3 GitHub Release
-        if: runner.os == 'Windows' && github.event_name == 'push'
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
