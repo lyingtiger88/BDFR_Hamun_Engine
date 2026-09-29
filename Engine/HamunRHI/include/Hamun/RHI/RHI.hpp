@@ -20,7 +20,8 @@ enum class BufferUsage : std::uint8_t {
     Vertex,
     Index,
     Constant,
-    Upload
+    Upload,
+    Storage
 };
 
 enum class IndexType : std::uint8_t {
@@ -89,6 +90,9 @@ struct BufferDesc {
     std::uint64_t size = 0;
     BufferUsage usage = BufferUsage::Vertex;
     const void* initialData = nullptr;
+
+    // Required for structured storage buffers.
+    std::uint32_t stride = 0;
 };
 
 struct TextureDesc {
@@ -141,6 +145,7 @@ struct GraphicsPipelineDesc {
 
 struct ComputePipelineDesc {
     IShader* computeShader = nullptr;
+    std::uint32_t storageBufferCount = 0;
 };
 
 class IBuffer {
@@ -202,6 +207,14 @@ public:
     virtual void SetComputePipeline(IPipeline& pipeline)
     {
         (void)pipeline;
+    }
+
+    virtual void SetComputeStorageBuffer(
+        std::uint32_t slot,
+        IBuffer& buffer)
+    {
+        (void)slot;
+        (void)buffer;
     }
 
     virtual void Dispatch(

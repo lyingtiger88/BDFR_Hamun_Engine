@@ -536,6 +536,7 @@ Win32 Window
 - [x] Temporal frame-state foundation (history + Halton jitter + render/display sizing)
 - [ ] Motion-vector render target / temporal GPU resources
 - [x] Compute pipeline foundation (DX12/DX11 + RenderGraph ComputePass)
+- [x] Structured storage/UAV buffer foundation (DX12/DX11)
 - [ ] AMD FSR integration
 - [x] Hair runtime interface / capability planner
 - [ ] AMD TressFX SDK integration
@@ -724,7 +725,7 @@ The portable Windows package is now automated through GitHub Actions.
 - [x] Windows DX12/DX11 CI regression validation
 - [x] Linux foundation CI validation
 - [x] Android APK CI validation
-- [ ] Local Windows v0.3 validation by project owner
+- [x] Local Windows v0.3 validation by project owner
 
 Next renderer work: move actual scene draw submission into renderer-owned
 passes, then add frame resources / compute support required by PBR, FSR and
@@ -747,7 +748,7 @@ TressFX.
 - [x] Card-hair fallback selection
 - [x] DX12/DX11 Windows smoke tests
 - [x] Linux and Android CI validation
-- [ ] Project-owner local Windows v0.4 validation
+- [x] Project-owner local Windows v0.4 validation
 
 The external AMD FSR and TressFX SDKs remain intentionally unbundled in v0.4.
 The engine-side prerequisites are now in place for the next integration phase.

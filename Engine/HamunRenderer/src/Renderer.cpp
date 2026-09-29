@@ -64,6 +64,15 @@ bool Renderer::RenderFrame(
             dispatch.groupCountZ == 0) {
             return false;
         }
+
+        for (RHI::IBuffer* buffer :
+             dispatch.storageBuffers) {
+            if (!buffer ||
+                buffer->Usage() !=
+                    RHI::BufferUsage::Storage) {
+                return false;
+            }
+        }
     }
 
     RHI::ICommandList* commands =

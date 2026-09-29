@@ -38,6 +38,23 @@ void ComputePass::Execute()
         commands_->SetComputePipeline(
             *dispatch.pipeline);
 
+        for (std::uint32_t slot = 0;
+             slot <
+                static_cast<std::uint32_t>(
+                    dispatch.storageBuffers.size());
+             ++slot) {
+            RHI::IBuffer* buffer =
+                dispatch.storageBuffers[
+                    slot];
+
+            if (!buffer)
+                continue;
+
+            commands_->SetComputeStorageBuffer(
+                slot,
+                *buffer);
+        }
+
         commands_->Dispatch(
             dispatch.groupCountX,
             dispatch.groupCountY,

@@ -632,9 +632,11 @@ class D3D12ComputePipeline final : public IPipeline {
 public:
     D3D12ComputePipeline(
         ComPtr<ID3D12RootSignature> rootSignature,
-        ComPtr<ID3D12PipelineState> pipelineState)
+        ComPtr<ID3D12PipelineState> pipelineState,
+        std::uint32_t storageBufferCount)
         : rootSignature_(std::move(rootSignature))
         , pipelineState_(std::move(pipelineState))
+        , storageBufferCount_(storageBufferCount)
     {
     }
 
@@ -648,9 +650,15 @@ public:
         return pipelineState_.Get();
     }
 
+    std::uint32_t StorageBufferCount() const noexcept
+    {
+        return storageBufferCount_;
+    }
+
 private:
     ComPtr<ID3D12RootSignature> rootSignature_;
     ComPtr<ID3D12PipelineState> pipelineState_;
+    std::uint32_t storageBufferCount_ = 0;
 };
 
 class D3D12SwapChainView final : public ISwapChain {
@@ -711,6 +719,7 @@ public:
         viewport_ = viewport;
         scissor_ = scissor;
         currentPipeline_ = nullptr;
+        currentComputePipeline_ = nullptr;
         renderPassOpen_ = false;
 
         ID3D12DescriptorHeap* heaps[] = {
@@ -732,11 +741,39 @@ public:
         if (!native || !commandList_)
             return;
 
+        currentComputePipeline_ =
+            native;
+
         commandList_->SetComputeRootSignature(
             native->RootSignature());
 
         commandList_->SetPipelineState(
             native->PipelineState());
+    }
+
+    void SetComputeStorageBuffer(
+        std::uint32_t slot,
+        IBuffer& buffer) override
+    {
+        auto* native =
+            dynamic_cast<D3D12Buffer*>(
+                &buffer);
+
+        if (!native ||
+            !commandList_ ||
+            !currentComputePipeline_ ||
+            buffer.Usage() != BufferUsage::Storage ||
+            slot >=
+                currentComputePipeline_
+                    ->StorageBufferCount()) {
+            return;
+        }
+
+        commandList_
+            ->SetComputeRootUnorderedAccessView(
+                slot,
+                native->Native()
+                    ->GetGPUVirtualAddress());
     }
 
     void Dispatch(
@@ -925,6 +962,7 @@ private:
     D3D12_VIEWPORT viewport_{};
     D3D12_RECT scissor_{};
     D3D12Pipeline* currentPipeline_ = nullptr;
+    D3D12ComputePipeline* currentComputePipeline_ = nullptr;
     bool renderPassOpen_ = false;
 };
 
@@ -1118,16 +1156,43 @@ std::unique_ptr<IBuffer> D3D12Backend::CreateBuffer(
             ? AlignConstantBufferSize(desc.size)
             : desc.size;
 
-    const auto heapProps = UploadHeapProperties();
-    const auto resourceDesc = BufferResourceDesc(allocationSize);
+    const bool storage =
+        desc.usage == BufferUsage::Storage;
+
+    if (storage &&
+        (desc.stride == 0 ||
+         allocationSize % desc.stride != 0 ||
+         desc.initialData != nullptr)) {
+        Core::Log(
+            Core::LogLevel::Error,
+            "D3D12 storage buffers require a valid stride and no direct initialData upload yet.");
+        return {};
+    }
+
+    const D3D12_HEAP_PROPERTIES heapProps =
+        storage
+            ? DefaultHeapProperties()
+            : UploadHeapProperties();
+
+    auto resourceDesc =
+        BufferResourceDesc(
+            allocationSize);
+
+    if (storage) {
+        resourceDesc.Flags =
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
 
     ComPtr<ID3D12Resource> resource;
+
     if (Failed(
             device_->CreateCommittedResource(
                 &heapProps,
                 D3D12_HEAP_FLAG_NONE,
                 &resourceDesc,
-                D3D12_RESOURCE_STATE_GENERIC_READ,
+                storage
+                    ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                    : D3D12_RESOURCE_STATE_GENERIC_READ,
                 nullptr,
                 IID_PPV_ARGS(&resource)),
             "CreateCommittedResource(buffer)"))
@@ -1504,7 +1569,39 @@ D3D12Backend::CreateComputePipeline(
         return {};
     }
 
+    std::vector<D3D12_ROOT_PARAMETER>
+        rootParameters(
+            desc.storageBufferCount);
+
+    for (std::uint32_t i = 0;
+         i < desc.storageBufferCount;
+         ++i) {
+        auto& parameter =
+            rootParameters[i];
+
+        parameter.ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_UAV;
+
+        parameter.Descriptor.ShaderRegister =
+            i;
+
+        parameter.Descriptor.RegisterSpace =
+            0;
+
+        parameter.ShaderVisibility =
+            D3D12_SHADER_VISIBILITY_ALL;
+    }
+
     D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+    rootDesc.NumParameters =
+        static_cast<UINT>(
+            rootParameters.size());
+
+    rootDesc.pParameters =
+        rootParameters.empty()
+            ? nullptr
+            : rootParameters.data();
+
     rootDesc.Flags =
         D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
@@ -1569,7 +1666,8 @@ D3D12Backend::CreateComputePipeline(
         std::make_unique<
             D3D12ComputePipeline>(
                 std::move(rootSignature),
-                std::move(pipelineState));
+                std::move(pipelineState),
+                desc.storageBufferCount);
 #else
     (void)desc;
     return {};

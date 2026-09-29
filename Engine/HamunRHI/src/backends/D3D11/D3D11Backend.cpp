@@ -152,11 +152,13 @@ class D3D11Buffer final : public IBuffer {
 public:
     D3D11Buffer(
         ComPtr<ID3D11Buffer> buffer,
+        ComPtr<ID3D11UnorderedAccessView> uav,
         ID3D11DeviceContext* context,
         std::uint64_t size,
         BufferUsage usage,
         bool dynamic)
         : buffer_(std::move(buffer))
+        , uav_(std::move(uav))
         , context_(context)
         , size_(size)
         , usage_(usage)
@@ -220,8 +222,14 @@ public:
         return buffer_.Get();
     }
 
+    ID3D11UnorderedAccessView* Uav() const noexcept
+    {
+        return uav_.Get();
+    }
+
 private:
     ComPtr<ID3D11Buffer> buffer_;
+    ComPtr<ID3D11UnorderedAccessView> uav_;
     ID3D11DeviceContext* context_ = nullptr;
     std::uint64_t size_ = 0;
     BufferUsage usage_ = BufferUsage::Vertex;
@@ -463,6 +471,33 @@ public:
             native->ComputeShader(),
             nullptr,
             0);
+    }
+
+    void SetComputeStorageBuffer(
+        std::uint32_t slot,
+        IBuffer& buffer) override
+    {
+        auto* native =
+            dynamic_cast<D3D11Buffer*>(
+                &buffer);
+
+        if (!native ||
+            !native->Uav() ||
+            !context_ ||
+            buffer.Usage() != BufferUsage::Storage) {
+            return;
+        }
+
+        ID3D11UnorderedAccessView*
+            views[] = {
+                native->Uav()
+            };
+
+        context_->CSSetUnorderedAccessViews(
+            slot,
+            1,
+            views,
+            nullptr);
     }
 
     void Dispatch(
@@ -956,6 +991,23 @@ std::unique_ptr<IBuffer> D3D11Backend::CreateBuffer(
         case BufferUsage::Upload:
             nativeDesc.BindFlags = 0;
             break;
+
+        case BufferUsage::Storage:
+            if (desc.stride == 0 ||
+                byteWidth % desc.stride != 0) {
+                return {};
+            }
+
+            nativeDesc.BindFlags =
+                D3D11_BIND_UNORDERED_ACCESS |
+                D3D11_BIND_SHADER_RESOURCE;
+
+            nativeDesc.MiscFlags =
+                D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+
+            nativeDesc.StructureByteStride =
+                desc.stride;
+            break;
     }
 
     D3D11_SUBRESOURCE_DATA initial{};
@@ -976,9 +1028,41 @@ std::unique_ptr<IBuffer> D3D11Backend::CreateBuffer(
             "CreateBuffer"))
         return {};
 
+    ComPtr<ID3D11UnorderedAccessView>
+        uav;
+
+    if (desc.usage ==
+        BufferUsage::Storage) {
+        D3D11_UNORDERED_ACCESS_VIEW_DESC
+            uavDesc{};
+
+        uavDesc.Format =
+            DXGI_FORMAT_UNKNOWN;
+
+        uavDesc.ViewDimension =
+            D3D11_UAV_DIMENSION_BUFFER;
+
+        uavDesc.Buffer.FirstElement =
+            0;
+
+        uavDesc.Buffer.NumElements =
+            byteWidth /
+            desc.stride;
+
+        if (Failed(
+                device_->CreateUnorderedAccessView(
+                    buffer.Get(),
+                    &uavDesc,
+                    &uav),
+                "CreateUnorderedAccessView(storage buffer)")) {
+            return {};
+        }
+    }
+
     auto result =
         std::make_unique<D3D11Buffer>(
             std::move(buffer),
+            std::move(uav),
             context_.Get(),
             byteWidth,
             desc.usage,

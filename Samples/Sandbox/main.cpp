@@ -851,14 +851,21 @@ float4 PSMain(PSInput input) : SV_TARGET
     std::unique_ptr<IPipeline>
         computePipeline;
 
+    std::unique_ptr<IBuffer>
+        computeStorageBuffer;
+
     std::vector<Hamun::Renderer::ComputeDispatch>
         computeDispatches;
 
     if (backend->Caps().compute) {
         const std::string computeSource = R"(
+RWStructuredBuffer<uint> Output : register(u0);
+
 [numthreads(1, 1, 1)]
 void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    Output[dispatchThreadId.x] =
+        0x48414D55u;
 }
 )";
 
@@ -883,6 +890,9 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         computePipelineDesc.computeShader =
             computeShader.get();
 
+        computePipelineDesc.storageBufferCount =
+            1;
+
         computePipeline =
             backend->CreateComputePipeline(
                 computePipelineDesc);
@@ -890,11 +900,29 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         if (!computePipeline)
             return false;
 
+        BufferDesc storageDesc;
+        storageDesc.size =
+            sizeof(std::uint32_t) * 4u;
+        storageDesc.usage =
+            BufferUsage::Storage;
+        storageDesc.stride =
+            sizeof(std::uint32_t);
+
+        computeStorageBuffer =
+            backend->CreateBuffer(
+                storageDesc);
+
+        if (!computeStorageBuffer)
+            return false;
+
         Hamun::Renderer::ComputeDispatch
             dispatch;
 
         dispatch.pipeline =
             computePipeline.get();
+
+        dispatch.storageBuffers.push_back(
+            computeStorageBuffer.get());
 
         dispatch.groupCountX = 1;
         dispatch.groupCountY = 1;
@@ -904,7 +932,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             dispatch);
 
         std::cout
-            << "Compute smoke dispatch: enabled\n";
+            << "Compute UAV smoke dispatch: enabled\n";
     }
 
     Hamun::Renderer::Renderer sceneRenderer;
