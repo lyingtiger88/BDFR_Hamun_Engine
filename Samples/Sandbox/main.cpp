@@ -618,6 +618,52 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (!pipeline)
         return false;
 
+    Hamun::Renderer::Renderer sceneRenderer;
+
+    std::vector<Hamun::Renderer::IndexedDraw>
+        sceneDraws;
+
+    sceneDraws.reserve(
+        asset->instances.size());
+
+    for (std::size_t instanceIndex = 0;
+         instanceIndex < asset->instances.size();
+         ++instanceIndex) {
+        const auto& instance =
+            asset->instances[
+                instanceIndex];
+
+        if (instance.meshIndex >=
+            renderMeshes.size()) {
+            return false;
+        }
+
+        const RenderMesh& renderMesh =
+            renderMeshes[
+                instance.meshIndex];
+
+        Hamun::Renderer::IndexedDraw draw;
+        draw.vertexBuffer =
+            renderMesh.vertexBuffer.get();
+        draw.indexBuffer =
+            renderMesh.indexBuffer.get();
+        draw.constantBuffer =
+            constantBuffers[
+                instanceIndex].get();
+        draw.texture =
+            renderMesh.texture.get();
+        draw.vertexStride =
+            sizeof(
+                Hamun::Assets::MeshVertex);
+        draw.indexCount =
+            renderMesh.indexCount;
+        draw.indexType =
+            IndexType::UInt32;
+
+        sceneDraws.push_back(
+            draw);
+    }
+
     Hamun::Renderer::FreeCamera camera;
 
     std::cout
@@ -719,65 +765,13 @@ float4 PSMain(PSInput input) : SV_TARGET
             }
         }
 
-        ICommandList* commands =
-            backend->BeginFrame();
-
-        if (!commands)
+        if (!sceneRenderer.RenderFrame(
+                *backend,
+                *pipeline,
+                *sampler,
+                sceneDraws)) {
             return false;
-
-        commands->BeginRenderPass(
-            {
-                0.018f,
-                0.035f,
-                0.060f,
-                1.0f
-            });
-
-        commands->SetPipeline(
-            *pipeline);
-
-        commands->SetSampler(
-            0,
-            *sampler);
-
-        for (std::size_t instanceIndex = 0;
-             instanceIndex <
-                asset->instances.size();
-             ++instanceIndex) {
-            const auto& instance =
-                asset->instances[
-                    instanceIndex];
-
-            const RenderMesh& renderMesh =
-                renderMeshes[
-                    instance.meshIndex];
-
-            commands->SetConstantBuffer(
-                0,
-                *constantBuffers[
-                    instanceIndex]);
-
-            commands->SetTexture(
-                0,
-                *renderMesh.texture);
-
-            commands->SetVertexBuffer(
-                *renderMesh.vertexBuffer,
-                sizeof(
-                    Hamun::Assets::MeshVertex));
-
-            commands->SetIndexBuffer(
-                *renderMesh.indexBuffer,
-                IndexType::UInt32);
-
-            commands->DrawIndexed(
-                renderMesh.indexCount);
         }
-
-        commands->EndRenderPass();
-
-        if (!backend->SubmitFrame())
-            return false;
 
         ++renderedFrames;
         ++fpsFrames;

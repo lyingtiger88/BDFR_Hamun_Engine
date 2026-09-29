@@ -1,6 +1,7 @@
 add_library(HamunRenderer STATIC
   src/FreeCamera.cpp
   src/Material.cpp
+  src/MainRenderPass.cpp
   src/RenderGraph.cpp
   src/Renderer.cpp
 )
@@ -10,5 +11,6 @@ target_link_libraries(HamunRenderer
   PUBLIC
     HamunCore
     HamunPlatform
+    HamunRHI
 )
 target_compile_features(HamunRenderer PUBLIC cxx_std_20)
