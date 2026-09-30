@@ -111,13 +111,27 @@ jobs:
           Copy-Item "$Signed/amd_fidelityfx_loader_dx12.dll" $Bin
           Copy-Item "$Signed/amd_fidelityfx_upscaler_dx12.dll" $Bin
 
-      - name: Run live FSR DX12 smoke test
+      - name: Report hosted-runner display adapter
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID,AdapterRAM,DriverVersion | Format-List
+
+      - name: Validate FSR runtime, provider and context
+        shell: pwsh
+        run: ./build-fsr/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test --fsr-context-only
+
+      - name: Attempt live FSR DX12 dispatch on hosted runner
+        continue-on-error: true
         shell: pwsh
         run: ./build-fsr/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
 
       - name: Package FSR DX12 development test
         shell: pwsh
-        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build-fsr -Configuration Release -Version FSR-Dev -OutputDir dist/Hamun_FSR_DX12_Dev
+        run: |
+          ./Tools/Package/PackageWindows.ps1 -BuildDir build-fsr -Configuration Release -Version FSR-Dev -OutputDir dist/Hamun_FSR_DX12_Dev
+          $Signed = "ThirdParty/FidelityFX-SDK/Kits/FidelityFX/signedbin"
+          Copy-Item "$Signed/amd_fidelityfx_loader_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
+          Copy-Item "$Signed/amd_fidelityfx_upscaler_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
 
       - name: Upload FSR DX12 development test
         uses: actions/upload-artifact@v4

@@ -394,6 +394,7 @@ bool BuildRenderMeshes(
 bool RunAssetScene(
     Hamun::Platform::IWindow& window,
     bool smokeTest,
+    bool fsrContextOnly,
     Hamun::RHI::BackendType backendType)
 {
     using namespace Hamun::RHI;
@@ -591,6 +592,26 @@ bool RunAssetScene(
         << " | "
         << fsrRuntime.Status().detail
         << '\n';
+
+    const bool fsrLiveDispatch =
+        fsrEnabled &&
+        !fsrContextOnly;
+
+    if (fsrContextOnly) {
+        if (!fsrEnabled) {
+            Hamun::Core::Log(
+                Hamun::Core::LogLevel::Error,
+                "FSR context-only validation requested, but context creation failed.");
+
+            return false;
+        }
+
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Info,
+            std::string(
+                "FSR context-only validation passed; provider=") +
+                fsrRuntime.Status().selectedProviderName);
+    }
 
     std::vector<RenderMesh>
         renderMeshes;
@@ -1575,8 +1596,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
     Hamun::Core::Log(
         Hamun::Core::LogLevel::Info,
         std::string(
-            "FSR trace: entering frame loop; enabled=") +
-            (fsrEnabled ? "yes" : "no"));
+            "FSR trace: entering frame loop; live-dispatch=") +
+            (fsrLiveDispatch ? "yes" : "no"));
 
     while (window.PumpEvents()) {
         if (window.IsKeyDown(
@@ -1735,7 +1756,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             }
         }
 
-        if (fsrEnabled) {
+        if (fsrLiveDispatch) {
             Hamun::Upscale::FsrDispatchDesc
                 fsrDispatch;
 
@@ -1815,7 +1836,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             temporalGpuResources.MotionVectors();
 
         submission.postSceneProcessor =
-            fsrEnabled
+            fsrLiveDispatch
                 ? &fsrRuntime
                 : nullptr;
 
@@ -1826,7 +1847,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             presentSampler.get();
 
         submission.presentSource =
-            fsrEnabled
+            fsrLiveDispatch
                 ? temporalGpuResources.UpscaledColor()
                 : temporalGpuResources.SceneColor();
 
@@ -1839,7 +1860,7 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
         if (!sceneRenderer.RenderFrame(
                 *backend,
                 submission)) {
-            if (fsrEnabled) {
+            if (fsrLiveDispatch) {
                 Hamun::Core::Log(
                     Hamun::Core::LogLevel::Error,
                     std::string(
@@ -1910,6 +1931,12 @@ int main(
             argv,
             "--smoke-test");
 
+    const bool fsrContextOnly =
+        HasArgument(
+            argc,
+            argv,
+            "--fsr-context-only");
+
 #if defined(_WIN32)
     const bool useD3D11 =
         HasArgument(
@@ -1942,11 +1969,13 @@ int main(
     if (!RunAssetScene(
             *window,
             smokeTest,
+            fsrContextOnly,
             backendType)) {
         return 3;
     }
 #else
     (void)smokeTest;
+    (void)fsrContextOnly;
 
     Log(
         LogLevel::Info,
