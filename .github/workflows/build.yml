@@ -127,6 +127,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  tressfx-sdk:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch AMD TressFX v4.1.0
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ThirdParty | Out-Null
+          git clone --depth 1 --branch v4.1.0 https://github.com/GPUOpen-Effects/TressFX.git ThirdParty/TressFX
+
+      - name: Configure TressFX-enabled Hamun build
+        shell: pwsh
+        run: |
+          $Sdk = (Resolve-Path "ThirdParty/TressFX").Path
+          cmake -S . -B build-tressfx -A x64 -DHAMUN_BUILD_SANDBOX=ON -DHAMUN_WITH_TRESSFX_SDK=ON "-DHAMUN_TRESSFX_SDK_DIR=$Sdk"
+
+      - name: Build TressFX-enabled Hamun
+        run: cmake --build build-tressfx --config Release
+
+      - name: Run TressFX bridge smoke test
+        run: ./build-tressfx/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
+
   android:
     runs-on: ubuntu-latest
 

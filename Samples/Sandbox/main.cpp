@@ -4,6 +4,7 @@
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Hair/HairRuntime.hpp>
 #include <Hamun/Hair/TfxAsset.hpp>
+#include <Hamun/Hair/TressFxSdkBridge.hpp>
 #include <Hamun/Platform/Window.hpp>
 #include <Hamun/Renderer/ComputeDispatch.hpp>
 #include <Hamun/Renderer/FrameResources.hpp>
@@ -465,6 +466,10 @@ bool RunAssetScene(
             Hamun::Hair::BuildRuntimePlan(
                 *backend);
 
+    const Hamun::Hair::TressFxSdkInfo
+        tressFxSdkInfo =
+            Hamun::Hair::QueryTressFxSdkInfo();
+
     std::cout
         << "Hair runtime: "
         << Hamun::Hair::HairRenderPathName(
@@ -478,7 +483,19 @@ bool RunAssetScene(
         << (
             hairPlan.apiSupportedByTressFX
                 ? "yes"
-                : "no")
+                : "no");
+
+    if (tressFxSdkInfo.compiled) {
+        std::cout
+            << " | headers="
+            << tressFxSdkInfo.headerMajor
+            << "."
+            << tressFxSdkInfo.headerMinor
+            << "."
+            << tressFxSdkInfo.headerPatch;
+    }
+
+    std::cout
         << '\n';
 
     Hamun::Upscale::FsrRuntime

@@ -1,4 +1,5 @@
 #include <Hamun/Hair/HairRuntime.hpp>
+#include <Hamun/Hair/TressFxSdkBridge.hpp>
 
 namespace Hamun::Hair {
 
@@ -25,11 +26,8 @@ HairRuntimePlan BuildRuntimePlan(
         backend.Type() ==
             RHI::BackendType::Vulkan;
 
-#if defined(HAMUN_WITH_TRESSFX_SDK)
-    plan.tressfxSdkLinked = true;
-#else
-    plan.tressfxSdkLinked = false;
-#endif
+    plan.tressfxSdkLinked =
+        QueryTressFxSdkInfo().compiled;
 
     plan.strandSimulationAvailable =
         plan.apiSupportedByTressFX &&
