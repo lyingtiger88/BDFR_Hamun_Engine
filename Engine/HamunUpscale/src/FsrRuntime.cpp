@@ -428,11 +428,36 @@ bool FsrRuntime::Execute(
         false;
 
 #if defined(HAMUN_WITH_FSR_SDK) && defined(_WIN32)
-    if (!ReadyForDispatch() ||
-        !dispatchConfigured_ ||
-        !commands.NativeCommandListHandle()) {
+    if (!ReadyForDispatch()) {
         status_.detail =
-            "FSR dispatch skipped because the context or frame resources are incomplete.";
+            "FSR dispatch skipped: runtime context is not ready.";
+
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+
+        return false;
+    }
+
+    if (!dispatchConfigured_) {
+        status_.detail =
+            "FSR dispatch skipped: required frame resources are incomplete.";
+
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+
+        return false;
+    }
+
+    if (!commands.NativeCommandListHandle()) {
+        status_.detail =
+            "FSR dispatch skipped: native DX12 command list handle is unavailable.";
+
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+
         return false;
     }
 
@@ -461,6 +486,11 @@ bool FsrRuntime::Execute(
     if (!dispatch) {
         status_.detail =
             "ffxDispatch entry point is unavailable.";
+
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+
         return false;
     }
 
@@ -545,7 +575,9 @@ bool FsrRuntime::Execute(
         dispatchDesc_.sharpness;
 
     nativeDesc.frameTimeDelta =
-        dispatchDesc_.frameTimeDeltaMs;
+        std::max(
+            dispatchDesc_.frameTimeDeltaMs,
+            1.0f);
 
     nativeDesc.preExposure =
         dispatchDesc_.preExposure;
