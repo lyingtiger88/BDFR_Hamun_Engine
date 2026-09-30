@@ -1,4 +1,5 @@
 #include <Hamun/Upscale/FsrRuntime.hpp>
+#include <Hamun/Core/Log.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,80 @@
 
 namespace Hamun::Upscale {
 namespace {
+
+#if defined(HAMUN_WITH_FSR_SDK) && defined(_WIN32)
+void FsrMessageCallback(
+    uint32_t type,
+    const wchar_t* message)
+{
+    if (!message)
+        return;
+
+    const int length =
+        WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            message,
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+
+    if (length <= 1)
+        return;
+
+    std::string utf8(
+        static_cast<std::size_t>(length),
+        '\0');
+
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        message,
+        -1,
+        utf8.data(),
+        length,
+        nullptr,
+        nullptr);
+
+    if (!utf8.empty() &&
+        utf8.back() == '\0') {
+        utf8.pop_back();
+    }
+
+    Core::Log(
+        type == FFX_API_MESSAGE_TYPE_ERROR
+            ? Core::LogLevel::Error
+            : Core::LogLevel::Warning,
+        std::string("FSR: ") + utf8);
+}
+
+const char* FsrReturnCodeName(
+    ffxReturnCode_t code) noexcept
+{
+    switch (code) {
+        case FFX_API_RETURN_OK:
+            return "OK";
+        case FFX_API_RETURN_ERROR:
+            return "ERROR";
+        case FFX_API_RETURN_ERROR_UNKNOWN_DESCTYPE:
+            return "UNKNOWN_DESCTYPE";
+        case FFX_API_RETURN_ERROR_RUNTIME_ERROR:
+            return "RUNTIME_ERROR";
+        case FFX_API_RETURN_NO_PROVIDER:
+            return "NO_PROVIDER";
+        case FFX_API_RETURN_ERROR_MEMORY:
+            return "MEMORY";
+        case FFX_API_RETURN_ERROR_PARAMETER:
+            return "PARAMETER";
+        case FFX_API_RETURN_PROVIDER_NO_SUPPORT_NEW_DESCTYPE:
+            return "PROVIDER_NO_SUPPORT_NEW_DESCTYPE";
+        default:
+            return "UNKNOWN";
+    }
+}
+#endif
 
 #if defined(_WIN32)
 
@@ -274,6 +349,9 @@ bool FsrRuntime::CreateContext(
     if (desc.enableDebugChecking) {
         impl_->upscaleDesc.flags |=
             FFX_UPSCALE_ENABLE_DEBUG_CHECKING;
+
+        impl_->upscaleDesc.fpMessage =
+            FsrMessageCallback;
     }
 
     ffxContext nativeContext =
@@ -288,7 +366,17 @@ bool FsrRuntime::CreateContext(
     if (result !=
         FFX_API_RETURN_OK) {
         status_.detail =
-            "ffxCreateContext returned an error.";
+            std::string(
+                "ffxCreateContext failed: ") +
+            FsrReturnCodeName(result) +
+            " (" +
+            std::to_string(result) +
+            ").";
+
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+
         return false;
     }
 
@@ -483,6 +571,9 @@ bool FsrRuntime::Execute(
     nativeDesc.cameraNear =
         dispatchDesc_.cameraNear;
 
+    nativeDesc.viewSpaceToMetersFactor =
+        dispatchDesc_.viewSpaceToMetersFactor;
+
     nativeDesc.flags =
         0;
 
@@ -502,7 +593,20 @@ bool FsrRuntime::Execute(
     status_.detail =
         status_.lastDispatchSucceeded
             ? "AMD FSR upscale dispatch completed."
-            : "AMD FSR upscale dispatch returned an error.";
+            : (
+                std::string(
+                    "ffxDispatch failed: ") +
+                FsrReturnCodeName(result) +
+                " (" +
+                std::to_string(result) +
+                ")."
+              );
+
+    if (!status_.lastDispatchSucceeded) {
+        Core::Log(
+            Core::LogLevel::Error,
+            status_.detail);
+    }
 
     return
         status_.lastDispatchSucceeded;

@@ -54,6 +54,7 @@ struct FsrDispatchDesc {
     float cameraNear = 0.1f;
     float cameraFar = 1000.0f;
     float cameraFovYRadians = 1.0471975512f;
+    float viewSpaceToMetersFactor = 1.0f;
 
     bool reset = false;
     bool enableSharpening = true;
