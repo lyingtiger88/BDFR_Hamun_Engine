@@ -1716,8 +1716,8 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
                 *backend,
                 submission)) {
             if (fsrEnabled) {
-                Core::Log(
-                    Core::LogLevel::Error,
+                Hamun::Core::Log(
+                    Hamun::Core::LogLevel::Error,
                     std::string(
                         "FSR frame failed: ") +
                         fsrRuntime.Status().detail);
