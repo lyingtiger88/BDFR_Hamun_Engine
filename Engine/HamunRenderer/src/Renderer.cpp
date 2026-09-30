@@ -9,6 +9,7 @@
 #include <Hamun/RHI/RHI.hpp>
 
 #include <memory>
+#include <string>
 
 namespace Hamun::Renderer {
 namespace {
