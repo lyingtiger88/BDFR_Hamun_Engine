@@ -1,5 +1,6 @@
 add_library(HamunHair STATIC
   src/HairRuntime.cpp
+  src/TfxAsset.cpp
 )
 
 target_include_directories(HamunHair PUBLIC include)

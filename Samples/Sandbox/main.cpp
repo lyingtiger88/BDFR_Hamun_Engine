@@ -3,6 +3,7 @@
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Hair/HairRuntime.hpp>
+#include <Hamun/Hair/TfxAsset.hpp>
 #include <Hamun/Platform/Window.hpp>
 #include <Hamun/Renderer/ComputeDispatch.hpp>
 #include <Hamun/Renderer/FrameResources.hpp>
@@ -19,6 +20,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -115,6 +117,55 @@ void RunFoundationSelfTests()
     std::cout
         << "RenderGraph bootstrap: passes="
         << renderer.RenderPassCount()
+        << '\n';
+
+    struct TestTfxHeader {
+        float version;
+        std::uint32_t strandCount;
+        std::uint32_t verticesPerStrand;
+        std::uint32_t positionOffset;
+        std::uint32_t strandUvOffset;
+        std::uint32_t vertexUvOffset;
+        std::uint32_t strandThicknessOffset;
+        std::uint32_t vertexColorOffset;
+        std::uint32_t reserved[32];
+    };
+
+    static_assert(
+        sizeof(TestTfxHeader) == 160);
+
+    TestTfxHeader tfxHeader{};
+    tfxHeader.version = 4.0f;
+    tfxHeader.strandCount = 1;
+    tfxHeader.verticesPerStrand = 4;
+    tfxHeader.positionOffset =
+        sizeof(TestTfxHeader);
+    tfxHeader.strandUvOffset =
+        tfxHeader.positionOffset +
+        4u *
+        sizeof(std::array<float, 4>);
+
+    std::vector<std::byte> tfxBytes(
+        tfxHeader.strandUvOffset +
+        sizeof(std::array<float, 2>));
+
+    std::memcpy(
+        tfxBytes.data(),
+        &tfxHeader,
+        sizeof(tfxHeader));
+
+    const auto testHair =
+        Hamun::Hair::LoadTfx(
+            tfxBytes);
+
+    std::cout
+        << "TressFX asset parser: "
+        << (
+            testHair &&
+            testHair->guideStrandCount == 1 &&
+            testHair->VertexCount() == 4
+                ? "ready"
+                : "failed")
         << '\n';
 }
 
