@@ -1,4 +1,5 @@
 add_library(HamunHair STATIC
+  src/HairGpuResources.cpp
   src/HairRuntime.cpp
   src/TfxAsset.cpp
   src/TressFxSdkBridge.cpp

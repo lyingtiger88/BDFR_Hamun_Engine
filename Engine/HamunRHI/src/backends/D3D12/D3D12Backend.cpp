@@ -1393,6 +1393,11 @@ private:
         std::uint32_t height);
     bool CreateFrameResources();
     bool CreateShaderVisibleHeaps();
+    bool UploadBuffer(
+        ID3D12Resource* buffer,
+        const void* data,
+        std::uint64_t size,
+        D3D12_RESOURCE_STATES finalState);
     bool UploadTexture(
         ID3D12Resource* texture,
         const TextureDesc& desc);
@@ -1549,11 +1554,10 @@ std::unique_ptr<IBuffer> D3D12Backend::CreateBuffer(
 
     if (storage &&
         (desc.stride == 0 ||
-         allocationSize % desc.stride != 0 ||
-         desc.initialData != nullptr)) {
+         allocationSize % desc.stride != 0)) {
         Core::Log(
             Core::LogLevel::Error,
-            "D3D12 storage buffers require a valid stride and no direct initialData upload yet.");
+            "D3D12 storage buffers require a valid structured-buffer stride.");
         return {};
     }
 
@@ -1579,21 +1583,40 @@ std::unique_ptr<IBuffer> D3D12Backend::CreateBuffer(
                 D3D12_HEAP_FLAG_NONE,
                 &resourceDesc,
                 storage
-                    ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                    ? (
+                        desc.initialData
+                            ? D3D12_RESOURCE_STATE_COPY_DEST
+                            : D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                      )
                     : D3D12_RESOURCE_STATE_GENERIC_READ,
                 nullptr,
                 IID_PPV_ARGS(&resource)),
             "CreateCommittedResource(buffer)"))
         return {};
 
+    if (storage &&
+        desc.initialData &&
+        !UploadBuffer(
+            resource.Get(),
+            desc.initialData,
+            desc.size,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS)) {
+        return {};
+    }
+
     auto result = std::make_unique<D3D12Buffer>(
         std::move(resource),
         allocationSize,
         desc.usage);
 
-    if (desc.initialData &&
-        !result->Update(desc.initialData, desc.size, 0))
+    if (!storage &&
+        desc.initialData &&
+        !result->Update(
+            desc.initialData,
+            desc.size,
+            0)) {
         return {};
+    }
 
     return result;
 #else
@@ -2829,6 +2852,128 @@ bool D3D12Backend::CreateShaderVisibleHeaps()
     samplerDescriptorSize_ =
         device_->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    return true;
+}
+
+bool D3D12Backend::UploadBuffer(
+    ID3D12Resource* buffer,
+    const void* data,
+    std::uint64_t size,
+    D3D12_RESOURCE_STATES finalState)
+{
+    if (!buffer ||
+        !data ||
+        size == 0) {
+        return false;
+    }
+
+    const D3D12_HEAP_PROPERTIES uploadHeap =
+        UploadHeapProperties();
+
+    const D3D12_RESOURCE_DESC uploadDesc =
+        BufferResourceDesc(
+            size);
+
+    ComPtr<ID3D12Resource> upload;
+
+    if (Failed(
+            device_->CreateCommittedResource(
+                &uploadHeap,
+                D3D12_HEAP_FLAG_NONE,
+                &uploadDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ,
+                nullptr,
+                IID_PPV_ARGS(&upload)),
+            "Create buffer upload resource")) {
+        return false;
+    }
+
+    void* mapped = nullptr;
+    const D3D12_RANGE readRange{
+        0,
+        0
+    };
+
+    if (Failed(
+            upload->Map(
+                0,
+                &readRange,
+                &mapped),
+            "Map buffer upload resource")) {
+        return false;
+    }
+
+    std::memcpy(
+        mapped,
+        data,
+        static_cast<std::size_t>(
+            size));
+
+    upload->Unmap(
+        0,
+        nullptr);
+
+    ComPtr<ID3D12CommandAllocator>
+        allocator;
+
+    ComPtr<ID3D12GraphicsCommandList>
+        list;
+
+    if (Failed(
+            device_->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                IID_PPV_ARGS(&allocator)),
+            "Create buffer upload allocator")) {
+        return false;
+    }
+
+    if (Failed(
+            device_->CreateCommandList(
+                0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                allocator.Get(),
+                nullptr,
+                IID_PPV_ARGS(&list)),
+            "Create buffer upload command list")) {
+        return false;
+    }
+
+    list->CopyBufferRegion(
+        buffer,
+        0,
+        upload.Get(),
+        0,
+        size);
+
+    if (finalState !=
+        D3D12_RESOURCE_STATE_COPY_DEST) {
+        const auto barrier =
+            TransitionBarrier(
+                buffer,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+                finalState);
+
+        list->ResourceBarrier(
+            1,
+            &barrier);
+    }
+
+    if (Failed(
+            list->Close(),
+            "Close buffer upload command list")) {
+        return false;
+    }
+
+    ID3D12CommandList* lists[] = {
+        list.Get()
+    };
+
+    queue_->ExecuteCommandLists(
+        1,
+        lists);
+
+    WaitForGpu();
 
     return true;
 }

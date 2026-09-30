@@ -2,6 +2,7 @@
 #include <Hamun/Assets/ImageAsset.hpp>
 #include <Hamun/Core/Log.hpp>
 #include <Hamun/Graph/VM.hpp>
+#include <Hamun/Hair/HairGpuResources.hpp>
 #include <Hamun/Hair/HairRuntime.hpp>
 #include <Hamun/Hair/TfxAsset.hpp>
 #include <Hamun/Hair/TressFxSdkBridge.hpp>
@@ -460,6 +461,54 @@ bool RunAssetScene(
     std::cout
         << BuildCapabilityReport(
             *backend);
+
+    Hamun::Hair::TfxAsset
+        hairGpuSmokeAsset;
+
+    hairGpuSmokeAsset.version =
+        4.0f;
+
+    hairGpuSmokeAsset.guideStrandCount =
+        1;
+
+    hairGpuSmokeAsset.verticesPerStrand =
+        4;
+
+    hairGpuSmokeAsset.positions = {
+        std::array<float, 4>{
+            0.0f, 0.0f, 0.0f, 1.0f},
+        std::array<float, 4>{
+            0.0f, 0.1f, 0.0f, 1.0f},
+        std::array<float, 4>{
+            0.0f, 0.2f, 0.0f, 1.0f},
+        std::array<float, 4>{
+            0.0f, 0.3f, 0.0f, 1.0f}
+    };
+
+    hairGpuSmokeAsset.strandUv = {
+        std::array<float, 2>{
+            0.5f, 0.5f}
+    };
+
+    Hamun::Hair::HairGpuResources
+        hairGpuResources;
+
+    if (!hairGpuResources.Initialize(
+            *backend,
+            hairGpuSmokeAsset)) {
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Error,
+            "Hair GPU storage upload smoke test failed.");
+
+        return false;
+    }
+
+    std::cout
+        << "Hair GPU resources: vertices="
+        << hairGpuResources.VertexCount()
+        << " strands="
+        << hairGpuResources.StrandCount()
+        << '\n';
 
     const Hamun::Hair::HairRuntimePlan
         hairPlan =
