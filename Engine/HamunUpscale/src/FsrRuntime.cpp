@@ -2,6 +2,7 @@
 #include <Hamun/Core/Log.hpp>
 
 #include <algorithm>
+#include <vector>
 #include <cmath>
 #include <utility>
 
@@ -139,6 +140,7 @@ struct FsrRuntime::Impl {
 #if defined(HAMUN_WITH_FSR_SDK) && defined(_WIN32)
     ffxCreateBackendDX12Desc backendDesc{};
     ffxCreateContextDescUpscaleVersion versionDesc{};
+    ffxOverrideVersion overrideDesc{};
     ffxCreateContextDescUpscale upscaleDesc{};
 #endif
 };
@@ -285,7 +287,12 @@ bool FsrRuntime::CreateContext(
 
     impl_->backendDesc = {};
     impl_->versionDesc = {};
+    impl_->overrideDesc = {};
     impl_->upscaleDesc = {};
+
+    status_.availableProviderCount = 0;
+    status_.selectedProviderId = 0;
+    status_.selectedProviderName.clear();
 
     impl_->backendDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
@@ -302,6 +309,157 @@ bool FsrRuntime::CreateContext(
 
     impl_->versionDesc.header.pNext =
         &impl_->backendDesc.header;
+
+    auto query =
+        reinterpret_cast<
+            PfnFfxQuery>(
+                queryFn_);
+
+    if (query) {
+        ffxQueryDescGetVersions
+            versionQuery{};
+
+        versionQuery.header.type =
+            FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+
+        versionQuery.createDescType =
+            FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+
+        versionQuery.device =
+            backend.NativeDeviceHandle();
+
+        std::uint64_t providerCount = 0;
+        versionQuery.outputCount =
+            &providerCount;
+
+        const ffxReturnCode_t countResult =
+            query(
+                nullptr,
+                &versionQuery.header);
+
+        if (countResult ==
+                FFX_API_RETURN_OK &&
+            providerCount > 0) {
+            std::vector<std::uint64_t>
+                providerIds(
+                    static_cast<std::size_t>(
+                        providerCount));
+
+            std::vector<const char*>
+                providerNames(
+                    static_cast<std::size_t>(
+                        providerCount),
+                    nullptr);
+
+            versionQuery.versionIds =
+                providerIds.data();
+
+            versionQuery.versionNames =
+                providerNames.data();
+
+            const ffxReturnCode_t listResult =
+                query(
+                    nullptr,
+                    &versionQuery.header);
+
+            if (listResult ==
+                FFX_API_RETURN_OK) {
+                status_.availableProviderCount =
+                    providerCount;
+
+                std::size_t selectedIndex = 0;
+                bool selectedPortable = false;
+
+                for (std::size_t i = 0;
+                     i < providerNames.size();
+                     ++i) {
+                    const std::string name =
+                        providerNames[i]
+                            ? providerNames[i]
+                            : "";
+
+                    Core::Log(
+                        Core::LogLevel::Info,
+                        std::string(
+                            "FSR provider[") +
+                            std::to_string(i) +
+                            "]: " +
+                            name +
+                            " id=" +
+                            std::to_string(
+                                providerIds[i]));
+
+                    if (!selectedPortable &&
+                        name.find("3.1") !=
+                            std::string::npos) {
+                        selectedIndex = i;
+                        selectedPortable = true;
+                    }
+                }
+
+                if (!selectedPortable) {
+                    for (std::size_t i = 0;
+                         i < providerNames.size();
+                         ++i) {
+                        const std::string name =
+                            providerNames[i]
+                                ? providerNames[i]
+                                : "";
+
+                        if (name.find("2.3") !=
+                            std::string::npos) {
+                            selectedIndex = i;
+                            selectedPortable = true;
+                            break;
+                        }
+                    }
+                }
+
+                impl_->overrideDesc.header.type =
+                    FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+
+                impl_->overrideDesc.versionId =
+                    providerIds[selectedIndex];
+
+                impl_->overrideDesc.header.pNext =
+                    &impl_->backendDesc.header;
+
+                impl_->versionDesc.header.pNext =
+                    &impl_->overrideDesc.header;
+
+                status_.selectedProviderId =
+                    providerIds[selectedIndex];
+
+                status_.selectedProviderName =
+                    providerNames[selectedIndex]
+                        ? providerNames[selectedIndex]
+                        : "";
+
+                Core::Log(
+                    Core::LogLevel::Info,
+                    std::string(
+                        "FSR provider selected: ") +
+                        status_.selectedProviderName);
+            } else {
+                Core::Log(
+                    Core::LogLevel::Warning,
+                    std::string(
+                        "FSR provider list query failed: ") +
+                        FsrReturnCodeName(
+                            listResult));
+            }
+        } else {
+            Core::Log(
+                Core::LogLevel::Warning,
+                std::string(
+                    "FSR provider count query returned ") +
+                    FsrReturnCodeName(
+                        countResult) +
+                    " with count=" +
+                    std::to_string(
+                        providerCount));
+        }
+    }
 
     impl_->upscaleDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
@@ -386,8 +544,53 @@ bool FsrRuntime::CreateContext(
     status_.contextCreated =
         true;
 
+    if (queryFn_) {
+        auto query =
+            reinterpret_cast<
+                PfnFfxQuery>(
+                    queryFn_);
+
+        ffxQueryGetProviderVersion
+            providerVersion{};
+
+        providerVersion.header.type =
+            FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
+
+        ffxContext contextValue =
+            context_;
+
+        const ffxReturnCode_t providerResult =
+            query(
+                &contextValue,
+                &providerVersion.header);
+
+        if (providerResult ==
+            FFX_API_RETURN_OK) {
+            status_.selectedProviderId =
+                providerVersion.versionId;
+
+            status_.selectedProviderName =
+                providerVersion.versionName
+                    ? providerVersion.versionName
+                    : "";
+
+            Core::Log(
+                Core::LogLevel::Info,
+                std::string(
+                    "FSR context provider: ") +
+                    status_.selectedProviderName);
+        }
+    }
+
     status_.detail =
-        "AMD FSR upscaler context created.";
+        status_.selectedProviderName.empty()
+            ? "AMD FSR upscaler context created."
+            : (
+                std::string(
+                    "AMD FSR upscaler context created with provider ") +
+                status_.selectedProviderName +
+                "."
+              );
 
     return true;
 #else

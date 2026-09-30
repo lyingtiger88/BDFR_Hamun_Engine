@@ -71,6 +71,10 @@ struct FsrRuntimeStatus {
     bool contextCreated = false;
     bool lastDispatchSucceeded = false;
 
+    std::uint64_t availableProviderCount = 0;
+    std::uint64_t selectedProviderId = 0;
+    std::string selectedProviderName;
+
     std::string detail;
 };
 
