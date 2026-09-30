@@ -1,6 +1,7 @@
 add_library(HamunHair STATIC
   src/HairGpuResources.cpp
   src/HairRuntime.cpp
+  src/HairSimulation.cpp
   src/TfxAsset.cpp
   src/TressFxSdkBridge.cpp
 )
@@ -11,6 +12,7 @@ target_link_libraries(HamunHair
   PUBLIC
     HamunCore
     HamunRHI
+    HamunRenderer
 )
 
 target_compile_features(HamunHair PUBLIC cxx_std_20)

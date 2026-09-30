@@ -4,6 +4,7 @@
 #include <Hamun/Graph/VM.hpp>
 #include <Hamun/Hair/HairGpuResources.hpp>
 #include <Hamun/Hair/HairRuntime.hpp>
+#include <Hamun/Hair/HairSimulation.hpp>
 #include <Hamun/Hair/TfxAsset.hpp>
 #include <Hamun/Hair/TressFxSdkBridge.hpp>
 #include <Hamun/Platform/Window.hpp>
@@ -509,6 +510,20 @@ bool RunAssetScene(
         << " strands="
         << hairGpuResources.StrandCount()
         << '\n';
+
+    Hamun::Hair::HairSimulation
+        hairSimulation;
+
+    if (backend->Caps().compute &&
+        !hairSimulation.Initialize(
+            *backend,
+            hairGpuResources)) {
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Error,
+            "Hair simulation compute initialization failed.");
+
+        return false;
+    }
 
     const Hamun::Hair::HairRuntimePlan
         hairPlan =
@@ -1471,6 +1486,17 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
         std::cout
             << "Compute buffer + texture UAV smoke dispatch: enabled\n";
+    }
+
+    if (hairSimulation.IsReady()) {
+        computeDispatches.push_back(
+            hairSimulation.BuildDispatch());
+
+        std::cout
+            << "Hair simulation compute pass: enabled"
+            << " | vertices="
+            << hairGpuResources.VertexCount()
+            << '\n';
     }
 
     Hamun::Core::Log(
