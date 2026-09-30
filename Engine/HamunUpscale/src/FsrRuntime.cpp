@@ -301,15 +301,6 @@ bool FsrRuntime::CreateContext(
         static_cast<ID3D12Device*>(
             backend.NativeDeviceHandle());
 
-    impl_->versionDesc.header.type =
-        FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION;
-
-    impl_->versionDesc.version =
-        FFX_UPSCALER_VERSION;
-
-    impl_->versionDesc.header.pNext =
-        &impl_->backendDesc.header;
-
     auto query =
         reinterpret_cast<
             PfnFfxQuery>(
@@ -424,9 +415,6 @@ bool FsrRuntime::CreateContext(
                 impl_->overrideDesc.header.pNext =
                     &impl_->backendDesc.header;
 
-                impl_->versionDesc.header.pNext =
-                    &impl_->overrideDesc.header;
-
                 status_.selectedProviderId =
                     providerIds[selectedIndex];
 
@@ -464,8 +452,31 @@ bool FsrRuntime::CreateContext(
     impl_->upscaleDesc.header.type =
         FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
 
-    impl_->upscaleDesc.header.pNext =
-        &impl_->versionDesc.header;
+    if (status_.selectedProviderId != 0) {
+        impl_->upscaleDesc.header.pNext =
+            &impl_->overrideDesc.header;
+
+        const bool selectedFsr4 =
+            status_.selectedProviderName.find("4.") !=
+            std::string::npos;
+
+        if (selectedFsr4) {
+            impl_->versionDesc.header.type =
+                FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION;
+
+            impl_->versionDesc.version =
+                FFX_UPSCALER_VERSION;
+
+            impl_->versionDesc.header.pNext =
+                &impl_->overrideDesc.header;
+
+            impl_->upscaleDesc.header.pNext =
+                &impl_->versionDesc.header;
+        }
+    } else {
+        impl_->upscaleDesc.header.pNext =
+            &impl_->backendDesc.header;
+    }
 
     impl_->upscaleDesc.maxRenderSize.width =
         desc.dimensions.renderWidth;
