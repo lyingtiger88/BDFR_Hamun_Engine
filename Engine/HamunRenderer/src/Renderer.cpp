@@ -5,11 +5,26 @@
 #include <Hamun/Renderer/PresentPass.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 
+#include <Hamun/Core/Log.hpp>
 #include <Hamun/RHI/RHI.hpp>
 
 #include <memory>
 
 namespace Hamun::Renderer {
+namespace {
+
+bool RenderFailure(
+    const char* reason)
+{
+    Core::Log(
+        Core::LogLevel::Error,
+        std::string("Renderer::RenderFrame: ") +
+            reason);
+
+    return false;
+}
+
+} // namespace
 
 Renderer::Renderer()
     : computePass_(
@@ -61,7 +76,8 @@ bool Renderer::RenderFrame(
 {
     if (!submission.scenePipeline ||
         !submission.sceneSampler) {
-        return false;
+        return RenderFailure(
+            "scene pipeline or sampler is missing");
     }
 
     for (const IndexedDraw& draw :
@@ -72,7 +88,8 @@ bool Renderer::RenderFrame(
             !draw.texture ||
             draw.vertexStride == 0 ||
             draw.indexCount == 0) {
-            return false;
+            return RenderFailure(
+                "indexed draw contains an invalid resource or zero-sized draw");
         }
     }
 
@@ -82,7 +99,8 @@ bool Renderer::RenderFrame(
             dispatch.groupCountX == 0 ||
             dispatch.groupCountY == 0 ||
             dispatch.groupCountZ == 0) {
-            return false;
+            return RenderFailure(
+                "compute dispatch is invalid");
         }
 
         for (RHI::IBuffer* buffer :
@@ -90,7 +108,8 @@ bool Renderer::RenderFrame(
             if (!buffer ||
                 buffer->Usage() !=
                     RHI::BufferUsage::Storage) {
-                return false;
+                return RenderFailure(
+                    "compute storage buffer is null or not a Storage buffer");
             }
         }
 
@@ -100,7 +119,8 @@ bool Renderer::RenderFrame(
                 !RHI::HasTextureUsage(
                     texture->Usage(),
                     RHI::TextureUsage::Storage)) {
-                return false;
+                return RenderFailure(
+                    "compute storage texture is null or lacks Storage usage");
             }
         }
     }
@@ -109,14 +129,16 @@ bool Renderer::RenderFrame(
         !RHI::HasTextureUsage(
             submission.sceneColorTarget->Usage(),
             RHI::TextureUsage::RenderTarget)) {
-        return false;
+        return RenderFailure(
+            "scene color target lacks RenderTarget usage");
     }
 
     if (submission.sceneDepthTarget &&
         !RHI::HasTextureUsage(
             submission.sceneDepthTarget->Usage(),
             RHI::TextureUsage::DepthStencil)) {
-        return false;
+        return RenderFailure(
+            "scene depth target lacks DepthStencil usage");
     }
 
     const bool motionRequested =
@@ -129,7 +151,8 @@ bool Renderer::RenderFrame(
          !RHI::HasTextureUsage(
              submission.motionTarget->Usage(),
              RHI::TextureUsage::RenderTarget))) {
-        return false;
+        return RenderFailure(
+            "motion-vector pass resources are incomplete or invalid");
     }
 
     const bool presentRequested =
@@ -144,14 +167,16 @@ bool Renderer::RenderFrame(
          !RHI::HasTextureUsage(
              submission.presentSource->Usage(),
              RHI::TextureUsage::ShaderResource))) {
-        return false;
+        return RenderFailure(
+            "present resources are incomplete or source lacks ShaderResource usage");
     }
 
     RHI::ICommandList* commands =
         backend.BeginFrame();
 
     if (!commands)
-        return false;
+        return RenderFailure(
+            "backend BeginFrame returned no command list");
 
     computePass_->Configure(
         *commands,
@@ -199,9 +224,17 @@ bool Renderer::RenderFrame(
     const bool submitted =
         backend.SubmitFrame();
 
-    return
-        submitted &&
-        postSceneSucceeded;
+    if (!postSceneSucceeded) {
+        return RenderFailure(
+            "post-scene processor reported failure");
+    }
+
+    if (!submitted) {
+        return RenderFailure(
+            "backend SubmitFrame failed");
+    }
+
+    return true;
 }
 
 } // namespace Hamun::Renderer
