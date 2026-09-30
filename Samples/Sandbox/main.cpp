@@ -501,10 +501,22 @@ bool RunAssetScene(
     Hamun::Upscale::FsrRuntime
         fsrRuntime;
 
+    Hamun::Core::Log(
+        Hamun::Core::LogLevel::Info,
+        "FSR trace: probing runtime.");
+
     const bool fsrRuntimeFound =
         fsrRuntime.Probe(
             *backend,
             Hamun::Platform::ExecutableDirectory());
+
+    Hamun::Core::Log(
+        Hamun::Core::LogLevel::Info,
+        std::string(
+            "FSR trace: probe completed; found=") +
+            (fsrRuntimeFound ? "yes" : "no") +
+            " detail=" +
+            fsrRuntime.Status().detail);
 
     std::cout
         << "FSR runtime: "
@@ -580,8 +592,15 @@ bool RunAssetScene(
     if (!temporalGpuResources.Initialize(
             *backend,
             temporalGpuDesc)) {
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Error,
+            "FSR trace: temporal GPU resource initialization failed.");
         return false;
     }
+
+    Hamun::Core::Log(
+        Hamun::Core::LogLevel::Info,
+        "FSR trace: temporal GPU resources ready.");
 
     bool fsrEnabled = false;
 
@@ -599,10 +618,24 @@ bool RunAssetScene(
             temporalGpuDesc.displayHeight
         };
 
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Info,
+            "FSR trace: creating context.");
+
         fsrEnabled =
             fsrRuntime.CreateContext(
                 *backend,
                 fsrContextDesc);
+
+        Hamun::Core::Log(
+            fsrEnabled
+                ? Hamun::Core::LogLevel::Info
+                : Hamun::Core::LogLevel::Error,
+            std::string(
+                "FSR trace: context result=") +
+                (fsrEnabled ? "enabled" : "failed") +
+                " detail=" +
+                fsrRuntime.Status().detail);
 
         std::cout
             << "FSR context: "
@@ -1391,6 +1424,10 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             << "Compute buffer + texture UAV smoke dispatch: enabled\n";
     }
 
+    Hamun::Core::Log(
+        Hamun::Core::LogLevel::Info,
+        "FSR trace: graphics/compute pipelines ready.");
+
     Hamun::Renderer::Renderer sceneRenderer;
 
     Hamun::Renderer::TemporalFrameState
@@ -1459,6 +1496,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     int renderedFrames = 0;
     int fpsFrames = 0;
+
+    Hamun::Core::Log(
+        Hamun::Core::LogLevel::Info,
+        std::string(
+            "FSR trace: entering frame loop; enabled=") +
+            (fsrEnabled ? "yes" : "no"));
 
     while (window.PumpEvents()) {
         if (window.IsKeyDown(
@@ -1711,6 +1754,12 @@ void CSMain(uint3 dispatchThreadId : SV_DispatchThreadID)
             fsrEnabled
                 ? temporalGpuResources.UpscaledColor()
                 : temporalGpuResources.SceneColor();
+
+        if (renderedFrames == 0) {
+            Hamun::Core::Log(
+                Hamun::Core::LogLevel::Info,
+                "FSR trace: submitting first frame.");
+        }
 
         if (!sceneRenderer.RenderFrame(
                 *backend,
