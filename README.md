@@ -805,7 +805,11 @@ the production template categories are still being decided.
 - [x] Responsive Outliner / Viewport / Inspector / Asset Browser shell layout
 - [x] Project metadata and top-level project asset listing
 - [x] Headless HamunEditor project-loading smoke test in Windows CI
-- [ ] Live renderer-backed editor viewport
+- [x] Live HamunRHI editor viewport foundation with DX12 -> DX11 fallback
+- [x] Embedded child-HWND viewport smoke test on both DX12 and DX11
+- [x] Shader/pipeline-driven editor grid rendered inside the viewport
+- [x] Debounced viewport swapchain rebuild after editor-panel resizing
+- [ ] HamunRenderer-backed scene/world viewport
 - [ ] Editable hierarchy / inspector data model
 - [ ] Full asset browser indexing and import workflow
 
@@ -851,7 +855,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place. The Windows toolchain now also includes a tested HamunEditor shell that opens generated `.hamunproject` projects and establishes the first editor workspace layout.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place. The Windows toolchain now includes a tested HamunEditor shell that opens generated `.hamunproject` projects plus a live embedded HamunRHI viewport. The editor viewport prefers DX12, falls back to DX11, renders a real shader/pipeline grid, rebuilds its swapchain after panel resizing, and is CI smoke-tested as a Win32 child-HWND render target on both backends.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 
