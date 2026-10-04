@@ -5,6 +5,7 @@ add_executable(HamunEditor WIN32
 target_compile_features(HamunEditor PRIVATE cxx_std_20)
 target_link_libraries(HamunEditor PRIVATE
   HamunProject
+  HamunRHI
   shell32
   comdlg32
 )

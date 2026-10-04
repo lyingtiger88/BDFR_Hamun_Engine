@@ -7,9 +7,11 @@
 #include <Hamun/Project/ProjectCreator.hpp>
 #include <Hamun/Project/ProjectFile.hpp>
 #include <Hamun/Project/TemplateCatalog.hpp>
+#include <Hamun/RHI/RHI.hpp>
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,6 +20,7 @@ namespace {
 
 constexpr int IdOpenProject = 2001;
 constexpr int IdExit = 2002;
+constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
 HWND g_outlinerHeader = nullptr;
@@ -32,6 +35,11 @@ HWND g_status = nullptr;
 
 std::optional<Hamun::Project::ProjectDescriptor>
     g_project;
+
+std::unique_ptr<Hamun::RHI::IBackend>
+    g_viewportBackend;
+
+bool g_viewportRenderFailed = false;
 
 std::filesystem::path ExecutableDirectory()
 {
@@ -265,6 +273,208 @@ void SetStatus(
     }
 }
 
+void ShutdownViewportBackend()
+{
+    if (g_viewportBackend) {
+        g_viewportBackend->Shutdown();
+        g_viewportBackend.reset();
+    }
+}
+
+bool InitializeViewportBackend()
+{
+    if (!g_viewport)
+        return false;
+
+    RECT rect{};
+    GetClientRect(
+        g_viewport,
+        &rect);
+
+    const auto width =
+        static_cast<std::uint32_t>(
+            std::max(
+                1L,
+                rect.right -
+                    rect.left));
+
+    const auto height =
+        static_cast<std::uint32_t>(
+            std::max(
+                1L,
+                rect.bottom -
+                    rect.top));
+
+    constexpr Hamun::RHI::BackendType
+        candidates[] = {
+            Hamun::RHI::BackendType::D3D12,
+            Hamun::RHI::BackendType::D3D11
+        };
+
+    ShutdownViewportBackend();
+
+    for (const auto type :
+         candidates) {
+        auto backend =
+            Hamun::RHI::CreateBackend(
+                type);
+
+        if (!backend)
+            continue;
+
+        Hamun::RHI::BackendCreateInfo
+            createInfo;
+
+        createInfo.nativeWindowHandle =
+            g_viewport;
+        createInfo.width =
+            width;
+        createInfo.height =
+            height;
+        createInfo.enableValidation =
+            false;
+
+        if (!backend->Initialize(
+                createInfo)) {
+            backend->Shutdown();
+            continue;
+        }
+
+        std::wstring label =
+            L"Viewport - ";
+
+        label +=
+            Utf8ToWide(
+                std::string(
+                    backend->Name()));
+
+        const auto& adapter =
+            backend->Adapter();
+
+        if (!adapter.name.empty()) {
+            label +=
+                L" - ";
+
+            label +=
+                Utf8ToWide(
+                    adapter.name);
+        }
+
+        SetWindowTextW(
+            g_viewportHeader,
+            label.c_str());
+
+        g_viewportBackend =
+            std::move(backend);
+
+        g_viewportRenderFailed =
+            false;
+
+        SetStatus(
+            L"Live editor viewport initialized.");
+
+        return true;
+    }
+
+    g_viewportRenderFailed =
+        true;
+
+    SetWindowTextW(
+        g_viewportHeader,
+        L"Viewport - unavailable");
+
+    SetStatus(
+        L"Could not initialize DX12 or DX11 for the editor viewport.");
+
+    return false;
+}
+
+void RenderViewportFrame()
+{
+    if (!g_viewportBackend ||
+        g_viewportRenderFailed) {
+        return;
+    }
+
+    auto* commands =
+        g_viewportBackend
+            ->BeginFrame();
+
+    if (!commands) {
+        g_viewportRenderFailed =
+            true;
+        SetStatus(
+            L"Editor viewport BeginFrame failed.");
+        return;
+    }
+
+    commands->BeginRenderPass(
+        {
+            0.035f,
+            0.050f,
+            0.075f,
+            1.0f
+        });
+
+    commands->EndRenderPass();
+
+    if (!g_viewportBackend
+            ->SubmitFrame()) {
+        g_viewportRenderFailed =
+            true;
+
+        SetStatus(
+            L"Editor viewport frame submission failed.");
+    }
+}
+
+LRESULT CALLBACK ViewportProc(
+    HWND window,
+    UINT message,
+    WPARAM wParam,
+    LPARAM lParam)
+{
+    switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            HDC dc =
+                BeginPaint(
+                    window,
+                    &paint);
+
+            if (!g_viewportBackend &&
+                dc) {
+                RECT rect{};
+                GetClientRect(
+                    window,
+                    &rect);
+
+                FillRect(
+                    dc,
+                    &rect,
+                    static_cast<HBRUSH>(
+                        GetStockObject(
+                            BLACK_BRUSH)));
+            }
+
+            EndPaint(
+                window,
+                &paint);
+
+            return 0;
+        }
+    }
+
+    return DefWindowProcW(
+        window,
+        message,
+        wParam,
+        lParam);
+}
+
 void AddListItem(
     HWND list,
     const std::wstring& text)
@@ -407,11 +617,6 @@ bool LoadProjectIntoEditor(
     SetWindowTextW(
         g_inspector,
         inspectorText.c_str());
-
-    SetWindowTextW(
-        g_viewport,
-        L"Viewport\r\n\r\nProject loaded successfully.\r\n"
-        L"Scene rendering inside the editor viewport is the next integration layer.");
 
     PopulateOutliner();
     PopulateAssets(
@@ -715,10 +920,10 @@ LRESULT CALLBACK WindowProc(
             g_viewport =
                 AddControl(
                     window,
-                    L"STATIC",
-                    L"Viewport\r\n\r\nOpen a Hamun project to begin.",
+                    L"HamunEditorViewportHost",
+                    L"",
                     WS_BORDER |
-                        SS_CENTER);
+                        WS_CLIPSIBLINGS);
 
             g_inspectorHeader =
                 AddControl(
@@ -791,6 +996,14 @@ LRESULT CALLBACK WindowProc(
                 window);
             return 0;
 
+        case WM_TIMER:
+            if (wParam ==
+                IdViewportTimer) {
+                RenderViewportFrame();
+                return 0;
+            }
+            break;
+
         case WM_GETMINMAXINFO: {
             auto* info =
                 reinterpret_cast<MINMAXINFO*>(
@@ -826,6 +1039,12 @@ LRESULT CALLBACK WindowProc(
         }
 
         case WM_DESTROY:
+            KillTimer(
+                window,
+                IdViewportTimer);
+
+            ShutdownViewportBackend();
+
             PostQuitMessage(0);
             return 0;
     }
@@ -854,6 +1073,30 @@ int WINAPI wWinMain(
     const auto startupProject =
         ProjectArgument();
 
+    const wchar_t* viewportClassName =
+        L"HamunEditorViewportHost";
+
+    WNDCLASSW viewportClass{};
+    viewportClass.lpfnWndProc =
+        ViewportProc;
+    viewportClass.hInstance =
+        instance;
+    viewportClass.hCursor =
+        LoadCursorW(
+            nullptr,
+            IDC_ARROW);
+    viewportClass.hbrBackground =
+        static_cast<HBRUSH>(
+            GetStockObject(
+                BLACK_BRUSH));
+    viewportClass.lpszClassName =
+        viewportClassName;
+
+    if (!RegisterClassW(
+            &viewportClass)) {
+        return 2;
+    }
+
     const wchar_t* className =
         L"HamunEditorWindow";
 
@@ -874,7 +1117,7 @@ int WINAPI wWinMain(
 
     if (!RegisterClassW(
             &windowClass)) {
-        return 2;
+        return 3;
     }
 
     HWND window =
@@ -893,7 +1136,7 @@ int WINAPI wWinMain(
             nullptr);
 
     if (!window)
-        return 3;
+        return 4;
 
     ShowWindow(
         window,
@@ -901,6 +1144,14 @@ int WINAPI wWinMain(
 
     UpdateWindow(
         window);
+
+    InitializeViewportBackend();
+
+    SetTimer(
+        window,
+        IdViewportTimer,
+        16,
+        nullptr);
 
     if (!startupProject.empty()) {
         LoadProjectIntoEditor(
