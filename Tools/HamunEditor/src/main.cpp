@@ -10,9 +10,12 @@
 #include <Hamun/RHI/RHI.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
+#include <iomanip>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,6 +23,9 @@ namespace {
 
 constexpr int IdOpenProject = 2001;
 constexpr int IdExit = 2002;
+constexpr int IdRendererAuto = 2101;
+constexpr int IdRendererD3D12 = 2102;
+constexpr int IdRendererD3D11 = 2103;
 constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
@@ -287,6 +293,24 @@ std::unique_ptr<Hamun::RHI::IBackend>
 
 ViewportRenderResources
     g_viewportResources;
+
+enum class ViewportBackendPreference {
+    Auto,
+    D3D12,
+    D3D11
+};
+
+ViewportBackendPreference
+    g_viewportBackendPreference =
+        ViewportBackendPreference::Auto;
+
+std::wstring
+    g_viewportBackendLabel;
+
+double g_viewportFps = 0.0;
+double g_viewportFrameTimeMs = 0.0;
+std::uint64_t g_viewportFpsFrameCount = 0;
+ULONGLONG g_viewportFpsWindowStart = 0;
 
 bool g_viewportRenderFailed = false;
 bool g_viewportResizePending = false;
@@ -700,6 +724,97 @@ void SetStatus(
     }
 }
 
+void UpdateViewportHeader()
+{
+    if (!g_viewportHeader)
+        return;
+
+    std::wostringstream text;
+
+    text
+        << g_viewportBackendLabel;
+
+    if (g_viewportFps > 0.0) {
+        text
+            << L" | FPS: "
+            << std::fixed
+            << std::setprecision(1)
+            << g_viewportFps
+            << L" | Frame: "
+            << std::setprecision(2)
+            << g_viewportFrameTimeMs
+            << L" ms";
+    } else {
+        text
+            << L" | FPS: -- | Frame: -- ms";
+    }
+
+    SetWindowTextW(
+        g_viewportHeader,
+        text.str().c_str());
+}
+
+void ResetViewportPerformanceStats()
+{
+    g_viewportFps =
+        0.0;
+
+    g_viewportFrameTimeMs =
+        0.0;
+
+    g_viewportFpsFrameCount =
+        0;
+
+    g_viewportFpsWindowStart =
+        GetTickCount64();
+
+    UpdateViewportHeader();
+}
+
+void RecordViewportFrame()
+{
+    ++g_viewportFpsFrameCount;
+
+    const ULONGLONG now =
+        GetTickCount64();
+
+    const ULONGLONG elapsed =
+        now -
+        g_viewportFpsWindowStart;
+
+    constexpr ULONGLONG
+        FpsSampleMilliseconds =
+            500;
+
+    if (elapsed <
+        FpsSampleMilliseconds) {
+        return;
+    }
+
+    if (elapsed > 0) {
+        g_viewportFps =
+            static_cast<double>(
+                g_viewportFpsFrameCount) *
+            1000.0 /
+            static_cast<double>(
+                elapsed);
+
+        g_viewportFrameTimeMs =
+            g_viewportFps > 0.0
+                ? 1000.0 /
+                    g_viewportFps
+                : 0.0;
+    }
+
+    g_viewportFpsFrameCount =
+        0;
+
+    g_viewportFpsWindowStart =
+        now;
+
+    UpdateViewportHeader();
+}
+
 void ShutdownViewportBackend()
 {
     g_viewportResources.Reset();
@@ -734,11 +849,29 @@ bool InitializeViewportBackend()
                 rect.bottom -
                     rect.top));
 
-    constexpr Hamun::RHI::BackendType
-        candidates[] = {
-            Hamun::RHI::BackendType::D3D12,
-            Hamun::RHI::BackendType::D3D11
-        };
+    std::vector<Hamun::RHI::BackendType>
+        candidates;
+
+    switch (g_viewportBackendPreference) {
+        case ViewportBackendPreference::D3D12:
+            candidates.push_back(
+                Hamun::RHI::BackendType::D3D12);
+            break;
+
+        case ViewportBackendPreference::D3D11:
+            candidates.push_back(
+                Hamun::RHI::BackendType::D3D11);
+            break;
+
+        case ViewportBackendPreference::Auto:
+        default:
+            candidates.push_back(
+                Hamun::RHI::BackendType::D3D12);
+
+            candidates.push_back(
+                Hamun::RHI::BackendType::D3D11);
+            break;
+    }
 
     ShutdownViewportBackend();
 
@@ -810,9 +943,8 @@ bool InitializeViewportBackend()
                 height) +
             L")";
 
-        SetWindowTextW(
-            g_viewportHeader,
-            label.c_str());
+        g_viewportBackendLabel =
+            std::move(label);
 
         g_viewportBackend =
             std::move(backend);
@@ -823,6 +955,8 @@ bool InitializeViewportBackend()
         g_viewportRenderFailed =
             false;
 
+        ResetViewportPerformanceStats();
+
         SetStatus(
             L"Live editor viewport initialized.");
 
@@ -832,9 +966,10 @@ bool InitializeViewportBackend()
     g_viewportRenderFailed =
         true;
 
-    SetWindowTextW(
-        g_viewportHeader,
-        L"Viewport - unavailable");
+    g_viewportBackendLabel =
+        L"Viewport - unavailable";
+
+    ResetViewportPerformanceStats();
 
     SetStatus(
         L"Could not initialize DX12 or DX11 for the editor viewport.");
@@ -956,7 +1091,11 @@ void RenderViewportFrame()
 
         SetStatus(
             L"Editor viewport frame submission failed.");
+
+        return;
     }
+
+    RecordViewportFrame();
 }
 
 LRESULT CALLBACK ViewportProc(
@@ -1397,6 +1536,35 @@ void CreateMainMenu(
             fileMenu),
         L"&File");
 
+    HMENU rendererMenu =
+        CreatePopupMenu();
+
+    AppendMenuW(
+        rendererMenu,
+        MF_STRING |
+            MF_CHECKED,
+        IdRendererAuto,
+        L"&Auto (DX12 -> DX11)");
+
+    AppendMenuW(
+        rendererMenu,
+        MF_STRING,
+        IdRendererD3D12,
+        L"DirectX &12");
+
+    AppendMenuW(
+        rendererMenu,
+        MF_STRING,
+        IdRendererD3D11,
+        L"DirectX &11");
+
+    AppendMenuW(
+        menu,
+        MF_POPUP,
+        reinterpret_cast<UINT_PTR>(
+            rendererMenu),
+        L"&Renderer");
+
     SetMenu(
         window,
         menu);
@@ -1559,6 +1727,36 @@ LRESULT CALLBACK WindowProc(
                 IdOpenProject) {
                 OpenProjectDialog(
                     window);
+                return 0;
+            }
+
+            if (id ==
+                IdRendererAuto ||
+                id ==
+                    IdRendererD3D12 ||
+                id ==
+                    IdRendererD3D11) {
+                if (id ==
+                    IdRendererD3D12) {
+                    g_viewportBackendPreference =
+                        ViewportBackendPreference::D3D12;
+                } else if (id ==
+                           IdRendererD3D11) {
+                    g_viewportBackendPreference =
+                        ViewportBackendPreference::D3D11;
+                } else {
+                    g_viewportBackendPreference =
+                        ViewportBackendPreference::Auto;
+                }
+
+                CheckMenuRadioItem(
+                    GetMenu(window),
+                    IdRendererAuto,
+                    IdRendererD3D11,
+                    id,
+                    MF_BYCOMMAND);
+
+                InitializeViewportBackend();
                 return 0;
             }
 
