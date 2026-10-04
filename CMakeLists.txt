@@ -12,6 +12,7 @@ endif()
 
 option(HAMUN_BUILD_SANDBOX "Build Hamun Engine sandbox" ON)
 option(HAMUN_BUILD_LAUNCHER "Build Hamun project launcher" ${WIN32})
+option(HAMUN_BUILD_EDITOR "Build Hamun editor shell" ${WIN32})
 option(HAMUN_BUILD_ANDROID_GAME "Build Hamun Android game bootstrap" OFF)
 option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend" ${WIN32})
 option(HAMUN_ENABLE_D3D11 "Enable Direct3D 11 compatibility backend" ${WIN32})
@@ -44,4 +45,8 @@ endif()
 
 if(HAMUN_BUILD_LAUNCHER AND WIN32)
   add_subdirectory(Tools/HamunLauncher)
+endif()
+
+if(HAMUN_BUILD_EDITOR AND WIN32)
+  add_subdirectory(Tools/HamunEditor)
 endif()

@@ -1,5 +1,6 @@
 add_library(HamunProject STATIC
   src/ProjectCreator.cpp
+  src/ProjectFile.cpp
   src/TemplateCatalog.cpp
 )
 

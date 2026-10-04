@@ -32,6 +32,10 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Tools/HamunLauncher/Release/HamunLauncher.exe --template-smoke-test
 
+      - name: Validate HamunEditor project loading
+        if: runner.os == 'Windows'
+        run: ./build/Tools/HamunEditor/Release/HamunEditor.exe --editor-smoke-test
+
       - name: Run sandbox (Windows DX12 smoke test)
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test

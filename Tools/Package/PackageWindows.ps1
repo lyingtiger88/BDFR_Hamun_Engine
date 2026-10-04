@@ -57,6 +57,18 @@ foreach ($Candidate in $LauncherCandidates) {
 if ($LauncherExe) {
     Copy-Item $LauncherExe $PackageDir
 
+    $EditorCandidates = @(
+        (Join-Path $BuildRoot "Tools/HamunEditor/$Configuration/HamunEditor.exe"),
+        (Join-Path $BuildRoot "Tools/HamunEditor/HamunEditor.exe")
+    )
+
+    foreach ($EditorCandidate in $EditorCandidates) {
+        if (Test-Path $EditorCandidate) {
+            Copy-Item $EditorCandidate $PackageDir
+            break
+        }
+    }
+
     $LauncherTemplates = Join-Path (Split-Path $LauncherExe -Parent) "Templates"
     if (Test-Path $LauncherTemplates) {
         Copy-Item $LauncherTemplates (Join-Path $PackageDir "Templates") -Recurse
@@ -105,6 +117,11 @@ BDFR Hamun Engine - Test $Version
 
 Project Launcher:
   Double-click Run_Launcher.bat to create a project from an installed template.
+  When HamunEditor.exe is present, newly created projects open directly in the editor shell.
+
+Editor:
+  HamunEditor.exe can open a Project.hamunproject file directly.
+  The current editor shell includes the first Outliner, Viewport, Inspector and Asset Browser layout.
 
 Recommended renderer test:
   Double-click Run_DX12.bat
@@ -121,6 +138,7 @@ Controls:
 
 Test $Version includes:
   - HamunLauncher project browser
+  - HamunEditor native editor shell and project loading
   - data-driven Template catalog and project creation workflow
   - Blank Project technical template
   - renderer-owned RenderGraph and indexed scene submission
@@ -153,6 +171,7 @@ $FsrRuntimeBundled = Test-Path (Join-Path $PackageDir "amd_fidelityfx_loader_dx1
 @"
 FSR Runtime Bundled: $FsrRuntimeBundled
 Template Launcher Bundled: $(Test-Path (Join-Path $PackageDir "HamunLauncher.exe"))
+HamunEditor Bundled: $(Test-Path (Join-Path $PackageDir "HamunEditor.exe"))
 "@ | Add-Content -Encoding UTF8 (Join-Path $PackageDir "README_TEST.txt")
 
 $Commit = "unknown"

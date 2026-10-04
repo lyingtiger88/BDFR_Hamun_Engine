@@ -427,8 +427,40 @@ void CreateSelectedProject()
         return;
     }
 
+    const auto manifest =
+        result.projectDirectory /
+        "Project.hamunproject";
+
+    const auto editor =
+        ExecutableDirectory() /
+        "HamunEditor.exe";
+
+    if (std::filesystem::exists(editor) &&
+        std::filesystem::exists(manifest)) {
+        std::wstring parameters =
+            L"\"" +
+            manifest.wstring() +
+            L"\"";
+
+        const auto launchResult =
+            reinterpret_cast<INT_PTR>(
+                ShellExecuteW(
+                    nullptr,
+                    L"open",
+                    editor.wstring().c_str(),
+                    parameters.c_str(),
+                    nullptr,
+                    SW_SHOWNORMAL));
+
+        if (launchResult > 32) {
+            SetStatus(
+                L"Project created and opened in HamunEditor.");
+            return;
+        }
+    }
+
     SetStatus(
-        L"Project created successfully.");
+        L"Project created successfully. HamunEditor was not available, so the project folder was opened.");
 
     ShellExecuteW(
         nullptr,
