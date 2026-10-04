@@ -593,26 +593,6 @@ bool RunAssetScene(
         << fsrRuntime.Status().detail
         << '\n';
 
-    const bool fsrLiveDispatch =
-        fsrEnabled &&
-        !fsrContextOnly;
-
-    if (fsrContextOnly) {
-        if (!fsrEnabled) {
-            Hamun::Core::Log(
-                Hamun::Core::LogLevel::Error,
-                "FSR context-only validation requested, but context creation failed.");
-
-            return false;
-        }
-
-        Hamun::Core::Log(
-            Hamun::Core::LogLevel::Info,
-            std::string(
-                "FSR context-only validation passed; provider=") +
-                fsrRuntime.Status().selectedProviderName);
-    }
-
     std::vector<RenderMesh>
         renderMeshes;
 
@@ -731,6 +711,26 @@ bool RunAssetScene(
             << " | "
             << fsrRuntime.Status().detail
             << '\n';
+    }
+
+    const bool fsrLiveDispatch =
+        fsrEnabled &&
+        !fsrContextOnly;
+
+    if (fsrContextOnly) {
+        if (!fsrEnabled) {
+            Hamun::Core::Log(
+                Hamun::Core::LogLevel::Error,
+                "FSR context-only validation requested, but context creation failed.");
+
+            return false;
+        }
+
+        Hamun::Core::Log(
+            Hamun::Core::LogLevel::Info,
+            std::string(
+                "FSR context-only validation passed; provider=") +
+                fsrRuntime.Status().selectedProviderName);
     }
 
     std::cout
