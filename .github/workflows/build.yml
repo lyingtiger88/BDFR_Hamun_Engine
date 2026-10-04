@@ -148,7 +148,7 @@ jobs:
       - name: Run TressFX bridge smoke test
         run: ./build-tressfx/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
 
-  release-v0.5:
+  release-v0-5:
     needs: [desktop, fsr-dx12, tressfx-sdk]
     if: "${{ github.event_name == 'push' && (github.ref == 'refs/tags/v0.5' || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.5')) }}"
     runs-on: windows-latest
