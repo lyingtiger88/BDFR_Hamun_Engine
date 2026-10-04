@@ -149,6 +149,11 @@ BDFR Hamun Engine
 |   +-- Linux
 |   +-- Android
 |
++-- HamunProject
+|   +-- Template Catalog
+|   +-- Project Creation
+|   +-- Data-driven Template Manifests
+|
 +-- HamunRHI
 |   +-- DirectX 12
 |   +-- DirectX 11
@@ -550,10 +555,11 @@ Win32 Window
 - [x] Controlled native RHI interop bridge for external GPU SDKs
 - [x] AMD FSR runtime loader / ABI bridge foundation
 - [x] FSR post-scene dispatch path (SDK-enabled DX12 builds)
-- [ ] Package/validate official FSR runtime in Windows test build
+- [x] Package/validate official FSR runtime in dedicated Windows FSR development build
 - [x] Hair runtime interface / capability planner
-- [ ] AMD TressFX SDK integration
-- [ ] Hair simulation / collision / LOD
+- [x] AMD TressFX 4.1.0 header bridge / CI integration
+- [x] Hair simulation ComputePass foundation
+- [ ] Hair physical constraints / collision / LOD
 - [x] Card-hair fallback selection foundation
 - [ ] Sky/atmosphere
 - [ ] Debug renderer
@@ -626,6 +632,7 @@ Win32 Window
 
 ## Phase 8 — HamunEditor
 
+- [x] Project launcher / template-selection foundation
 - [ ] Main editor shell
 - [ ] Scene/world viewport
 - [ ] Hierarchy/outliner
@@ -675,15 +682,15 @@ Win32 Window
 
 ## Download Latest Windows Test
 
-The current portable Windows technical test is **Hamun Test v0.4**.
+The current portable Windows technical test is **Hamun Test v0.5**.
 
 Release asset:
 
 ```text
-Hamun-Test-v0.4-Windows-x64.zip
+Hamun-Test-v0.5-Windows-x64.zip
 ```
 
-Open the repository's **Releases** section and download the v0.4 Windows x64 ZIP.
+Open the repository's **Releases** section and download the v0.5 Windows x64 ZIP.
 The package contains separate DX12 and DX11 launchers.
 
 ---
@@ -765,6 +772,30 @@ TressFX.
 
 The external AMD FSR and TressFX SDKs remain intentionally unbundled in v0.4.
 The engine-side prerequisites are now in place for the next integration phase.
+
+### Test v0.5
+
+- [x] HamunProject module
+- [x] Data-driven template manifests
+- [x] Windows HamunLauncher project browser
+- [x] Template selection/details UI
+- [x] Project name/location workflow
+- [x] Project creation with token substitution
+- [x] CI template creation smoke test
+- [x] Launcher + Templates included in Windows package
+- [x] Native TressFX .tfx parser
+- [x] Guide-strand data uploaded to GPU storage buffers
+- [x] Hair simulation ComputePass foundation
+- [x] Official TressFX 4.1.0 headers compiled in dedicated CI
+- [x] AMD FidelityFX SDK 2.3.0 runtime/provider/context validation
+- [x] FSR provider enumeration and portable 3.1.5 preference
+- [x] Separate FSR DX12 development package with official signed AMD DLLs
+- [ ] Live FSR dispatch validation on a physical DX12 GPU
+- [ ] Final production template lineup
+
+The only installed project template in v0.5 is a technical **Blank Project**.
+It exists to validate the full launcher/catalog/create-project workflow while
+the production template categories are still being decided.
 
 ---
 
