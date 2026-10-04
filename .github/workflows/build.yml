@@ -28,6 +28,10 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Validate project templates and creation workflow
+        if: runner.os == 'Windows'
+        run: ./build/Tools/HamunLauncher/Release/HamunLauncher.exe --template-smoke-test
+
       - name: Run sandbox (Windows DX12 smoke test)
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test

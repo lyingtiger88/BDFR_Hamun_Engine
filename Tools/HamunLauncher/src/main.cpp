@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 
 #include <Hamun/Project/ProjectCreator.hpp>
 #include <Hamun/Project/TemplateCatalog.hpp>
@@ -25,6 +26,98 @@ HWND g_description = nullptr;
 HWND g_projectName = nullptr;
 HWND g_location = nullptr;
 HWND g_status = nullptr;
+
+std::filesystem::path ExecutableDirectory();
+
+int RunTemplateSmokeMode()
+{
+    Hamun::Project::TemplateCatalog catalog;
+    std::string error;
+
+    const auto templatesRoot =
+        ExecutableDirectory() /
+        "Templates";
+
+    if (!catalog.LoadDirectory(
+            templatesRoot,
+            &error)) {
+        return 20;
+    }
+
+    if (catalog.Templates().empty())
+        return 21;
+
+    const auto smokeRoot =
+        std::filesystem::temp_directory_path() /
+        "HamunTemplateSmoke";
+
+    Hamun::Project::CreateProjectRequest
+        request;
+
+    request.projectTemplate =
+        &catalog.Templates().front();
+
+    request.projectName =
+        "HamunTemplateSmokeProject";
+
+    request.destinationRoot =
+        smokeRoot;
+
+    request.overwriteExisting =
+        true;
+
+    const auto result =
+        Hamun::Project::CreateProject(
+            request);
+
+    if (!result.success)
+        return 22;
+
+    const bool manifestExists =
+        std::filesystem::exists(
+            result.projectDirectory /
+            "Project.hamunproject");
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        smokeRoot,
+        ec);
+
+    return manifestExists
+        ? 0
+        : 23;
+}
+
+bool HasCommandLineFlag(
+    const wchar_t* flag)
+{
+    int argc = 0;
+
+    LPWSTR* argv =
+        CommandLineToArgvW(
+            GetCommandLineW(),
+            &argc);
+
+    if (!argv)
+        return false;
+
+    bool found = false;
+
+    for (int i = 1;
+         i < argc;
+         ++i) {
+        if (std::wstring(argv[i]) ==
+            flag) {
+            found = true;
+            break;
+        }
+    }
+
+    LocalFree(
+        argv);
+
+    return found;
+}
 
 std::wstring Utf8ToWide(
     const std::string& value)
@@ -648,6 +741,12 @@ int WINAPI wWinMain(
     PWSTR,
     int showCommand)
 {
+    if (HasCommandLineFlag(
+            L"--template-smoke-test")) {
+        return
+            RunTemplateSmokeMode();
+    }
+
     if (FAILED(
             CoInitializeEx(
                 nullptr,

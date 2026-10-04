@@ -41,6 +41,40 @@ New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
 
 Copy-Item (Join-Path $BinaryDir "HamunSandbox.exe") $PackageDir
 
+$LauncherCandidates = @(
+    (Join-Path $BuildRoot "Tools/HamunLauncher/$Configuration/HamunLauncher.exe"),
+    (Join-Path $BuildRoot "Tools/HamunLauncher/HamunLauncher.exe")
+)
+
+$LauncherExe = $null
+foreach ($Candidate in $LauncherCandidates) {
+    if (Test-Path $Candidate) {
+        $LauncherExe = $Candidate
+        break
+    }
+}
+
+if ($LauncherExe) {
+    Copy-Item $LauncherExe $PackageDir
+
+    $LauncherTemplates = Join-Path (Split-Path $LauncherExe -Parent) "Templates"
+    if (Test-Path $LauncherTemplates) {
+        Copy-Item $LauncherTemplates (Join-Path $PackageDir "Templates") -Recurse
+    }
+    else {
+        $RootTemplates = Join-Path $Root "Templates"
+        if (Test-Path $RootTemplates) {
+            Copy-Item $RootTemplates (Join-Path $PackageDir "Templates") -Recurse
+        }
+    }
+
+    @"
+@echo off
+cd /d "%~dp0"
+HamunLauncher.exe
+"@ | Set-Content -Encoding ASCII (Join-Path $PackageDir "Run_Launcher.bat")
+}
+
 $FidelityFxDlls = Get-ChildItem -Path $BinaryDir -Filter "amd_fidelityfx_*.dll" -File -ErrorAction SilentlyContinue
 foreach ($Dll in $FidelityFxDlls) {
     Copy-Item $Dll.FullName $PackageDir
@@ -69,7 +103,10 @@ HamunSandbox.exe --d3d11
 BDFR Hamun Engine - Test $Version
 ================================
 
-Recommended:
+Project Launcher:
+  Double-click Run_Launcher.bat to create a project from an installed template.
+
+Recommended renderer test:
   Double-click Run_DX12.bat
 
 Compatibility:
