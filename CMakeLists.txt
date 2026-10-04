@@ -11,6 +11,7 @@ if(MSVC)
 endif()
 
 option(HAMUN_BUILD_SANDBOX "Build Hamun Engine sandbox" ON)
+option(HAMUN_BUILD_LAUNCHER "Build Hamun project launcher" ${WIN32})
 option(HAMUN_BUILD_ANDROID_GAME "Build Hamun Android game bootstrap" OFF)
 option(HAMUN_ENABLE_D3D12 "Enable Direct3D 12 backend" ${WIN32})
 option(HAMUN_ENABLE_D3D11 "Enable Direct3D 11 compatibility backend" ${WIN32})
@@ -23,6 +24,7 @@ set(HAMUN_FSR_SDK_DIR "" CACHE PATH "Path to the AMD FidelityFX/FSR SDK root")
 
 add_subdirectory(Engine/HamunCore)
 add_subdirectory(Engine/HamunPlatform)
+add_subdirectory(Engine/HamunProject)
 add_subdirectory(Engine/HamunAssets)
 add_subdirectory(Engine/HamunRHI)
 add_subdirectory(Engine/HamunGraph)
@@ -37,4 +39,9 @@ endif()
 
 if(ANDROID AND HAMUN_BUILD_ANDROID_GAME)
   add_subdirectory(Platforms/Android/native)
+endif()
+
+
+if(HAMUN_BUILD_LAUNCHER AND WIN32)
+  add_subdirectory(Tools/HamunLauncher)
 endif()

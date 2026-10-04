@@ -1,0 +1,6 @@
+id=blank
+name=Blank Project
+category=Core
+description=Minimal technical project used to validate the Hamun template workflow. We will decide the production template set later.
+content=Content
+hidden=false
