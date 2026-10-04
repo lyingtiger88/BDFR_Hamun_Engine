@@ -110,10 +110,10 @@ jobs:
           Copy-Item "$Signed/amd_fidelityfx_loader_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
           Copy-Item "$Signed/amd_fidelityfx_upscaler_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
           @"
-@echo off
-cd /d "%~dp0"
-HamunSandbox.exe
-"@ | Set-Content -Encoding ASCII "dist/Hamun_FSR_DX12_Dev/Run_FSR_DX12.bat"
+          @echo off
+          cd /d "%~dp0"
+          HamunSandbox.exe
+          "@ | Set-Content -Encoding ASCII "dist/Hamun_FSR_DX12_Dev/Run_FSR_DX12.bat"
 
       - name: Upload FSR DX12 development test
         uses: actions/upload-artifact@v4
