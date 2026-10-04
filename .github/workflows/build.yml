@@ -40,46 +40,19 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test --d3d11
 
-      - name: Package Windows Test v0.4
+      - name: Package Windows Test v0.5
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -Version v0.4 -OutputDir dist/Hamun_Test_v0.4
+        run: ./Tools/Package/PackageWindows.ps1 -BuildDir build -Configuration Release -Version v0.5 -OutputDir dist/Hamun_Test_v0.5
 
-      - name: Upload Windows Test v0.4
+      - name: Upload Windows Test v0.5
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: Hamun-Test-v0.4-Windows-x64
-          path: dist/Hamun_Test_v0.4/
+          name: Hamun-Test-v0.5-Windows-x64
+          path: dist/Hamun_Test_v0.5/
           if-no-files-found: error
           retention-days: 30
-
-      - name: Create v0.4 ZIP
-        if: "${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4')) }}"
-        shell: pwsh
-        run: |
-          $Zip = "dist/Hamun-Test-v0.4-Windows-x64.zip"
-          if (Test-Path $Zip) {
-            Remove-Item $Zip -Force
-          }
-          Compress-Archive -Path "dist/Hamun_Test_v0.4/*" -DestinationPath $Zip -Force
-
-      - name: Publish v0.4 GitHub Release
-        if: "${{ runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.4')) }}"
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $Tag = "v0.4"
-          $Zip = "dist/Hamun-Test-v0.4-Windows-x64.zip"
-
-          gh release view $Tag --repo "${{ github.repository }}" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $Tag $Zip --clobber --repo "${{ github.repository }}"
-          }
-          else {
-            gh release create $Tag $Zip --repo "${{ github.repository }}" --title "Hamun Test v0.4" --target "${{ github.sha }}" --notes "Windows x64 technical test build. Adds renderer-owned draw submission, double-buffered frame resources, DX12/DX11 compute dispatch, PBR metallic/roughness lighting, temporal FSR prerequisites, and the HamunHair/TressFX runtime foundation."
-          }
 
       - name: Run sandbox (Linux foundation smoke test)
         if: runner.os == 'Linux'
@@ -136,6 +109,11 @@ jobs:
           $Signed = "ThirdParty/FidelityFX-SDK/Kits/FidelityFX/signedbin"
           Copy-Item "$Signed/amd_fidelityfx_loader_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
           Copy-Item "$Signed/amd_fidelityfx_upscaler_dx12.dll" "dist/Hamun_FSR_DX12_Dev"
+          @"
+@echo off
+cd /d "%~dp0"
+HamunSandbox.exe
+"@ | Set-Content -Encoding ASCII "dist/Hamun_FSR_DX12_Dev/Run_FSR_DX12.bat"
 
       - name: Upload FSR DX12 development test
         uses: actions/upload-artifact@v4
@@ -169,6 +147,51 @@ jobs:
 
       - name: Run TressFX bridge smoke test
         run: ./build-tressfx/Samples/Sandbox/Release/HamunSandbox.exe --smoke-test
+
+  release-v0.5:
+    needs: [desktop, fsr-dx12, tressfx-sdk]
+    if: "${{ github.event_name == 'push' && (github.ref == 'refs/tags/v0.5' || startsWith(github.event.head_commit.message, 'release(test): package Hamun Test v0.5')) }}"
+    runs-on: windows-latest
+
+    steps:
+      - name: Download main Windows test
+        uses: actions/download-artifact@v4
+        with:
+          name: Hamun-Test-v0.5-Windows-x64
+          path: release/main
+
+      - name: Download FSR DX12 development test
+        uses: actions/download-artifact@v4
+        with:
+          name: Hamun-FSR-DX12-Dev-Windows-x64
+          path: release/fsr
+
+      - name: Create release ZIPs
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "release/main/*" -DestinationPath "Hamun-Test-v0.5-Windows-x64.zip" -Force
+          Compress-Archive -Path "release/fsr/*" -DestinationPath "Hamun-FSR-DX12-Dev-Windows-x64.zip" -Force
+
+      - name: Publish Hamun Test v0.5
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Tag = "v0.5"
+          $MainZip = "Hamun-Test-v0.5-Windows-x64.zip"
+          $FsrZip = "Hamun-FSR-DX12-Dev-Windows-x64.zip"
+
+          gh release view $Tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $Tag $MainZip $FsrZip --clobber --repo "${{ github.repository }}"
+          }
+          else {
+            gh release create $Tag $MainZip $FsrZip `
+              --repo "${{ github.repository }}" `
+              --target "${{ github.sha }}" `
+              --title "Hamun Test v0.5" `
+              --notes "v0.5 adds the Hamun project launcher/template workflow, native TressFX asset/GPU simulation foundations, HDR/motion/temporal resources, and an AMD FSR DX12 development package with official runtime DLLs. GitHub hosted runners use Microsoft Hyper-V Video, so live FSR dispatch remains a physical-GPU validation item."
+          }
 
   android:
     runs-on: ubuntu-latest
