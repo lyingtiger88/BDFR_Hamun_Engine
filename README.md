@@ -633,7 +633,7 @@ Win32 Window
 ## Phase 8 — HamunEditor
 
 - [x] Project launcher / template-selection foundation
-- [ ] Main editor shell
+- [x] Main editor shell
 - [ ] Scene/world viewport
 - [ ] Hierarchy/outliner
 - [ ] Inspector/details panel
@@ -797,6 +797,21 @@ The only installed project template in v0.5 is a technical **Blank Project**.
 It exists to validate the full launcher/catalog/create-project workflow while
 the production template categories are still being decided.
 
+### Development after Test v0.5
+
+- [x] Native Windows HamunEditor shell
+- [x] `.hamunproject` project-file parser in HamunProject
+- [x] Launcher -> HamunEditor handoff after project creation
+- [x] Responsive Outliner / Viewport / Inspector / Asset Browser shell layout
+- [x] Project metadata and top-level project asset listing
+- [x] Headless HamunEditor project-loading smoke test in Windows CI
+- [ ] Live renderer-backed editor viewport
+- [ ] Editable hierarchy / inspector data model
+- [ ] Full asset browser indexing and import workflow
+
+The production template lineup remains intentionally undecided; editor work can
+continue independently using the Blank Project validation template.
+
 ---
 
 ## First Playable Technical Target
@@ -836,7 +851,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place. The Windows toolchain now also includes a tested HamunEditor shell that opens generated `.hamunproject` projects and establishes the first editor workspace layout.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 
