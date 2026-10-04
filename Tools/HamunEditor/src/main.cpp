@@ -162,6 +162,166 @@ std::filesystem::path ProjectArgument()
     return result;
 }
 
+bool RunViewportBackendSmoke(
+    Hamun::RHI::BackendType type,
+    HWND viewport)
+{
+    auto backend =
+        Hamun::RHI::CreateBackend(
+            type);
+
+    if (!backend)
+        return false;
+
+    Hamun::RHI::BackendCreateInfo
+        createInfo;
+
+    createInfo.nativeWindowHandle =
+        viewport;
+    createInfo.width =
+        320;
+    createInfo.height =
+        180;
+    createInfo.enableValidation =
+        false;
+
+    if (!backend->Initialize(
+            createInfo)) {
+        backend->Shutdown();
+        return false;
+    }
+
+    bool success = true;
+
+    for (int frame = 0;
+         frame < 3;
+         ++frame) {
+        auto* commands =
+            backend->BeginFrame();
+
+        if (!commands) {
+            success = false;
+            break;
+        }
+
+        commands->BeginRenderPass(
+            {
+                0.02f,
+                0.03f,
+                0.05f,
+                1.0f
+            });
+
+        commands->EndRenderPass();
+
+        if (!backend->SubmitFrame()) {
+            success = false;
+            break;
+        }
+    }
+
+    backend->Shutdown();
+    return success;
+}
+
+int RunViewportSmokeMode(
+    HINSTANCE instance)
+{
+    const wchar_t* className =
+        L"HamunEditorViewportSmokeHost";
+
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc =
+        DefWindowProcW;
+    windowClass.hInstance =
+        instance;
+    windowClass.hCursor =
+        LoadCursorW(
+            nullptr,
+            IDC_ARROW);
+    windowClass.lpszClassName =
+        className;
+
+    if (!RegisterClassW(
+            &windowClass)) {
+        return 40;
+    }
+
+    HWND parent =
+        CreateWindowExW(
+            0,
+            className,
+            L"Hamun viewport smoke parent",
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            640,
+            480,
+            nullptr,
+            nullptr,
+            instance,
+            nullptr);
+
+    if (!parent) {
+        UnregisterClassW(
+            className,
+            instance);
+        return 41;
+    }
+
+    HWND viewport =
+        CreateWindowExW(
+            0,
+            L"STATIC",
+            L"",
+            WS_CHILD |
+                WS_VISIBLE,
+            0,
+            0,
+            320,
+            180,
+            parent,
+            nullptr,
+            instance,
+            nullptr);
+
+    if (!viewport) {
+        DestroyWindow(
+            parent);
+
+        UnregisterClassW(
+            className,
+            instance);
+
+        return 42;
+    }
+
+    const bool dx12 =
+        RunViewportBackendSmoke(
+            Hamun::RHI::BackendType::D3D12,
+            viewport);
+
+    const bool dx11 =
+        RunViewportBackendSmoke(
+            Hamun::RHI::BackendType::D3D11,
+            viewport);
+
+    DestroyWindow(
+        parent);
+
+    UnregisterClassW(
+        className,
+        instance);
+
+    if (!dx12)
+        return 43;
+
+    if (!dx11)
+        return 44;
+
+    return 0;
+}
+
 int RunEditorSmokeMode()
 {
     Hamun::Project::TemplateCatalog catalog;
@@ -1064,6 +1224,13 @@ int WINAPI wWinMain(
     PWSTR,
     int showCommand)
 {
+    if (HasCommandLineFlag(
+            L"--viewport-smoke-test")) {
+        return
+            RunViewportSmokeMode(
+                instance);
+    }
+
     if (HasCommandLineFlag(
             L"--editor-smoke-test")) {
         return
