@@ -1,7 +1,7 @@
 param(
     [string]$BuildDir = "build",
     [string]$Configuration = "Release",
-    [string]$Version = "v0.4",
+    [string]$Version = "v0.5",
     [string]$OutputDir = ""
 )
 
@@ -120,23 +120,25 @@ Controls:
   Esc           : Exit
 
 Test $Version includes:
-  - renderer-owned RenderGraph (separate from HamunGraph visual scripting)
-  - renderer-owned indexed scene draw submission
-  - MainRenderPass + ComputePass ordering
-  - double-buffered per-frame constant resources
-  - DX12 and DX11 compute shader/pipeline/dispatch foundation
-  - runtime Material + MaterialInstance system
-  - glTF metallic/roughness factor import
-  - GGX/Schlick metallic-roughness PBR direct-light foundation
-  - GPU adapter, VRAM and capability reporting
-  - temporal frame history and Halton jitter foundation for FSR
-  - HamunHair runtime capability planner
-  - TressFX-ready DX12/Vulkan strand path selection
-  - card-hair fallback selection when TressFX is unavailable
+  - HamunLauncher project browser
+  - data-driven Template catalog and project creation workflow
+  - Blank Project technical template
+  - renderer-owned RenderGraph and indexed scene submission
+  - DX12 / DX11 compute pipelines, storage buffers and storage textures
+  - double-buffered frame resources
+  - glTF metallic/roughness PBR using GGX/Schlick
+  - HDR scene target, motion vectors and temporal GPU resources
+  - AMD FSR SDK/runtime/provider/context bridge
+  - FSR provider enumeration
+  - HamunHair native .tfx loader
+  - guide-strand GPU storage upload
+  - guide-strand simulation ComputePass
+  - official TressFX 4.1.0 header bridge validation
+  - card-hair compatibility fallback
 
-The external AMD FSR and TressFX SDK binaries are not bundled yet. This build
-validates the engine-side prerequisites and renderer architecture before those
-third-party SDK bridges are linked.
+The standard package does not bundle external AMD FSR runtime DLLs. The
+separate Hamun-FSR-DX12-Dev package bundles the official signed AMD runtime
+for live testing on a physical DX12 GPU.
 
 DX12 is the primary Windows backend.
 DX11 is the compatibility backend.
@@ -150,6 +152,7 @@ $FsrRuntimeBundled = Test-Path (Join-Path $PackageDir "amd_fidelityfx_loader_dx1
 
 @"
 FSR Runtime Bundled: $FsrRuntimeBundled
+Template Launcher Bundled: $(Test-Path (Join-Path $PackageDir "HamunLauncher.exe"))
 "@ | Add-Content -Encoding UTF8 (Join-Path $PackageDir "README_TEST.txt")
 
 $Commit = "unknown"
