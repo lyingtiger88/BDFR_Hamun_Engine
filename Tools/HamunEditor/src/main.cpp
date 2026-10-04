@@ -36,8 +36,257 @@ HWND g_status = nullptr;
 std::optional<Hamun::Project::ProjectDescriptor>
     g_project;
 
+struct ViewportRenderResources {
+    std::unique_ptr<Hamun::RHI::IShader>
+        vertexShader;
+
+    std::unique_ptr<Hamun::RHI::IShader>
+        pixelShader;
+
+    std::unique_ptr<Hamun::RHI::IPipeline>
+        pipeline;
+
+    bool Create(
+        Hamun::RHI::IBackend& backend)
+    {
+        static const std::string
+            shaderSource = R"(
+struct ViewportVertex
+{
+    float4 position : SV_POSITION;
+    float2 uv : TEXCOORD0;
+};
+
+ViewportVertex VSMain(
+    uint vertexId : SV_VertexID)
+{
+    const float2 positions[3] = {
+        float2(-1.0f, -1.0f),
+        float2(-1.0f,  3.0f),
+        float2( 3.0f, -1.0f)
+    };
+
+    ViewportVertex output;
+    const float2 position =
+        positions[vertexId];
+
+    output.position =
+        float4(
+            position,
+            0.0f,
+            1.0f);
+
+    output.uv =
+        float2(
+            position.x * 0.5f + 0.5f,
+            0.5f - position.y * 0.5f);
+
+    return output;
+}
+
+float GridLine(
+    float coordinate,
+    float scale,
+    float thickness)
+{
+    const float wrapped =
+        frac(
+            coordinate *
+            scale);
+
+    const float edgeDistance =
+        min(
+            wrapped,
+            1.0f -
+                wrapped);
+
+    return
+        1.0f -
+        step(
+            thickness,
+            edgeDistance);
+}
+
+float4 PSMain(
+    ViewportVertex input)
+    : SV_TARGET
+{
+    const float minorGrid =
+        max(
+            GridLine(
+                input.uv.x,
+                32.0f,
+                0.035f),
+            GridLine(
+                input.uv.y,
+                18.0f,
+                0.035f));
+
+    const float majorGrid =
+        max(
+            GridLine(
+                input.uv.x,
+                8.0f,
+                0.025f),
+            GridLine(
+                input.uv.y,
+                4.5f,
+                0.025f));
+
+    float3 color =
+        float3(
+            0.030f,
+            0.038f,
+            0.052f);
+
+    color =
+        lerp(
+            color,
+            float3(
+                0.075f,
+                0.088f,
+                0.110f),
+            minorGrid *
+                0.65f);
+
+    color =
+        lerp(
+            color,
+            float3(
+                0.125f,
+                0.145f,
+                0.175f),
+            majorGrid *
+                0.85f);
+
+    const float horizontalAxis =
+        1.0f -
+        step(
+            0.0035f,
+            abs(
+                input.uv.y -
+                0.5f));
+
+    const float verticalAxis =
+        1.0f -
+        step(
+            0.0035f,
+            abs(
+                input.uv.x -
+                0.5f));
+
+    color =
+        lerp(
+            color,
+            float3(
+                0.48f,
+                0.18f,
+                0.16f),
+            horizontalAxis);
+
+    color =
+        lerp(
+            color,
+            float3(
+                0.16f,
+                0.46f,
+                0.28f),
+            verticalAxis);
+
+    return
+        float4(
+            color,
+            1.0f);
+}
+)";
+
+        Hamun::RHI::ShaderDesc
+            vertexDesc;
+
+        vertexDesc.stage =
+            Hamun::RHI::ShaderStage::Vertex;
+
+        vertexDesc.source =
+            shaderSource;
+
+        vertexDesc.entryPoint =
+            "VSMain";
+
+        Hamun::RHI::ShaderDesc
+            pixelDesc;
+
+        pixelDesc.stage =
+            Hamun::RHI::ShaderStage::Pixel;
+
+        pixelDesc.source =
+            shaderSource;
+
+        pixelDesc.entryPoint =
+            "PSMain";
+
+        vertexShader =
+            backend.CreateShader(
+                vertexDesc);
+
+        pixelShader =
+            backend.CreateShader(
+                pixelDesc);
+
+        if (!vertexShader ||
+            !pixelShader) {
+            Reset();
+            return false;
+        }
+
+        Hamun::RHI::GraphicsPipelineDesc
+            pipelineDesc;
+
+        pipelineDesc.vertexShader =
+            vertexShader.get();
+
+        pipelineDesc.pixelShader =
+            pixelShader.get();
+
+        pipelineDesc.renderTargetFormat =
+            Hamun::RHI::TextureFormat::
+                RGBA8_UNorm;
+
+        pipelineDesc.depthTest =
+            false;
+
+        pipeline =
+            backend.CreateGraphicsPipeline(
+                pipelineDesc);
+
+        if (!pipeline) {
+            Reset();
+            return false;
+        }
+
+        return true;
+    }
+
+    void Reset()
+    {
+        pipeline.reset();
+        pixelShader.reset();
+        vertexShader.reset();
+    }
+
+    [[nodiscard]] bool Ready()
+        const noexcept
+    {
+        return
+            pipeline !=
+            nullptr;
+    }
+};
+
 std::unique_ptr<Hamun::RHI::IBackend>
     g_viewportBackend;
+
+ViewportRenderResources
+    g_viewportResources;
 
 bool g_viewportRenderFailed = false;
 bool g_viewportResizePending = false;
@@ -193,6 +442,15 @@ bool RunViewportBackendSmoke(
         return false;
     }
 
+    ViewportRenderResources
+        resources;
+
+    if (!resources.Create(
+            *backend)) {
+        backend->Shutdown();
+        return false;
+    }
+
     bool success = true;
 
     for (int frame = 0;
@@ -214,6 +472,12 @@ bool RunViewportBackendSmoke(
                 1.0f
             });
 
+        commands->SetPipeline(
+            *resources.pipeline);
+
+        commands->Draw(
+            3);
+
         commands->EndRenderPass();
 
         if (!backend->SubmitFrame()) {
@@ -222,6 +486,7 @@ bool RunViewportBackendSmoke(
         }
     }
 
+    resources.Reset();
     backend->Shutdown();
     return success;
 }
@@ -437,6 +702,8 @@ void SetStatus(
 
 void ShutdownViewportBackend()
 {
+    g_viewportResources.Reset();
+
     if (g_viewportBackend) {
         g_viewportBackend->Shutdown();
         g_viewportBackend.reset();
@@ -505,6 +772,15 @@ bool InitializeViewportBackend()
             continue;
         }
 
+        ViewportRenderResources
+            resources;
+
+        if (!resources.Create(
+                *backend)) {
+            backend->Shutdown();
+            continue;
+        }
+
         std::wstring label =
             L"Viewport - ";
 
@@ -540,6 +816,9 @@ bool InitializeViewportBackend()
 
         g_viewportBackend =
             std::move(backend);
+
+        g_viewportResources =
+            std::move(resources);
 
         g_viewportRenderFailed =
             false;
@@ -654,11 +933,19 @@ void RenderViewportFrame()
 
     commands->BeginRenderPass(
         {
-            0.035f,
-            0.050f,
-            0.075f,
+            0.025f,
+            0.032f,
+            0.045f,
             1.0f
         });
+
+    if (g_viewportResources.Ready()) {
+        commands->SetPipeline(
+            *g_viewportResources.pipeline);
+
+        commands->Draw(
+            3);
+    }
 
     commands->EndRenderPass();
 
