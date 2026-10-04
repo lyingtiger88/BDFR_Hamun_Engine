@@ -40,6 +40,8 @@ std::unique_ptr<Hamun::RHI::IBackend>
     g_viewportBackend;
 
 bool g_viewportRenderFailed = false;
+bool g_viewportResizePending = false;
+ULONGLONG g_viewportResizeRequestedAt = 0;
 
 std::filesystem::path ExecutableDirectory()
 {
@@ -473,6 +475,9 @@ bool InitializeViewportBackend()
 
     ShutdownViewportBackend();
 
+    g_viewportResizePending =
+        false;
+
     for (const auto type :
          candidates) {
         auto backend =
@@ -520,6 +525,15 @@ bool InitializeViewportBackend()
                     adapter.name);
         }
 
+        label +=
+            L" (" +
+            std::to_wstring(
+                width) +
+            L"x" +
+            std::to_wstring(
+                height) +
+            L")";
+
         SetWindowTextW(
             g_viewportHeader,
             label.c_str());
@@ -547,6 +561,76 @@ bool InitializeViewportBackend()
         L"Could not initialize DX12 or DX11 for the editor viewport.");
 
     return false;
+}
+
+void RequestViewportResize()
+{
+    if (!g_viewportBackend ||
+        !g_viewport)
+        return;
+
+    auto* swapChain =
+        g_viewportBackend
+            ->SwapChain();
+
+    if (!swapChain)
+        return;
+
+    RECT rect{};
+    GetClientRect(
+        g_viewport,
+        &rect);
+
+    const auto width =
+        static_cast<std::uint32_t>(
+            std::max(
+                1L,
+                rect.right -
+                    rect.left));
+
+    const auto height =
+        static_cast<std::uint32_t>(
+            std::max(
+                1L,
+                rect.bottom -
+                    rect.top));
+
+    if (swapChain->Width() ==
+            width &&
+        swapChain->Height() ==
+            height) {
+        return;
+    }
+
+    g_viewportResizePending =
+        true;
+
+    g_viewportResizeRequestedAt =
+        GetTickCount64();
+}
+
+void ProcessViewportResize()
+{
+    if (!g_viewportResizePending)
+        return;
+
+    const ULONGLONG now =
+        GetTickCount64();
+
+    constexpr ULONGLONG
+        ResizeDebounceMilliseconds =
+            150;
+
+    if (now <
+        g_viewportResizeRequestedAt +
+            ResizeDebounceMilliseconds) {
+        return;
+    }
+
+    g_viewportResizePending =
+        false;
+
+    InitializeViewportBackend();
 }
 
 void RenderViewportFrame()
@@ -1154,11 +1238,14 @@ LRESULT CALLBACK WindowProc(
         case WM_SIZE:
             LayoutControls(
                 window);
+
+            RequestViewportResize();
             return 0;
 
         case WM_TIMER:
             if (wParam ==
                 IdViewportTimer) {
+                ProcessViewportResize();
                 RenderViewportFrame();
                 return 0;
             }
