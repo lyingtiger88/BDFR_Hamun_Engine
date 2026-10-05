@@ -582,7 +582,9 @@ bool RunViewportBackendSmoke(
     const auto object =
         preview.ObjectInfo(1);
 
-    if (!object) {
+    if (!object ||
+        object->entityId ==
+            Hamun::World::InvalidEntity) {
         preview.Reset();
         backend->Shutdown();
         return false;
@@ -1881,6 +1883,8 @@ void UpdateInspectorFromSelection()
             info->meshName)
         << L"\r\nIndex: "
         << info->index
+        << L"\r\nEntity ID: "
+        << info->entityId
         << L"\r\n\r\nMaterial\r\nMetallic: "
         << std::fixed
         << std::setprecision(3)
