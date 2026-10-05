@@ -92,6 +92,25 @@ std::unique_ptr<RHI::ITexture> CreateMeshTexture(
     return backend.CreateTexture(desc);
 }
 
+constexpr float Pi =
+    3.14159265358979323846f;
+
+float ToDegrees(
+    float radians)
+{
+    return
+        radians *
+        (180.0f / Pi);
+}
+
+float ToRadians(
+    float degrees)
+{
+    return
+        degrees *
+        (Pi / 180.0f);
+}
+
 SceneObjectTransform ExtractTransform(
     const Assets::SceneInstance& instance)
 {
@@ -126,56 +145,183 @@ SceneObjectTransform ExtractTransform(
         rowLength(8)
     };
 
+    const float sx =
+        std::max(
+            result.scale[0],
+            0.000001f);
+
+    const float sy =
+        std::max(
+            result.scale[1],
+            0.000001f);
+
+    const float sz =
+        std::max(
+            result.scale[2],
+            0.000001f);
+
+    const float rr00 =
+        instance.worldMatrix[0] / sx;
+    const float rr01 =
+        instance.worldMatrix[1] / sx;
+    const float rr02 =
+        instance.worldMatrix[2] / sx;
+
+    const float rr10 =
+        instance.worldMatrix[4] / sy;
+    const float rr11 =
+        instance.worldMatrix[5] / sy;
+    const float rr12 =
+        instance.worldMatrix[6] / sy;
+
+    const float rr20 =
+        instance.worldMatrix[8] / sz;
+    const float rr21 =
+        instance.worldMatrix[9] / sz;
+    const float rr22 =
+        instance.worldMatrix[10] / sz;
+
+    // The stored matrix follows Hamun's row-vector convention.
+    // Transpose it to a conventional column-vector rotation matrix
+    // before extracting XYZ Euler angles (Rz * Ry * Rx).
+    const float c00 = rr00;
+    const float c01 = rr10;
+    const float c02 = rr20;
+    const float c10 = rr01;
+    const float c11 = rr11;
+    const float c12 = rr21;
+    const float c20 = rr02;
+    const float c21 = rr12;
+    const float c22 = rr22;
+
+    const float y =
+        std::asin(
+            std::clamp(
+                -c20,
+                -1.0f,
+                1.0f));
+
+    const float cosY =
+        std::cos(y);
+
+    float x = 0.0f;
+    float z = 0.0f;
+
+    if (std::abs(cosY) >
+        0.00001f) {
+        x =
+            std::atan2(
+                c21,
+                c22);
+
+        z =
+            std::atan2(
+                c10,
+                c00);
+    } else {
+        x =
+            std::atan2(
+                -c12,
+                c11);
+
+        z = 0.0f;
+    }
+
+    result.rotationDegrees = {
+        ToDegrees(x),
+        ToDegrees(y),
+        ToDegrees(z)
+    };
+
     return result;
 }
 
-void ApplyScaleToBasis(
+void BuildTransformMatrix(
     std::array<float, 16>& matrix,
-    std::size_t offset,
-    float scale)
+    const SceneObjectTransform& transform)
 {
     const float x =
-        matrix[offset + 0];
+        ToRadians(
+            transform.rotationDegrees[0]);
 
     const float y =
-        matrix[offset + 1];
+        ToRadians(
+            transform.rotationDegrees[1]);
 
     const float z =
-        matrix[offset + 2];
+        ToRadians(
+            transform.rotationDegrees[2]);
 
-    const float length =
-        std::sqrt(
-            x * x +
-            y * y +
-            z * z);
+    const float cx = std::cos(x);
+    const float sx = std::sin(x);
+    const float cy = std::cos(y);
+    const float sy = std::sin(y);
+    const float cz = std::cos(z);
+    const float sz = std::sin(z);
 
-    if (length > 0.000001f) {
-        const float factor =
-            scale /
-            length;
+    // Conventional column-vector rotation matrix Rz * Ry * Rx.
+    const float c00 =
+        cz * cy;
+    const float c01 =
+        cz * sy * sx -
+        sz * cx;
+    const float c02 =
+        cz * sy * cx +
+        sz * sx;
 
-        matrix[offset + 0] *=
-            factor;
+    const float c10 =
+        sz * cy;
+    const float c11 =
+        sz * sy * sx +
+        cz * cx;
+    const float c12 =
+        sz * sy * cx -
+        cz * sx;
 
-        matrix[offset + 1] *=
-            factor;
+    const float c20 =
+        -sy;
+    const float c21 =
+        cy * sx;
+    const float c22 =
+        cy * cx;
 
-        matrix[offset + 2] *=
-            factor;
+    const float scaleX =
+        std::max(
+            transform.scale[0],
+            0.0001f);
 
-        return;
-    }
+    const float scaleY =
+        std::max(
+            transform.scale[1],
+            0.0001f);
 
-    matrix[offset + 0] = 0.0f;
-    matrix[offset + 1] = 0.0f;
-    matrix[offset + 2] = 0.0f;
+    const float scaleZ =
+        std::max(
+            transform.scale[2],
+            0.0001f);
 
-    if (offset == 0)
-        matrix[0] = scale;
-    else if (offset == 4)
-        matrix[5] = scale;
-    else
-        matrix[10] = scale;
+    // Transpose to Hamun's row-vector convention and apply scale.
+    matrix = {
+        c00 * scaleX,
+        c10 * scaleX,
+        c20 * scaleX,
+        0.0f,
+
+        c01 * scaleY,
+        c11 * scaleY,
+        c21 * scaleY,
+        0.0f,
+
+        c02 * scaleZ,
+        c12 * scaleZ,
+        c22 * scaleZ,
+        0.0f,
+
+        transform.position[0],
+        transform.position[1],
+        transform.position[2],
+        1.0f
+    };
 }
 
 const char* SceneShaderSource()
@@ -814,35 +960,9 @@ bool ScenePreview::SetTransform(
     Assets::SceneInstance& instance =
         asset_->instances[index];
 
-    instance.worldMatrix[12] =
-        transform.position[0];
-
-    instance.worldMatrix[13] =
-        transform.position[1];
-
-    instance.worldMatrix[14] =
-        transform.position[2];
-
-    ApplyScaleToBasis(
+    BuildTransformMatrix(
         instance.worldMatrix,
-        0,
-        std::max(
-            transform.scale[0],
-            0.0001f));
-
-    ApplyScaleToBasis(
-        instance.worldMatrix,
-        4,
-        std::max(
-            transform.scale[1],
-            0.0001f));
-
-    ApplyScaleToBasis(
-        instance.worldMatrix,
-        8,
-        std::max(
-            transform.scale[2],
-            0.0001f));
+        transform);
 
     return true;
 }
