@@ -46,6 +46,20 @@ public:
         position_ = position;
     }
 
+    void SetOrientation(
+        float yaw,
+        float pitch) noexcept;
+
+    [[nodiscard]] float Yaw() const noexcept
+    {
+        return yaw_;
+    }
+
+    [[nodiscard]] float Pitch() const noexcept
+    {
+        return pitch_;
+    }
+
     [[nodiscard]] const Vec3& Position() const noexcept
     {
         return position_;
