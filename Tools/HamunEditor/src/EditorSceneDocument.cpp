@@ -109,6 +109,9 @@ bool SaveSceneDocument(
             << transform.position[0] << ' '
             << transform.position[1] << ' '
             << transform.position[2] << ' '
+            << transform.rotationDegrees[0] << ' '
+            << transform.rotationDegrees[1] << ' '
+            << transform.rotationDegrees[2] << ' '
             << transform.scale[0] << ' '
             << transform.scale[1] << ' '
             << transform.scale[2]
@@ -224,13 +227,54 @@ bool LoadSceneDocument(
 
             if (!(stream >>
                   keyword >>
-                  index >>
-                  transform.position[0] >>
-                  transform.position[1] >>
-                  transform.position[2] >>
-                  transform.scale[0] >>
-                  transform.scale[1] >>
-                  transform.scale[2])) {
+                  index)) {
+                return Fail(
+                    error,
+                    "Invalid scene transform record.");
+            }
+
+            std::vector<float> values;
+            float value = 0.0f;
+
+            while (stream >> value) {
+                values.push_back(value);
+            }
+
+            if (values.size() == 6) {
+                // Backward-compatible v0.5/v0.6 pre-rotation record:
+                // position XYZ + scale XYZ.
+                transform.position = {
+                    values[0],
+                    values[1],
+                    values[2]
+                };
+
+                transform.scale = {
+                    values[3],
+                    values[4],
+                    values[5]
+                };
+            } else if (
+                values.size() == 9) {
+                // position XYZ + rotation XYZ degrees + scale XYZ.
+                transform.position = {
+                    values[0],
+                    values[1],
+                    values[2]
+                };
+
+                transform.rotationDegrees = {
+                    values[3],
+                    values[4],
+                    values[5]
+                };
+
+                transform.scale = {
+                    values[6],
+                    values[7],
+                    values[8]
+                };
+            } else {
                 return Fail(
                     error,
                     "Invalid scene transform record.");
