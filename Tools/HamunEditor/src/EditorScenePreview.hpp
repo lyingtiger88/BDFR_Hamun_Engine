@@ -79,6 +79,14 @@ public:
     [[nodiscard]] Renderer::Vec3
     CameraPosition() const noexcept;
 
+    [[nodiscard]] float CameraYaw() const noexcept;
+    [[nodiscard]] float CameraPitch() const noexcept;
+
+    void SetCameraPose(
+        const Renderer::Vec3& position,
+        float yaw,
+        float pitch) noexcept;
+
     [[nodiscard]] const std::filesystem::path& ScenePath() const noexcept;
 
 private:
