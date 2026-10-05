@@ -1,0 +1,152 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "BDFR Hamun Engine v0.2 scene"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "HamunDemoScene",
+      "nodes": [0, 1, 2, 3, 4]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Ground",
+      "mesh": 0,
+      "translation": [0.0, -1.4, 6.0],
+      "scale": [7.0, 0.25, 7.0]
+    },
+    {
+      "name": "CenterCube",
+      "mesh": 0,
+      "translation": [0.0, -0.65, 4.0]
+    },
+    {
+      "name": "LeftTower",
+      "mesh": 0,
+      "translation": [-2.0, -0.35, 5.5],
+      "scale": [0.75, 1.5, 0.75]
+    },
+    {
+      "name": "RightTower",
+      "mesh": 0,
+      "translation": [2.0, -0.35, 5.5],
+      "scale": [0.75, 1.5, 0.75]
+    },
+    {
+      "name": "BackCube",
+      "mesh": 0,
+      "translation": [0.0, -0.5, 8.0],
+      "scale": [1.25, 1.25, 1.25]
+    }
+  ],
+  "meshes": [
+    {
+      "name": "HamunLitCube",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "name": "HamunCheckerMaterial",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.95, 0.98, 1.0, 1.0],
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.8
+      }
+    }
+  ],
+  "textures": [
+    {
+      "source": 0,
+      "sampler": 0
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9729,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "images": [
+    {
+      "uri": "checker.png"
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "TestScene.bin",
+      "byteLength": 840
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 288,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 288,
+      "byteLength": 288,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 576,
+      "byteLength": 192,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 768,
+      "byteLength": 72,
+      "target": 34963
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC3",
+      "min": [-0.6, -0.6, -0.6],
+      "max": [0.6, 0.6, 0.6]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 36,
+      "type": "SCALAR"
+    }
+  ]
+}
