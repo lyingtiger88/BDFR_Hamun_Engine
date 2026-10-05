@@ -5,6 +5,7 @@
 #include <Hamun/Renderer/FreeCamera.hpp>
 #include <Hamun/Renderer/Renderer.hpp>
 #include <Hamun/RHI/RHI.hpp>
+#include <Hamun/World/World.hpp>
 
 #include <array>
 #include <cstddef>
@@ -33,6 +34,8 @@ struct SceneObjectTransform {
 
 struct SceneObjectInfo {
     std::size_t index = 0;
+    World::EntityId entityId =
+        World::InvalidEntity;
     std::uint32_t hierarchyDepth = 0;
     std::string name;
     std::string meshName;
@@ -111,6 +114,10 @@ private:
     std::filesystem::path scenePath_;
     std::optional<Assets::GltfAsset> asset_;
     std::vector<RenderMesh> meshes_;
+
+    World::World world_;
+    std::vector<World::EntityId>
+        entityIds_;
 
     std::unique_ptr<RHI::IShader> vertexShader_;
     std::unique_ptr<RHI::IShader> pixelShader_;
