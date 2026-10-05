@@ -762,6 +762,9 @@ ScenePreview::ObjectInfo(
     SceneObjectInfo result;
     result.index = index;
 
+    result.hierarchyDepth =
+        instance.hierarchyDepth;
+
     result.name =
         instance.name.empty()
             ? "SceneObject_" +
