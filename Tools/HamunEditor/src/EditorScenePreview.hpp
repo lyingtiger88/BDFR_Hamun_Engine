@@ -1,0 +1,71 @@
+#pragma once
+
+#include <Hamun/Assets/GltfAsset.hpp>
+#include <Hamun/Renderer/FrameResources.hpp>
+#include <Hamun/Renderer/FreeCamera.hpp>
+#include <Hamun/Renderer/Renderer.hpp>
+#include <Hamun/RHI/RHI.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace Hamun::Editor {
+
+class ScenePreview {
+public:
+    bool Initialize(
+        RHI::IBackend& backend,
+        const std::filesystem::path& scenePath,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::string* error = nullptr);
+
+    void Reset() noexcept;
+
+    bool RenderFrame(
+        RHI::IBackend& backend);
+
+    [[nodiscard]] bool Ready() const noexcept;
+    [[nodiscard]] std::size_t InstanceCount() const noexcept;
+    [[nodiscard]] const std::filesystem::path& ScenePath() const noexcept;
+
+private:
+    struct RenderMesh {
+        std::unique_ptr<RHI::IBuffer> vertexBuffer;
+        std::unique_ptr<RHI::IBuffer> indexBuffer;
+        std::unique_ptr<RHI::ITexture> texture;
+
+        std::array<float, 4> baseColorFactor{
+            1.0f, 1.0f, 1.0f, 1.0f
+        };
+
+        float metallic = 0.0f;
+        float roughness = 1.0f;
+        std::uint32_t indexCount = 0;
+    };
+
+    std::filesystem::path scenePath_;
+    std::optional<Assets::GltfAsset> asset_;
+    std::vector<RenderMesh> meshes_;
+
+    std::unique_ptr<RHI::IShader> vertexShader_;
+    std::unique_ptr<RHI::IShader> pixelShader_;
+    std::unique_ptr<RHI::IPipeline> pipeline_;
+    std::unique_ptr<RHI::ISampler> sampler_;
+
+    Renderer::FrameResources frameResources_;
+    Renderer::Renderer renderer_;
+    Renderer::FreeCamera camera_;
+    std::vector<Renderer::IndexedDraw> draws_;
+
+    std::uint32_t width_ = 1;
+    std::uint32_t height_ = 1;
+};
+
+} // namespace Hamun::Editor
