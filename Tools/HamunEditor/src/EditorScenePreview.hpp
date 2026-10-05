@@ -29,6 +29,7 @@ struct SceneObjectTransform {
 
 struct SceneObjectInfo {
     std::size_t index = 0;
+    std::uint32_t hierarchyDepth = 0;
     std::string name;
     std::string meshName;
     SceneObjectTransform transform{};
