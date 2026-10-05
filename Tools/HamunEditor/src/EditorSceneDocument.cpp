@@ -86,6 +86,17 @@ bool SaveSceneDocument(
     output
         << std::setprecision(9);
 
+    if (document.hasCamera) {
+        output
+            << "camera "
+            << document.cameraPosition.x << ' '
+            << document.cameraPosition.y << ' '
+            << document.cameraPosition.z << ' '
+            << document.cameraYaw << ' '
+            << document.cameraPitch
+            << "\n";
+    }
+
     for (std::size_t i = 0;
          i < document.transforms.size();
          ++i) {
@@ -177,6 +188,28 @@ bool LoadSceneDocument(
                 std::filesystem::weakly_canonical(
                     source);
 
+            continue;
+        }
+
+        if (line.rfind(
+                "camera ",
+                0) == 0) {
+            std::istringstream stream(line);
+            std::string keyword;
+
+            if (!(stream >>
+                  keyword >>
+                  loaded.cameraPosition.x >>
+                  loaded.cameraPosition.y >>
+                  loaded.cameraPosition.z >>
+                  loaded.cameraYaw >>
+                  loaded.cameraPitch)) {
+                return Fail(
+                    error,
+                    "Invalid scene camera record.");
+            }
+
+            loaded.hasCamera = true;
             continue;
         }
 
