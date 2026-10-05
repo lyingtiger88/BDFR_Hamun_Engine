@@ -34,6 +34,8 @@ constexpr int IdOpenScene = 2003;
 constexpr int IdSaveScene = 2004;
 constexpr int IdSaveSceneAs = 2005;
 constexpr int IdImportAsset = 2006;
+constexpr int IdOpenProjectFolder = 2007;
+constexpr int IdRefreshAssets = 2008;
 constexpr int IdRendererAuto = 2101;
 constexpr int IdRendererD3D12 = 2102;
 constexpr int IdRendererD3D11 = 2103;
@@ -3300,6 +3302,18 @@ void CreateMainMenu(
 
     AppendMenuW(
         fileMenu,
+        MF_STRING,
+        IdRefreshAssets,
+        L"&Refresh Assets\tF5");
+
+    AppendMenuW(
+        fileMenu,
+        MF_STRING,
+        IdOpenProjectFolder,
+        L"Open Project &Folder");
+
+    AppendMenuW(
+        fileMenu,
         MF_SEPARATOR,
         0,
         nullptr);
@@ -3778,6 +3792,35 @@ LRESULT CALLBACK WindowProc(
             }
 
             if (id ==
+                IdRefreshAssets) {
+                if (g_project) {
+                    PopulateAssets(
+                        g_project->rootDirectory);
+
+                    SetStatus(
+                        L"Asset Browser refreshed.");
+                }
+
+                return 0;
+            }
+
+            if (id ==
+                IdOpenProjectFolder) {
+                if (g_project) {
+                    ShellExecuteW(
+                        window,
+                        L"open",
+                        g_project->rootDirectory
+                            .c_str(),
+                        nullptr,
+                        nullptr,
+                        SW_SHOWNORMAL);
+                }
+
+                return 0;
+            }
+
+            if (id ==
                 IdUndo) {
                 UndoTransform();
                 return 0;
@@ -4000,13 +4043,21 @@ int WINAPI wWinMain(
             static_cast<WORD>('Y'),
             static_cast<WORD>(
                 IdRedo)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY),
+            static_cast<WORD>(
+                VK_F5),
+            static_cast<WORD>(
+                IdRefreshAssets)
         }
     };
 
     HACCEL acceleratorTable =
         CreateAcceleratorTableW(
             accelerators,
-            4);
+            5);
 
     MSG message{};
 
