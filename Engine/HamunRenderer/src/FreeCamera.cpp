@@ -189,6 +189,54 @@ void FreeCamera::Update(
         position_.y -= speed;
 }
 
+void FreeCamera::MoveLocal(
+    float forwardAmount,
+    float rightAmount,
+    float upAmount) noexcept
+{
+    const Vec3 forward =
+        ForwardVector(
+            yaw_,
+            pitch_);
+
+    const Vec3 worldUp{
+        0.0f,
+        1.0f,
+        0.0f
+    };
+
+    const Vec3 right =
+        Normalize(
+            Cross(
+                worldUp,
+                forward));
+
+    position_.x +=
+        forward.x * forwardAmount +
+        right.x * rightAmount;
+
+    position_.y +=
+        forward.y * forwardAmount +
+        upAmount;
+
+    position_.z +=
+        forward.z * forwardAmount +
+        right.z * rightAmount;
+}
+
+void FreeCamera::Rotate(
+    float yawDelta,
+    float pitchDelta) noexcept
+{
+    yaw_ += yawDelta;
+
+    pitch_ =
+        std::clamp(
+            pitch_ + pitchDelta,
+            -1.50f,
+            1.50f);
+}
+
 Mat4 FreeCamera::ViewMatrix() const
 {
     const Vec3 zAxis =
