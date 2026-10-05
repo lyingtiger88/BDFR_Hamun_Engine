@@ -953,6 +953,8 @@ void UpdateInspectorFromSelection();
 void PopulateAssets(
     const std::filesystem::path& root);
 bool InitializeViewportBackend();
+bool ConfirmDiscardScene(
+    HWND owner);
 
 void SetFloatEdit(
     HWND edit,
@@ -2179,8 +2181,9 @@ void OpenSceneDialog(
     const std::filesystem::path selected =
         path;
 
-    if (selected.extension() ==
-        L".hamunscene") {
+    if (Hamun::Editor::ClassifyAsset(
+            selected) ==
+        Hamun::Editor::AssetKind::Scene) {
         OpenSceneDocumentFile(
             selected);
     } else {
@@ -2197,6 +2200,15 @@ bool ImportAssetPath(
     if (!g_project) {
         SetStatus(
             L"Open a project before importing assets.");
+        return false;
+    }
+
+    if (Hamun::Editor::ClassifyAsset(
+            source) ==
+            Hamun::Editor::AssetKind::Gltf &&
+        !ConfirmDiscardScene(
+            GetParent(
+                g_assets))) {
         return false;
     }
 
@@ -3340,8 +3352,11 @@ LRESULT CALLBACK WindowProc(
 
             if (id ==
                 IdExit) {
-                DestroyWindow(
-                    window);
+                SendMessageW(
+                    window,
+                    WM_CLOSE,
+                    0,
+                    0);
                 return 0;
             }
 
@@ -3506,9 +3521,7 @@ int WINAPI wWinMain(
     HACCEL acceleratorTable =
         CreateAcceleratorTableW(
             accelerators,
-            static_cast<int>(
-                std::size(
-                    accelerators)));
+            2);
 
     MSG message{};
 
