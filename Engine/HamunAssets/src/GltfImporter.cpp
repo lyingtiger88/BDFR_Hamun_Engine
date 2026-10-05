@@ -113,7 +113,8 @@ void AppendNodeInstances(
     const cgltf_node* node,
     const cgltf_data* data,
     const PrimitiveMap& primitiveMap,
-    GltfAsset& asset)
+    GltfAsset& asset,
+    std::uint32_t hierarchyDepth)
 {
     if (!node)
         return;
@@ -156,6 +157,9 @@ void AppendNodeInstances(
             instance.meshIndex =
                 meshIndex;
 
+            instance.hierarchyDepth =
+                hierarchyDepth;
+
             std::copy(
                 std::begin(world),
                 std::end(world),
@@ -173,7 +177,8 @@ void AppendNodeInstances(
             node->children[i],
             data,
             primitiveMap,
-            asset);
+            asset,
+            hierarchyDepth + 1);
     }
 }
 
@@ -191,7 +196,8 @@ void BuildSceneInstances(
                 data->scene->nodes[i],
                 data,
                 primitiveMap,
-                asset);
+                asset,
+                0);
         }
     } else {
         for (cgltf_size i = 0;
@@ -205,7 +211,8 @@ void BuildSceneInstances(
                     node,
                     data,
                     primitiveMap,
-                    asset);
+                    asset,
+                    0);
             }
         }
     }
