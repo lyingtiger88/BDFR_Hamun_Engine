@@ -339,6 +339,16 @@ POINT g_viewportLastMouse{};
 ULONGLONG g_lastCameraTick = 0;
 bool g_sceneDirty = false;
 
+struct EditorCameraState {
+    Hamun::Renderer::Vec3 position{};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    bool valid = false;
+};
+
+EditorCameraState
+    g_editorCameraState;
+
 enum class ViewportBackendPreference {
     Auto,
     D3D12,
@@ -1063,6 +1073,21 @@ void UpdateViewportHeader()
     text
         << g_viewportBackendLabel;
 
+    if (g_scenePreview.Ready()) {
+        const auto camera =
+            g_scenePreview.CameraPosition();
+
+        text
+            << L" | Cam: "
+            << std::fixed
+            << std::setprecision(1)
+            << camera.x
+            << L","
+            << camera.y
+            << L","
+            << camera.z;
+    }
+
     if (g_viewportFps > 0.0) {
         text
             << L" | FPS: "
@@ -1146,6 +1171,20 @@ void RecordViewportFrame()
 
 void ShutdownViewportBackend()
 {
+    if (g_scenePreview.Ready()) {
+        g_editorCameraState.position =
+            g_scenePreview.CameraPosition();
+
+        g_editorCameraState.yaw =
+            g_scenePreview.CameraYaw();
+
+        g_editorCameraState.pitch =
+            g_scenePreview.CameraPitch();
+
+        g_editorCameraState.valid =
+            true;
+    }
+
     g_scenePreview.Reset();
     g_viewportResources.Reset();
 
@@ -1246,6 +1285,13 @@ bool InitializeViewportBackend()
             g_scenePreview.Reset();
             backend->Shutdown();
             continue;
+        }
+
+        if (g_editorCameraState.valid) {
+            g_scenePreview.SetCameraPose(
+                g_editorCameraState.position,
+                g_editorCameraState.yaw,
+                g_editorCameraState.pitch);
         }
 
         std::wstring label =
@@ -2422,6 +2468,7 @@ bool LoadProjectIntoEditor(
     g_sceneTransforms.clear();
     g_sceneTransformSource.clear();
     g_sceneDirty = false;
+    g_editorCameraState = {};
 
     const std::wstring name =
         Utf8ToWide(
