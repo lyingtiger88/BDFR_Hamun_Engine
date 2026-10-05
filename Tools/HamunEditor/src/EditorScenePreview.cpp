@@ -1047,6 +1047,60 @@ bool ScenePreview::SetMaterial(
     objectMaterials_[index] =
         sanitized;
 
+    if (index <
+        entityIds_.size()) {
+        World::EntityRecord* entity =
+            world_.Find(
+                entityIds_[index]);
+
+        if (entity) {
+            World::MaterialComponent
+                worldMaterial;
+
+            worldMaterial.baseColorFactor =
+                sanitized.baseColorFactor;
+
+            worldMaterial.metallic =
+                sanitized.metallic;
+
+            worldMaterial.roughness =
+                sanitized.roughness;
+
+            entity->material =
+                worldMaterial;
+        }
+    }
+
+    return true;
+}
+
+bool ScenePreview::SetName(
+    std::size_t index,
+    std::string name)
+{
+    if (!asset_ ||
+        index >=
+            asset_->instances.size() ||
+        name.empty()) {
+        return false;
+    }
+
+    asset_->instances[index].name =
+        std::move(name);
+
+    if (index <
+        entityIds_.size()) {
+        World::EntityRecord* entity =
+            world_.Find(
+                entityIds_[index]);
+
+        if (entity) {
+            entity->name =
+                asset_->instances[index]
+                    .name;
+        }
+    }
+
     return true;
 }
 
@@ -1505,6 +1559,33 @@ bool ScenePreview::RebuildSceneRuntime(
                 scenePath_,
                 instance.meshIndex
             };
+
+        const std::size_t objectIndex =
+            entityIds_.size();
+
+        if (objectIndex <
+            objectMaterials_.size()) {
+            World::MaterialComponent
+                worldMaterial;
+
+            worldMaterial.baseColorFactor =
+                objectMaterials_[
+                    objectIndex]
+                    .baseColorFactor;
+
+            worldMaterial.metallic =
+                objectMaterials_[
+                    objectIndex]
+                    .metallic;
+
+            worldMaterial.roughness =
+                objectMaterials_[
+                    objectIndex]
+                    .roughness;
+
+            entity->material =
+                worldMaterial;
+        }
 
         entityIds_.push_back(
             entityId);
