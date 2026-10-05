@@ -36,6 +36,8 @@ struct SceneObjectInfo {
     std::size_t index = 0;
     World::EntityId entityId =
         World::InvalidEntity;
+    World::EntityId parentEntityId =
+        World::InvalidEntity;
     std::uint32_t hierarchyDepth = 0;
     std::string name;
     std::string meshName;
