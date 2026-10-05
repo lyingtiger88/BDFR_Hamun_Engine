@@ -1885,6 +1885,8 @@ void UpdateInspectorFromSelection()
         << info->index
         << L"\r\nEntity ID: "
         << info->entityId
+        << L"\r\nParent Entity: "
+        << info->parentEntityId
         << L"\r\n\r\nMaterial\r\nMetallic: "
         << std::fixed
         << std::setprecision(3)
