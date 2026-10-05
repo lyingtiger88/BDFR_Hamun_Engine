@@ -17,6 +17,30 @@
 
 namespace Hamun::Editor {
 
+struct SceneObjectTransform {
+    std::array<float, 3> position{
+        0.0f, 0.0f, 0.0f
+    };
+
+    std::array<float, 3> scale{
+        1.0f, 1.0f, 1.0f
+    };
+};
+
+struct SceneObjectInfo {
+    std::size_t index = 0;
+    std::string name;
+    std::string meshName;
+    SceneObjectTransform transform{};
+
+    std::array<float, 4> baseColorFactor{
+        1.0f, 1.0f, 1.0f, 1.0f
+    };
+
+    float metallic = 0.0f;
+    float roughness = 1.0f;
+};
+
 class ScenePreview {
 public:
     bool Initialize(
@@ -33,6 +57,15 @@ public:
 
     [[nodiscard]] bool Ready() const noexcept;
     [[nodiscard]] std::size_t InstanceCount() const noexcept;
+
+    [[nodiscard]] std::optional<SceneObjectInfo>
+    ObjectInfo(
+        std::size_t index) const;
+
+    bool SetTransform(
+        std::size_t index,
+        const SceneObjectTransform& transform);
+
     [[nodiscard]] const std::filesystem::path& ScenePath() const noexcept;
 
 private:
