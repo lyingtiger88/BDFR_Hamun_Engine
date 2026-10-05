@@ -847,6 +847,32 @@ bool ScenePreview::SetTransform(
     return true;
 }
 
+void ScenePreview::MoveCamera(
+    float forward,
+    float right,
+    float up) noexcept
+{
+    camera_.MoveLocal(
+        forward,
+        right,
+        up);
+}
+
+void ScenePreview::RotateCamera(
+    float yawDelta,
+    float pitchDelta) noexcept
+{
+    camera_.Rotate(
+        yawDelta,
+        pitchDelta);
+}
+
+Renderer::Vec3
+ScenePreview::CameraPosition() const noexcept
+{
+    return camera_.Position();
+}
+
 const std::filesystem::path&
 ScenePreview::ScenePath() const noexcept
 {
