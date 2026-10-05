@@ -54,6 +54,10 @@ HWND g_positionLabel = nullptr;
 HWND g_positionX = nullptr;
 HWND g_positionY = nullptr;
 HWND g_positionZ = nullptr;
+HWND g_rotationLabel = nullptr;
+HWND g_rotationX = nullptr;
+HWND g_rotationY = nullptr;
+HWND g_rotationZ = nullptr;
 HWND g_scaleLabel = nullptr;
 HWND g_scaleX = nullptr;
 HWND g_scaleY = nullptr;
@@ -834,6 +838,12 @@ int RunEditorSmokeMode()
         3.0f
     };
 
+    smokeTransform.rotationDegrees = {
+        10.0f,
+        25.0f,
+        -15.0f
+    };
+
     smokeTransform.scale = {
         1.25f,
         0.75f,
@@ -887,6 +897,9 @@ int RunEditorSmokeMode()
         reloadedScene.transforms[0]
                 .position[1] !=
             2.0f ||
+        reloadedScene.transforms[0]
+                .rotationDegrees[1] !=
+            25.0f ||
         !reloadedScene.hasCamera ||
         reloadedScene.cameraPosition.z !=
             -6.0f) {
@@ -1043,6 +1056,9 @@ void SetTransformEditorEnabled(
              g_positionX,
              g_positionY,
              g_positionZ,
+             g_rotationX,
+             g_rotationY,
+             g_rotationZ,
              g_scaleX,
              g_scaleY,
              g_scaleZ,
@@ -1879,6 +1895,18 @@ void UpdateInspectorFromSelection()
         info->transform.position[2]);
 
     SetFloatEdit(
+        g_rotationX,
+        info->transform.rotationDegrees[0]);
+
+    SetFloatEdit(
+        g_rotationY,
+        info->transform.rotationDegrees[1]);
+
+    SetFloatEdit(
+        g_rotationZ,
+        info->transform.rotationDegrees[2]);
+
+    SetFloatEdit(
         g_scaleX,
         info->transform.scale[0]);
 
@@ -1917,6 +1945,15 @@ void ApplyInspectorTransform()
         !ReadFloatEdit(
             g_positionZ,
             transform.position[2]) ||
+        !ReadFloatEdit(
+            g_rotationX,
+            transform.rotationDegrees[0]) ||
+        !ReadFloatEdit(
+            g_rotationY,
+            transform.rotationDegrees[1]) ||
+        !ReadFloatEdit(
+            g_rotationZ,
+            transform.rotationDegrees[2]) ||
         !ReadFloatEdit(
             g_scaleX,
             transform.scale[0]) ||
@@ -1958,6 +1995,8 @@ void ApplyInspectorTransform()
            const Hamun::Editor::SceneObjectTransform& b) {
             return
                 a.position == b.position &&
+                a.rotationDegrees ==
+                    b.rotationDegrees &&
                 a.scale == b.scale;
         };
 
@@ -3010,9 +3049,9 @@ void LayoutControls(
 
     const int inspectorInfoHeight =
         std::max(
-            70,
+            60,
             inspectorBodyHeight -
-                150);
+                198);
 
     MoveWindow(
         g_inspector,
@@ -3077,8 +3116,53 @@ void LayoutControls(
         22,
         TRUE);
 
-    const int scaleLabelTop =
+    const int rotationLabelTop =
         positionFieldsTop +
+        26;
+
+    MoveWindow(
+        g_rotationLabel,
+        inspectorX,
+        rotationLabelTop,
+        sideWidth,
+        18,
+        TRUE);
+
+    const int rotationFieldsTop =
+        rotationLabelTop +
+        20;
+
+    MoveWindow(
+        g_rotationX,
+        inspectorX,
+        rotationFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_rotationY,
+        inspectorX +
+            fieldWidth +
+            fieldGap,
+        rotationFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_rotationZ,
+        inspectorX +
+            (fieldWidth +
+             fieldGap) *
+                2,
+        rotationFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    const int scaleLabelTop =
+        rotationFieldsTop +
         26;
 
     MoveWindow(
@@ -3383,6 +3467,37 @@ LRESULT CALLBACK WindowProc(
                     WS_BORDER |
                         ES_AUTOHSCROLL);
 
+            g_rotationLabel =
+                AddControl(
+                    window,
+                    L"STATIC",
+                    L"Rotation deg  X / Y / Z",
+                    SS_LEFT);
+
+            g_rotationX =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_rotationY =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_rotationZ =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
             g_scaleLabel =
                 AddControl(
                     window,
@@ -3461,6 +3576,10 @@ LRESULT CALLBACK WindowProc(
                      g_positionX,
                      g_positionY,
                      g_positionZ,
+                     g_rotationLabel,
+                     g_rotationX,
+                     g_rotationY,
+                     g_rotationZ,
                      g_scaleLabel,
                      g_scaleX,
                      g_scaleY,
