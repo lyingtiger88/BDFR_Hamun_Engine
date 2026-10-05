@@ -31,6 +31,21 @@ public:
     [[nodiscard]] Mat4 ViewProjection(
         float aspectRatio) const;
 
+    void MoveLocal(
+        float forward,
+        float right,
+        float up) noexcept;
+
+    void Rotate(
+        float yawDelta,
+        float pitchDelta) noexcept;
+
+    void SetPosition(
+        const Vec3& position) noexcept
+    {
+        position_ = position;
+    }
+
     [[nodiscard]] const Vec3& Position() const noexcept
     {
         return position_;
