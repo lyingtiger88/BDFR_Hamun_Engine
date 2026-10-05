@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cwchar>
 #include <filesystem>
 #include <iomanip>
 #include <memory>
@@ -28,6 +29,8 @@ constexpr int IdExit = 2002;
 constexpr int IdRendererAuto = 2101;
 constexpr int IdRendererD3D12 = 2102;
 constexpr int IdRendererD3D11 = 2103;
+constexpr int IdOutliner = 2201;
+constexpr int IdApplyTransform = 2202;
 constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
@@ -37,6 +40,15 @@ HWND g_viewportHeader = nullptr;
 HWND g_viewport = nullptr;
 HWND g_inspectorHeader = nullptr;
 HWND g_inspector = nullptr;
+HWND g_positionLabel = nullptr;
+HWND g_positionX = nullptr;
+HWND g_positionY = nullptr;
+HWND g_positionZ = nullptr;
+HWND g_scaleLabel = nullptr;
+HWND g_scaleX = nullptr;
+HWND g_scaleY = nullptr;
+HWND g_scaleZ = nullptr;
+HWND g_applyTransform = nullptr;
 HWND g_assetsHeader = nullptr;
 HWND g_assets = nullptr;
 HWND g_status = nullptr;
@@ -299,6 +311,12 @@ ViewportRenderResources
 Hamun::Editor::ScenePreview
     g_scenePreview;
 
+std::vector<Hamun::Editor::SceneObjectTransform>
+    g_sceneTransforms;
+
+std::filesystem::path
+    g_sceneTransformSource;
+
 enum class ViewportBackendPreference {
     Auto,
     D3D12,
@@ -490,6 +508,49 @@ bool RunViewportBackendSmoke(
             320,
             180,
             &previewError)) {
+        backend->Shutdown();
+        return false;
+    }
+
+    if (preview.InstanceCount() != 5) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
+    const auto object =
+        preview.ObjectInfo(1);
+
+    if (!object) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
+    auto editedTransform =
+        object->transform;
+
+    editedTransform.position[0] +=
+        0.25f;
+
+    if (!preview.SetTransform(
+            1,
+            editedTransform)) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
+    const auto editedObject =
+        preview.ObjectInfo(1);
+
+    if (!editedObject ||
+        editedObject
+            ->transform
+            .position[0] !=
+            editedTransform
+                .position[0]) {
+        preview.Reset();
         backend->Shutdown();
         return false;
     }
@@ -717,6 +778,119 @@ void SetStatus(
         SetWindowTextW(
             g_status,
             value.c_str());
+    }
+}
+
+void PopulateOutliner();
+void UpdateInspectorFromSelection();
+
+void SetFloatEdit(
+    HWND edit,
+    float value)
+{
+    if (!edit)
+        return;
+
+    std::wostringstream text;
+
+    text
+        << std::fixed
+        << std::setprecision(3)
+        << value;
+
+    SetWindowTextW(
+        edit,
+        text.str().c_str());
+}
+
+bool ReadFloatEdit(
+    HWND edit,
+    float& value)
+{
+    if (!edit)
+        return false;
+
+    wchar_t buffer[64]{};
+
+    GetWindowTextW(
+        edit,
+        buffer,
+        static_cast<int>(
+            std::size(buffer)));
+
+    wchar_t* end = nullptr;
+
+    const float parsed =
+        std::wcstof(
+            buffer,
+            &end);
+
+    if (end == buffer)
+        return false;
+
+    value = parsed;
+    return true;
+}
+
+void SetTransformEditorEnabled(
+    bool enabled)
+{
+    for (HWND control :
+         {
+             g_positionX,
+             g_positionY,
+             g_positionZ,
+             g_scaleX,
+             g_scaleY,
+             g_scaleZ,
+             g_applyTransform
+         }) {
+        if (control) {
+            EnableWindow(
+                control,
+                enabled ? TRUE : FALSE);
+        }
+    }
+}
+
+void SyncSceneTransformState()
+{
+    const auto scenePath =
+        g_scenePreview.ScenePath();
+
+    if (g_sceneTransformSource !=
+            scenePath ||
+        g_sceneTransforms.size() !=
+            g_scenePreview.InstanceCount()) {
+        g_sceneTransformSource =
+            scenePath;
+
+        g_sceneTransforms.clear();
+        g_sceneTransforms.reserve(
+            g_scenePreview.InstanceCount());
+
+        for (std::size_t i = 0;
+             i <
+                g_scenePreview.InstanceCount();
+             ++i) {
+            const auto info =
+                g_scenePreview.ObjectInfo(i);
+
+            if (info) {
+                g_sceneTransforms.push_back(
+                    info->transform);
+            }
+        }
+
+        return;
+    }
+
+    for (std::size_t i = 0;
+         i < g_sceneTransforms.size();
+         ++i) {
+        g_scenePreview.SetTransform(
+            i,
+            g_sceneTransforms[i]);
     }
 }
 
@@ -961,10 +1135,15 @@ bool InitializeViewportBackend()
         g_viewportBackend =
             std::move(backend);
 
+        SyncSceneTransformState();
+
         g_viewportRenderFailed =
             false;
 
         ResetViewportPerformanceStats();
+
+        PopulateOutliner();
+        UpdateInspectorFromSelection();
 
         SetStatus(
             L"HamunRenderer scene viewport initialized.");
@@ -1139,23 +1318,254 @@ void AddListItem(
 
 void PopulateOutliner()
 {
+    if (!g_outliner)
+        return;
+
+    const LRESULT previousSelection =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
     SendMessageW(
         g_outliner,
         LB_RESETCONTENT,
         0,
         0);
 
-    AddListItem(
-        g_outliner,
-        L"World");
+    if (!g_scenePreview.Ready()) {
+        AddListItem(
+            g_outliner,
+            L"(scene unavailable)");
 
-    AddListItem(
-        g_outliner,
-        L"  Camera (editor placeholder)");
+        SetTransformEditorEnabled(false);
+        return;
+    }
 
-    AddListItem(
-        g_outliner,
-        L"  Directional Light (editor placeholder)");
+    for (std::size_t i = 0;
+         i <
+            g_scenePreview.InstanceCount();
+         ++i) {
+        const auto info =
+            g_scenePreview.ObjectInfo(i);
+
+        if (!info)
+            continue;
+
+        std::wstring label =
+            Utf8ToWide(
+                info->name);
+
+        if (!info->meshName.empty()) {
+            label +=
+                L"  [" +
+                Utf8ToWide(
+                    info->meshName) +
+                L"]";
+        }
+
+        AddListItem(
+            g_outliner,
+            label);
+    }
+
+    if (g_scenePreview.InstanceCount() > 0) {
+        const std::size_t selected =
+            previousSelection != LB_ERR &&
+            static_cast<std::size_t>(
+                previousSelection) <
+                g_scenePreview.InstanceCount()
+                ? static_cast<std::size_t>(
+                    previousSelection)
+                : 0;
+
+        SendMessageW(
+            g_outliner,
+            LB_SETCURSEL,
+            static_cast<WPARAM>(
+                selected),
+            0);
+    }
+}
+
+void UpdateInspectorFromSelection()
+{
+    if (!g_inspector ||
+        !g_outliner ||
+        !g_scenePreview.Ready()) {
+        if (g_inspector) {
+            SetWindowTextW(
+                g_inspector,
+                L"No scene object selected.");
+        }
+
+        SetTransformEditorEnabled(false);
+        return;
+    }
+
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR) {
+        SetWindowTextW(
+            g_inspector,
+            L"No scene object selected.");
+
+        SetTransformEditorEnabled(false);
+        return;
+    }
+
+    const auto info =
+        g_scenePreview.ObjectInfo(
+            static_cast<std::size_t>(
+                selected));
+
+    if (!info) {
+        SetWindowTextW(
+            g_inspector,
+            L"Selected scene object is unavailable.");
+
+        SetTransformEditorEnabled(false);
+        return;
+    }
+
+    std::wostringstream text;
+
+    text
+        << L"Scene Object\r\n\r\n"
+        << L"Name: "
+        << Utf8ToWide(
+            info->name)
+        << L"\r\nMesh: "
+        << Utf8ToWide(
+            info->meshName)
+        << L"\r\nIndex: "
+        << info->index
+        << L"\r\n\r\nMaterial\r\nMetallic: "
+        << std::fixed
+        << std::setprecision(3)
+        << info->metallic
+        << L"\r\nRoughness: "
+        << info->roughness
+        << L"\r\nBase Color: "
+        << info->baseColorFactor[0]
+        << L", "
+        << info->baseColorFactor[1]
+        << L", "
+        << info->baseColorFactor[2];
+
+    SetWindowTextW(
+        g_inspector,
+        text.str().c_str());
+
+    SetFloatEdit(
+        g_positionX,
+        info->transform.position[0]);
+
+    SetFloatEdit(
+        g_positionY,
+        info->transform.position[1]);
+
+    SetFloatEdit(
+        g_positionZ,
+        info->transform.position[2]);
+
+    SetFloatEdit(
+        g_scaleX,
+        info->transform.scale[0]);
+
+    SetFloatEdit(
+        g_scaleY,
+        info->transform.scale[1]);
+
+    SetFloatEdit(
+        g_scaleZ,
+        info->transform.scale[2]);
+
+    SetTransformEditorEnabled(true);
+}
+
+void ApplyInspectorTransform()
+{
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    Hamun::Editor::SceneObjectTransform
+        transform;
+
+    if (!ReadFloatEdit(
+            g_positionX,
+            transform.position[0]) ||
+        !ReadFloatEdit(
+            g_positionY,
+            transform.position[1]) ||
+        !ReadFloatEdit(
+            g_positionZ,
+            transform.position[2]) ||
+        !ReadFloatEdit(
+            g_scaleX,
+            transform.scale[0]) ||
+        !ReadFloatEdit(
+            g_scaleY,
+            transform.scale[1]) ||
+        !ReadFloatEdit(
+            g_scaleZ,
+            transform.scale[2])) {
+        SetStatus(
+            L"Transform contains an invalid number.");
+        return;
+    }
+
+    if (transform.scale[0] <= 0.0f ||
+        transform.scale[1] <= 0.0f ||
+        transform.scale[2] <= 0.0f) {
+        SetStatus(
+            L"Scale values must be greater than zero.");
+        return;
+    }
+
+    const std::size_t index =
+        static_cast<std::size_t>(
+            selected);
+
+    if (!g_scenePreview.SetTransform(
+            index,
+            transform)) {
+        SetStatus(
+            L"Could not update scene object transform.");
+        return;
+    }
+
+    if (g_sceneTransforms.size() ==
+        g_scenePreview.InstanceCount()) {
+        g_sceneTransforms[index] =
+            transform;
+    }
+
+    UpdateInspectorFromSelection();
+
+    const auto info =
+        g_scenePreview.ObjectInfo(
+            index);
+
+    SetStatus(
+        info
+            ? L"Transform updated: " +
+                Utf8ToWide(
+                    info->name)
+            : L"Transform updated.");
 }
 
 void PopulateAssets(
@@ -1248,27 +1658,8 @@ bool LoadProjectIntoEditor(
         (L"Project: " + name)
             .c_str());
 
-    const std::wstring inspectorText =
-        L"Project\r\n\r\nName: " +
-        name +
-        L"\r\nTemplate: " +
-        Utf8ToWide(
-            g_project->templateId) +
-        L"\r\nEngine: " +
-        Utf8ToWide(
-            g_project->engineName) +
-        L"\r\nFormat: " +
-        std::to_wstring(
-            g_project->formatVersion) +
-        L"\r\n\r\nRoot:\r\n" +
-        g_project->rootDirectory
-            .wstring();
-
-    SetWindowTextW(
-        g_inspector,
-        inspectorText.c_str());
-
     PopulateOutliner();
+    UpdateInspectorFromSelection();
     PopulateAssets(
         g_project->rootDirectory);
 
@@ -1442,14 +1833,135 @@ void LayoutControls(
         headerHeight,
         TRUE);
 
+    const int inspectorTop =
+        contentTop +
+        headerHeight;
+
+    const int inspectorBodyHeight =
+        mainHeight -
+        headerHeight;
+
+    const int inspectorInfoHeight =
+        std::max(
+            90,
+            inspectorBodyHeight -
+                118);
+
     MoveWindow(
         g_inspector,
         inspectorX,
-        contentTop +
-            headerHeight,
+        inspectorTop,
         sideWidth,
-        mainHeight -
-            headerHeight,
+        inspectorInfoHeight,
+        TRUE);
+
+    const int transformTop =
+        inspectorTop +
+        inspectorInfoHeight +
+        6;
+
+    MoveWindow(
+        g_positionLabel,
+        inspectorX,
+        transformTop,
+        sideWidth,
+        18,
+        TRUE);
+
+    const int fieldGap = 4;
+
+    const int fieldWidth =
+        std::max(
+            40,
+            (sideWidth -
+             fieldGap * 2) /
+                3);
+
+    const int positionFieldsTop =
+        transformTop +
+        20;
+
+    MoveWindow(
+        g_positionX,
+        inspectorX,
+        positionFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_positionY,
+        inspectorX +
+            fieldWidth +
+            fieldGap,
+        positionFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_positionZ,
+        inspectorX +
+            (fieldWidth +
+             fieldGap) *
+                2,
+        positionFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    const int scaleLabelTop =
+        positionFieldsTop +
+        26;
+
+    MoveWindow(
+        g_scaleLabel,
+        inspectorX,
+        scaleLabelTop,
+        sideWidth,
+        18,
+        TRUE);
+
+    const int scaleFieldsTop =
+        scaleLabelTop +
+        20;
+
+    MoveWindow(
+        g_scaleX,
+        inspectorX,
+        scaleFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_scaleY,
+        inspectorX +
+            fieldWidth +
+            fieldGap,
+        scaleFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_scaleZ,
+        inspectorX +
+            (fieldWidth +
+             fieldGap) *
+                2,
+        scaleFieldsTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_applyTransform,
+        inspectorX,
+        scaleFieldsTop +
+            28,
+        sideWidth,
+        24,
         TRUE);
 
     MoveWindow(
@@ -1587,7 +2099,8 @@ LRESULT CALLBACK WindowProc(
                     L"",
                     WS_BORDER |
                         WS_VSCROLL |
-                        LBS_NOTIFY);
+                        LBS_NOTIFY,
+                    IdOutliner);
 
             g_viewportHeader =
                 AddControl(
@@ -1614,10 +2127,83 @@ LRESULT CALLBACK WindowProc(
             g_inspector =
                 AddControl(
                     window,
-                    L"STATIC",
+                    L"EDIT",
                     L"No selection.",
                     WS_BORDER |
-                        SS_LEFT);
+                        WS_VSCROLL |
+                        ES_MULTILINE |
+                        ES_AUTOVSCROLL |
+                        ES_READONLY);
+
+            g_positionLabel =
+                AddControl(
+                    window,
+                    L"STATIC",
+                    L"Position  X / Y / Z",
+                    SS_LEFT);
+
+            g_positionX =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_positionY =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_positionZ =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_scaleLabel =
+                AddControl(
+                    window,
+                    L"STATIC",
+                    L"Scale  X / Y / Z",
+                    SS_LEFT);
+
+            g_scaleX =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_scaleY =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_scaleZ =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_applyTransform =
+                AddControl(
+                    window,
+                    L"BUTTON",
+                    L"Apply Transform",
+                    BS_PUSHBUTTON,
+                    IdApplyTransform);
 
             g_assetsHeader =
                 AddControl(
@@ -1652,6 +2238,15 @@ LRESULT CALLBACK WindowProc(
                      g_viewport,
                      g_inspectorHeader,
                      g_inspector,
+                     g_positionLabel,
+                     g_positionX,
+                     g_positionY,
+                     g_positionZ,
+                     g_scaleLabel,
+                     g_scaleX,
+                     g_scaleY,
+                     g_scaleZ,
+                     g_applyTransform,
                      g_assetsHeader,
                      g_assets,
                      g_status
@@ -1663,6 +2258,9 @@ LRESULT CALLBACK WindowProc(
                         font),
                     TRUE);
             }
+
+            SetTransformEditorEnabled(
+                false);
 
             LayoutControls(
                 window);
@@ -1702,6 +2300,22 @@ LRESULT CALLBACK WindowProc(
         case WM_COMMAND: {
             const int id =
                 LOWORD(wParam);
+
+            if (id ==
+                    IdOutliner &&
+                HIWORD(wParam) ==
+                    LBN_SELCHANGE) {
+                UpdateInspectorFromSelection();
+                return 0;
+            }
+
+            if (id ==
+                    IdApplyTransform &&
+                HIWORD(wParam) ==
+                    BN_CLICKED) {
+                ApplyInspectorTransform();
+                return 0;
+            }
 
             if (id ==
                 IdOpenProject) {
