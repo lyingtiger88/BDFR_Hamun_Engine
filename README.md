@@ -635,8 +635,8 @@ Win32 Window
 - [x] Project launcher / template-selection foundation
 - [x] Main editor shell
 - [x] Scene/world viewport
-- [ ] Hierarchy/outliner
-- [ ] Inspector/details panel
+- [x] Hierarchy/outliner
+- [x] Inspector/details panel
 - [ ] Asset browser
 - [ ] Material editor
 - [ ] HamunGraph editor
@@ -813,7 +813,12 @@ the production template categories are still being decided.
 - [x] Runtime Renderer menu for Auto / DirectX 12 / DirectX 11 comparison
 - [x] HamunRenderer-backed scene/world viewport using HamunAssets glTF loading
 - [x] DX12/DX11 editor scene smoke test renders three real HamunRenderer frames in a child HWND
-- [ ] Editable hierarchy / inspector data model
+- [x] Scene-object data model exposes glTF names, mesh metadata, material parameters and hierarchy depth
+- [x] Real Outliner populated from glTF scene instances with hierarchy indentation
+- [x] Inspector selection shows live object/mesh/material data
+- [x] Editable Position and Scale fields update the rendered world transform immediately
+- [x] Edited transforms persist across viewport resize and DX12/DX11 backend recreation
+- [x] Viewport smoke test validates scene-object transform mutation before rendering
 - [ ] Full asset browser indexing and import workflow
 
 The production template lineup remains intentionally undecided; editor work can
@@ -858,7 +863,7 @@ Hamun Engine follows a few core principles:
 
 ## Current Status
 
-Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place. The Windows toolchain now includes a tested HamunEditor shell that opens generated `.hamunproject` projects plus a live embedded HamunRenderer scene viewport. The editor loads the shared glTF test scene through HamunAssets, creates real mesh/texture GPU resources, and submits indexed scene draws through HamunRenderer inside the Win32 child-HWND viewport. The viewport prefers DX12, falls back to DX11, rebuilds its swapchain after panel resizing, and is CI smoke-tested by rendering three real scene frames on both backends. The viewport header also reports sampled FPS and frame time, and the Renderer menu can switch between Auto, DirectX 12 and DirectX 11 at runtime for direct performance comparison on the same scene.
+Hamun Engine is at the **Pre-Alpha RHI foundation stage**. DirectX 12 and DirectX 11 now render the same indexed textured 3D mesh through the public HamunRHI interfaces. DX12 uses the modern explicit path with DXC Shader Model 6 support, while DX11 provides a compatibility path down through Feature Level 10_0. Windows, Linux and Android CI validation are in place. The Windows toolchain now includes a tested HamunEditor shell that opens generated `.hamunproject` projects plus a live embedded HamunRenderer scene viewport. The editor loads the shared glTF test scene through HamunAssets, creates real mesh/texture GPU resources, and submits indexed scene draws through HamunRenderer inside the Win32 child-HWND viewport. The Outliner is now backed by real glTF scene objects and hierarchy depth, while selection drives an Inspector that exposes object, mesh and material metadata plus editable Position and Scale values. Transform edits update the rendered scene immediately and survive viewport resize or DX12/DX11 backend recreation. The viewport prefers DX12, falls back to DX11, reports sampled FPS/frame time, and can switch between Auto, DirectX 12 and DirectX 11 at runtime for direct performance comparison on the same scene.
 
 The architecture and long-term technical direction are being defined before production systems are implemented. APIs, formats, module names, and roadmap ordering may change significantly during early development.
 

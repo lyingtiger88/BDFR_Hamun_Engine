@@ -122,6 +122,8 @@ Project Launcher:
 Editor:
   HamunEditor.exe can open a Project.hamunproject file directly.
   The editor includes a live HamunRenderer glTF scene viewport.
+  The Outliner lists real scene objects; selecting one opens its mesh/material details and editable Position/Scale controls in the Inspector.
+  Transform edits update the live viewport and survive viewport resize or renderer switching.
   Use Renderer > Auto / DirectX 12 / DirectX 11 to compare the same scene with live FPS and frame time.
 
 Recommended renderer test:
@@ -141,6 +143,8 @@ Test $Version includes:
   - HamunLauncher project browser
   - HamunEditor native editor shell and project loading
   - live HamunRenderer glTF scene viewport with DX12/DX11 switching and FPS/frame-time display
+  - real glTF hierarchy Outliner and selection-driven Inspector
+  - live editable Position/Scale transforms with persistent editor state
   - data-driven Template catalog and project creation workflow
   - Blank Project technical template
   - renderer-owned RenderGraph and indexed scene submission
