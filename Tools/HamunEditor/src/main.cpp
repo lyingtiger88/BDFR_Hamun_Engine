@@ -641,6 +641,58 @@ bool RunViewportBackendSmoke(
         return false;
     }
 
+    Hamun::Editor::SceneMaterialState
+        material =
+            editedObject->material;
+
+    material.baseColorFactor = {
+        0.35f,
+        0.65f,
+        0.90f,
+        1.0f
+    };
+
+    material.metallic = 0.25f;
+    material.roughness = 0.55f;
+
+    if (!preview.SetMaterial(
+            1,
+            material)) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
+    const std::size_t originalCount =
+        preview.InstanceCount();
+
+    std::size_t duplicateIndex = 0;
+
+    if (!preview.DuplicateObject(
+            *backend,
+            1,
+            &duplicateIndex,
+            &previewError) ||
+        preview.InstanceCount() !=
+            originalCount + 1 ||
+        duplicateIndex !=
+            originalCount) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
+    if (!preview.DeleteObject(
+            *backend,
+            duplicateIndex,
+            &previewError) ||
+        preview.InstanceCount() !=
+            originalCount) {
+        preview.Reset();
+        backend->Shutdown();
+        return false;
+    }
+
     bool success = true;
 
     for (int frame = 0;
@@ -878,6 +930,34 @@ int RunEditorSmokeMode()
         2.0f
     };
 
+    Hamun::Editor::SceneObjectState
+        smokeObject;
+
+    smokeObject.name =
+        "SmokeObject";
+
+    smokeObject.meshIndex = 0;
+    smokeObject.hierarchyDepth = 0;
+    smokeObject.transform =
+        smokeTransform;
+
+    smokeObject.material.baseColorFactor = {
+        0.2f,
+        0.4f,
+        0.8f,
+        1.0f
+    };
+
+    smokeObject.material.metallic =
+        0.3f;
+
+    smokeObject.material.roughness =
+        0.6f;
+
+    sceneDocument.objects = {
+        smokeObject
+    };
+
     sceneDocument.transforms = {
         smokeTransform
     };
@@ -920,14 +1000,23 @@ int RunEditorSmokeMode()
             savedScene,
             reloadedScene,
             &error) ||
-        reloadedScene.transforms.size() !=
+        reloadedScene.objects.size() !=
             1 ||
-        reloadedScene.transforms[0]
+        reloadedScene.objects[0]
+                .name !=
+            "SmokeObject" ||
+        reloadedScene.objects[0]
+                .transform
                 .position[1] !=
             2.0f ||
-        reloadedScene.transforms[0]
+        reloadedScene.objects[0]
+                .transform
                 .rotationDegrees[1] !=
             25.0f ||
+        reloadedScene.objects[0]
+                .material
+                .roughness !=
+            0.6f ||
         !reloadedScene.hasCamera ||
         reloadedScene.cameraPosition.z !=
             -6.0f) {
