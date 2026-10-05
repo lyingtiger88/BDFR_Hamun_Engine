@@ -121,7 +121,8 @@ Project Launcher:
 
 Editor:
   HamunEditor.exe can open a Project.hamunproject file directly.
-  The current editor shell includes the first Outliner, Viewport, Inspector and Asset Browser layout.
+  The editor includes a live HamunRenderer glTF scene viewport.
+  Use Renderer > Auto / DirectX 12 / DirectX 11 to compare the same scene with live FPS and frame time.
 
 Recommended renderer test:
   Double-click Run_DX12.bat
@@ -139,6 +140,7 @@ Controls:
 Test $Version includes:
   - HamunLauncher project browser
   - HamunEditor native editor shell and project loading
+  - live HamunRenderer glTF scene viewport with DX12/DX11 switching and FPS/frame-time display
   - data-driven Template catalog and project creation workflow
   - Blank Project technical template
   - renderer-owned RenderGraph and indexed scene submission
