@@ -18,6 +18,7 @@
 #include <Hamun/RHI/RHI.hpp>
 #include <Hamun/Upscale/FsrRuntime.hpp>
 #include <Hamun/World/StreamingScheduler.hpp>
+#include <Hamun/World/World.hpp>
 
 #include <array>
 #include <chrono>
@@ -27,6 +28,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -73,6 +75,58 @@ void RunFoundationSelfTests()
             << next->score
             << '\n';
     }
+
+    Hamun::World::World world;
+
+    const auto rootEntity =
+        world.CreateEntity(
+            "Root");
+
+    const auto childEntity =
+        world.CreateEntity(
+            "Child",
+            rootEntity);
+
+    auto* childRecord =
+        world.Find(
+            childEntity);
+
+    if (!childRecord ||
+        childRecord->parent !=
+            rootEntity ||
+        world.EntityCount() !=
+            2) {
+        throw std::runtime_error(
+            "HamunWorld entity creation self-test failed.");
+    }
+
+    childRecord->transform
+        .position.local.x =
+            3.0f;
+
+    childRecord->mesh =
+        Hamun::World::MeshComponent{
+            "Assets/TestScene.gltf",
+            0
+        };
+
+    if (world.SetParent(
+            rootEntity,
+            childEntity)) {
+        throw std::runtime_error(
+            "HamunWorld cycle protection self-test failed.");
+    }
+
+    if (!world.DestroyEntity(
+            rootEntity) ||
+        world.EntityCount() !=
+            0) {
+        throw std::runtime_error(
+            "HamunWorld recursive destroy self-test failed.");
+    }
+
+    std::cout
+        << "HamunWorld entity model test: OK\n";
 
     Hamun::Graph::Program program;
     program.constants = {
