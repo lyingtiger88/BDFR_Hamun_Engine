@@ -688,6 +688,9 @@ bool ScenePreview::Initialize(
     draws_.reserve(
         asset_->instances.size());
 
+    entityIds_.reserve(
+        asset_->instances.size());
+
     for (const Assets::SceneInstance& instance :
          asset_->instances) {
         if (instance.meshIndex >=
@@ -717,6 +720,60 @@ bool ScenePreview::Initialize(
             RHI::IndexType::UInt32;
 
         draws_.push_back(draw);
+
+        const World::EntityId entityId =
+            world_.CreateEntity(
+                instance.name.empty()
+                    ? "SceneObject"
+                    : instance.name);
+
+        if (entityId ==
+            World::InvalidEntity) {
+            Reset();
+
+            return Fail(
+                error,
+                "Could not create HamunWorld entity for scene object.");
+        }
+
+        World::EntityRecord* entity =
+            world_.Find(
+                entityId);
+
+        if (!entity) {
+            Reset();
+
+            return Fail(
+                error,
+                "Could not resolve newly created HamunWorld entity.");
+        }
+
+        const SceneObjectTransform transform =
+            ExtractTransform(
+                instance);
+
+        entity->transform
+            .position
+            .local = {
+                transform.position[0],
+                transform.position[1],
+                transform.position[2]
+            };
+
+        entity->transform.rotationDegrees =
+            transform.rotationDegrees;
+
+        entity->transform.scale =
+            transform.scale;
+
+        entity->mesh =
+            World::MeshComponent{
+                scenePath_,
+                instance.meshIndex
+            };
+
+        entityIds_.push_back(
+            entityId);
     }
 
     return true;
@@ -731,6 +788,8 @@ void ScenePreview::Reset() noexcept
     vertexShader_.reset();
     sampler_.reset();
     meshes_.clear();
+    entityIds_.clear();
+    world_.Clear();
     asset_.reset();
     scenePath_.clear();
 
@@ -908,6 +967,12 @@ ScenePreview::ObjectInfo(
     SceneObjectInfo result;
     result.index = index;
 
+    if (index <
+        entityIds_.size()) {
+        result.entityId =
+            entityIds_[index];
+    }
+
     result.hierarchyDepth =
         instance.hierarchyDepth;
 
@@ -963,6 +1028,29 @@ bool ScenePreview::SetTransform(
     BuildTransformMatrix(
         instance.worldMatrix,
         transform);
+
+    if (index <
+        entityIds_.size()) {
+        World::EntityRecord* entity =
+            world_.Find(
+                entityIds_[index]);
+
+        if (entity) {
+            entity->transform
+                .position
+                .local = {
+                    transform.position[0],
+                    transform.position[1],
+                    transform.position[2]
+                };
+
+            entity->transform.rotationDegrees =
+                transform.rotationDegrees;
+
+            entity->transform.scale =
+                transform.scale;
+        }
+    }
 
     return true;
 }
