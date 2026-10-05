@@ -9,6 +9,8 @@
 #include <Hamun/Project/TemplateCatalog.hpp>
 #include <Hamun/RHI/RHI.hpp>
 
+#include "EditorScenePreview.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -294,6 +296,9 @@ std::unique_ptr<Hamun::RHI::IBackend>
 ViewportRenderResources
     g_viewportResources;
 
+Hamun::Editor::ScenePreview
+    g_scenePreview;
+
 enum class ViewportBackendPreference {
     Auto,
     D3D12,
@@ -332,6 +337,14 @@ std::filesystem::path ExecutableDirectory()
     return
         std::filesystem::path(path)
             .parent_path();
+}
+
+std::filesystem::path EditorPreviewScenePath()
+{
+    return
+        ExecutableDirectory() /
+        "Assets" /
+        "TestScene.gltf";
 }
 
 std::wstring Utf8ToWide(
@@ -466,11 +479,17 @@ bool RunViewportBackendSmoke(
         return false;
     }
 
-    ViewportRenderResources
-        resources;
+    Hamun::Editor::ScenePreview
+        preview;
 
-    if (!resources.Create(
-            *backend)) {
+    std::string previewError;
+
+    if (!preview.Initialize(
+            *backend,
+            EditorPreviewScenePath(),
+            320,
+            180,
+            &previewError)) {
         backend->Shutdown();
         return false;
     }
@@ -480,37 +499,14 @@ bool RunViewportBackendSmoke(
     for (int frame = 0;
          frame < 3;
          ++frame) {
-        auto* commands =
-            backend->BeginFrame();
-
-        if (!commands) {
-            success = false;
-            break;
-        }
-
-        commands->BeginRenderPass(
-            {
-                0.02f,
-                0.03f,
-                0.05f,
-                1.0f
-            });
-
-        commands->SetPipeline(
-            *resources.pipeline);
-
-        commands->Draw(
-            3);
-
-        commands->EndRenderPass();
-
-        if (!backend->SubmitFrame()) {
+        if (!preview.RenderFrame(
+                *backend)) {
             success = false;
             break;
         }
     }
 
-    resources.Reset();
+    preview.Reset();
     backend->Shutdown();
     return success;
 }
@@ -817,6 +813,7 @@ void RecordViewportFrame()
 
 void ShutdownViewportBackend()
 {
+    g_scenePreview.Reset();
     g_viewportResources.Reset();
 
     if (g_viewportBackend) {
@@ -905,11 +902,15 @@ bool InitializeViewportBackend()
             continue;
         }
 
-        ViewportRenderResources
-            resources;
+        std::string previewError;
 
-        if (!resources.Create(
-                *backend)) {
+        if (!g_scenePreview.Initialize(
+                *backend,
+                EditorPreviewScenePath(),
+                width,
+                height,
+                &previewError)) {
+            g_scenePreview.Reset();
             backend->Shutdown();
             continue;
         }
@@ -943,14 +944,22 @@ bool InitializeViewportBackend()
                 height) +
             L")";
 
+        label +=
+            L" | Scene: " +
+            g_scenePreview
+                .ScenePath()
+                .filename()
+                .wstring() +
+            L" | Objects: " +
+            std::to_wstring(
+                g_scenePreview
+                    .InstanceCount());
+
         g_viewportBackendLabel =
             std::move(label);
 
         g_viewportBackend =
             std::move(backend);
-
-        g_viewportResources =
-            std::move(resources);
 
         g_viewportRenderFailed =
             false;
@@ -958,7 +967,7 @@ bool InitializeViewportBackend()
         ResetViewportPerformanceStats();
 
         SetStatus(
-            L"Live editor viewport initialized.");
+            L"HamunRenderer scene viewport initialized.");
 
         return true;
     }
@@ -1054,43 +1063,14 @@ void RenderViewportFrame()
         return;
     }
 
-    auto* commands =
-        g_viewportBackend
-            ->BeginFrame();
-
-    if (!commands) {
-        g_viewportRenderFailed =
-            true;
-        SetStatus(
-            L"Editor viewport BeginFrame failed.");
-        return;
-    }
-
-    commands->BeginRenderPass(
-        {
-            0.025f,
-            0.032f,
-            0.045f,
-            1.0f
-        });
-
-    if (g_viewportResources.Ready()) {
-        commands->SetPipeline(
-            *g_viewportResources.pipeline);
-
-        commands->Draw(
-            3);
-    }
-
-    commands->EndRenderPass();
-
-    if (!g_viewportBackend
-            ->SubmitFrame()) {
+    if (!g_scenePreview.Ready() ||
+        !g_scenePreview.RenderFrame(
+            *g_viewportBackend)) {
         g_viewportRenderFailed =
             true;
 
         SetStatus(
-            L"Editor viewport frame submission failed.");
+            L"HamunRenderer scene viewport frame failed.");
 
         return;
     }
