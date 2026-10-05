@@ -11,6 +11,7 @@ target_link_libraries(HamunEditor PRIVATE
   HamunAssets
   HamunRHI
   HamunRenderer
+  HamunWorld
   shell32
   comdlg32
 )
