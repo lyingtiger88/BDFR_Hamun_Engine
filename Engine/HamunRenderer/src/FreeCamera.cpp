@@ -237,6 +237,19 @@ void FreeCamera::Rotate(
             1.50f);
 }
 
+void FreeCamera::SetOrientation(
+    float yaw,
+    float pitch) noexcept
+{
+    yaw_ = yaw;
+
+    pitch_ =
+        std::clamp(
+            pitch,
+            -1.50f,
+            1.50f);
+}
+
 Mat4 FreeCamera::ViewMatrix() const
 {
     const Vec3 zAxis =
