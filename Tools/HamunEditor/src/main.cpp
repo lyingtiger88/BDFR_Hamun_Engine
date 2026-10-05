@@ -1482,6 +1482,72 @@ void RenderViewportFrame()
     RecordViewportFrame();
 }
 
+void FocusSelectedObject()
+{
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    const auto info =
+        g_scenePreview.ObjectInfo(
+            static_cast<std::size_t>(
+                selected));
+
+    if (!info)
+        return;
+
+    const float objectScale =
+        std::max(
+            {
+                info->transform.scale[0],
+                info->transform.scale[1],
+                info->transform.scale[2],
+                1.0f
+            });
+
+    Hamun::Renderer::Vec3 position;
+    position.x =
+        info->transform.position[0];
+
+    position.y =
+        info->transform.position[1];
+
+    position.z =
+        info->transform.position[2] -
+        objectScale * 4.5f;
+
+    g_scenePreview.SetCameraPose(
+        position,
+        0.0f,
+        0.0f);
+
+    SetStatus(
+        L"Focused object: " +
+        Utf8ToWide(
+            info->name));
+}
+
+void ResetEditorCamera()
+{
+    g_scenePreview.SetCameraPose(
+        {
+            0.0f,
+            0.0f,
+            -3.0f
+        },
+        0.0f,
+        0.0f);
+
+    SetStatus(
+        L"Viewport camera reset.");
+}
+
 LRESULT CALLBACK ViewportProc(
     HWND window,
     UINT message,
@@ -1570,6 +1636,19 @@ LRESULT CALLBACK ViewportProc(
 
             return 0;
         }
+
+        case WM_KEYDOWN:
+            if (wParam == 'F') {
+                FocusSelectedObject();
+                return 0;
+            }
+
+            if (wParam == VK_HOME) {
+                ResetEditorCamera();
+                return 0;
+            }
+
+            break;
 
         case WM_PAINT: {
             PAINTSTRUCT paint{};
