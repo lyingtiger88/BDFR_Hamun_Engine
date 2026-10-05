@@ -9,6 +9,8 @@
 #include <Hamun/Project/TemplateCatalog.hpp>
 #include <Hamun/RHI/RHI.hpp>
 
+#include "EditorAssetIndex.hpp"
+#include "EditorSceneDocument.hpp"
 #include "EditorScenePreview.hpp"
 
 #include <algorithm>
@@ -26,11 +28,16 @@ namespace {
 
 constexpr int IdOpenProject = 2001;
 constexpr int IdExit = 2002;
+constexpr int IdOpenScene = 2003;
+constexpr int IdSaveScene = 2004;
+constexpr int IdSaveSceneAs = 2005;
+constexpr int IdImportAsset = 2006;
 constexpr int IdRendererAuto = 2101;
 constexpr int IdRendererD3D12 = 2102;
 constexpr int IdRendererD3D11 = 2103;
 constexpr int IdOutliner = 2201;
 constexpr int IdApplyTransform = 2202;
+constexpr int IdAssets = 2301;
 constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
@@ -317,6 +324,19 @@ std::vector<Hamun::Editor::SceneObjectTransform>
 std::filesystem::path
     g_sceneTransformSource;
 
+std::filesystem::path
+    g_activeScenePath;
+
+std::filesystem::path
+    g_sceneDocumentPath;
+
+std::vector<Hamun::Editor::IndexedAsset>
+    g_assetEntries;
+
+bool g_viewportMouseLook = false;
+POINT g_viewportLastMouse{};
+ULONGLONG g_lastCameraTick = 0;
+
 enum class ViewportBackendPreference {
     Auto,
     D3D12,
@@ -363,6 +383,14 @@ std::filesystem::path EditorPreviewScenePath()
         ExecutableDirectory() /
         "Assets" /
         "TestScene.gltf";
+}
+
+std::filesystem::path CurrentSceneAssetPath()
+{
+    return
+        g_activeScenePath.empty()
+            ? EditorPreviewScenePath()
+            : g_activeScenePath;
 }
 
 std::wstring Utf8ToWide(
@@ -783,6 +811,9 @@ void SetStatus(
 
 void PopulateOutliner();
 void UpdateInspectorFromSelection();
+void PopulateAssets(
+    const std::filesystem::path& root);
+bool InitializeViewportBackend();
 
 void SetFloatEdit(
     HWND edit,
@@ -1079,7 +1110,7 @@ bool InitializeViewportBackend()
 
         if (!g_scenePreview.Initialize(
                 *backend,
-                EditorPreviewScenePath(),
+                CurrentSceneAssetPath(),
                 width,
                 height,
                 &previewError)) {
@@ -1265,6 +1296,85 @@ LRESULT CALLBACK ViewportProc(
     switch (message) {
         case WM_ERASEBKGND:
             return 1;
+
+        case WM_LBUTTONDOWN:
+            SetFocus(window);
+            return 0;
+
+        case WM_RBUTTONDOWN:
+            SetFocus(window);
+
+            g_viewportMouseLook =
+                true;
+
+            g_viewportLastMouse.x =
+                GET_X_LPARAM(lParam);
+
+            g_viewportLastMouse.y =
+                GET_Y_LPARAM(lParam);
+
+            SetCapture(window);
+            return 0;
+
+        case WM_RBUTTONUP:
+            g_viewportMouseLook =
+                false;
+
+            if (GetCapture() ==
+                window) {
+                ReleaseCapture();
+            }
+
+            return 0;
+
+        case WM_CAPTURECHANGED:
+            g_viewportMouseLook =
+                false;
+            return 0;
+
+        case WM_MOUSEMOVE:
+            if (g_viewportMouseLook &&
+                GetCapture() ==
+                    window) {
+                POINT current{
+                    GET_X_LPARAM(lParam),
+                    GET_Y_LPARAM(lParam)
+                };
+
+                const float deltaX =
+                    static_cast<float>(
+                        current.x -
+                        g_viewportLastMouse.x);
+
+                const float deltaY =
+                    static_cast<float>(
+                        current.y -
+                        g_viewportLastMouse.y);
+
+                g_viewportLastMouse =
+                    current;
+
+                g_scenePreview.RotateCamera(
+                    deltaX * 0.0025f,
+                    -deltaY * 0.0025f);
+            }
+
+            return 0;
+
+        case WM_MOUSEWHEEL: {
+            const short wheel =
+                GET_WHEEL_DELTA_WPARAM(
+                    wParam);
+
+            g_scenePreview.MoveCamera(
+                wheel > 0
+                    ? 0.75f
+                    : -0.75f,
+                0.0f,
+                0.0f);
+
+            return 0;
+        }
 
         case WM_PAINT: {
             PAINTSTRUCT paint{};
@@ -1576,51 +1686,507 @@ void ApplyInspectorTransform()
 void PopulateAssets(
     const std::filesystem::path& root)
 {
+    if (!g_assets)
+        return;
+
     SendMessageW(
         g_assets,
         LB_RESETCONTENT,
         0,
         0);
 
-    std::vector<std::wstring>
-        entries;
+    g_assetEntries =
+        Hamun::Editor::IndexProjectAssets(
+            root);
 
-    std::error_code ec;
-
-    for (const auto& entry :
-         std::filesystem::directory_iterator(
-             root,
-             ec)) {
-        if (ec)
-            break;
-
-        std::wstring label =
-            entry.path()
-                .filename()
+    for (const auto& asset :
+         g_assetEntries) {
+        const std::wstring label =
+            L"[" +
+            Hamun::Editor::AssetKindLabel(
+                asset.kind) +
+            L"] " +
+            asset.relativePath
                 .wstring();
 
-        if (entry.is_directory())
-            label += L"\\";
-
-        entries.push_back(
-            std::move(label));
-    }
-
-    std::sort(
-        entries.begin(),
-        entries.end());
-
-    for (const auto& entry :
-         entries) {
         AddListItem(
             g_assets,
-            entry);
+            label);
     }
 
-    if (entries.empty()) {
+    if (g_assetEntries.empty()) {
         AddListItem(
             g_assets,
-            L"(project folder is empty)");
+            L"(no project assets indexed)");
+    }
+
+    if (g_assetsHeader) {
+        SetWindowTextW(
+            g_assetsHeader,
+            (L"Asset Browser - " +
+             std::to_wstring(
+                 g_assetEntries.size()) +
+             L" files")
+                .c_str());
+    }
+}
+
+bool LoadSceneAsset(
+    const std::filesystem::path& scenePath,
+    bool preserveTransforms = false)
+{
+    std::error_code ec;
+
+    const auto absolute =
+        std::filesystem::weakly_canonical(
+            scenePath,
+            ec);
+
+    const auto resolved =
+        ec
+            ? std::filesystem::absolute(
+                scenePath)
+            : absolute;
+
+    if (!std::filesystem::exists(
+            resolved)) {
+        SetStatus(
+            L"Scene asset does not exist: " +
+            resolved.wstring());
+
+        return false;
+    }
+
+    g_activeScenePath =
+        resolved;
+
+    if (!preserveTransforms) {
+        g_sceneTransforms.clear();
+        g_sceneTransformSource.clear();
+    }
+
+    if (!InitializeViewportBackend()) {
+        return false;
+    }
+
+    SetStatus(
+        L"Scene asset loaded: " +
+        resolved.wstring());
+
+    return true;
+}
+
+bool OpenSceneDocumentFile(
+    const std::filesystem::path& path)
+{
+    Hamun::Editor::SceneDocument
+        document;
+
+    std::string error;
+
+    if (!Hamun::Editor::LoadSceneDocument(
+            path,
+            document,
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+
+        return false;
+    }
+
+    g_activeScenePath =
+        document.sourceAsset;
+
+    g_sceneTransforms =
+        document.transforms;
+
+    g_sceneTransformSource =
+        document.sourceAsset;
+
+    g_sceneDocumentPath =
+        path;
+
+    if (!InitializeViewportBackend()) {
+        return false;
+    }
+
+    SetStatus(
+        L"Scene opened: " +
+        path.wstring());
+
+    return true;
+}
+
+Hamun::Editor::SceneDocument
+BuildCurrentSceneDocument()
+{
+    Hamun::Editor::SceneDocument
+        document;
+
+    document.sourceAsset =
+        CurrentSceneAssetPath();
+
+    if (g_sceneTransforms.size() ==
+        g_scenePreview.InstanceCount()) {
+        document.transforms =
+            g_sceneTransforms;
+    } else {
+        document.transforms.reserve(
+            g_scenePreview.InstanceCount());
+
+        for (std::size_t i = 0;
+             i <
+                g_scenePreview.InstanceCount();
+             ++i) {
+            const auto info =
+                g_scenePreview.ObjectInfo(i);
+
+            if (info) {
+                document.transforms.push_back(
+                    info->transform);
+            }
+        }
+    }
+
+    return document;
+}
+
+bool SaveCurrentSceneTo(
+    const std::filesystem::path& path)
+{
+    std::string error;
+
+    if (!Hamun::Editor::SaveSceneDocument(
+            path,
+            BuildCurrentSceneDocument(),
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+
+        return false;
+    }
+
+    g_sceneDocumentPath =
+        path;
+
+    if (g_project) {
+        PopulateAssets(
+            g_project->rootDirectory);
+    }
+
+    SetStatus(
+        L"Scene saved: " +
+        path.wstring());
+
+    return true;
+}
+
+bool SaveSceneAsDialog(
+    HWND owner)
+{
+    wchar_t path[MAX_PATH]{};
+
+    const wchar_t filter[] =
+        L"Hamun Scene (*.hamunscene)\0"
+        L"*.hamunscene\0"
+        L"All Files (*.*)\0"
+        L"*.*\0\0";
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize =
+        sizeof(dialog);
+    dialog.hwndOwner =
+        owner;
+    dialog.lpstrFilter =
+        filter;
+    dialog.lpstrFile =
+        path;
+    dialog.nMaxFile =
+        MAX_PATH;
+    dialog.Flags =
+        OFN_PATHMUSTEXIST |
+        OFN_OVERWRITEPROMPT |
+        OFN_EXPLORER;
+    dialog.lpstrDefExt =
+        L"hamunscene";
+
+    if (!g_sceneDocumentPath.empty()) {
+        const std::wstring current =
+            g_sceneDocumentPath.wstring();
+
+        wcsncpy_s(
+            path,
+            current.c_str(),
+            _TRUNCATE);
+    }
+
+    if (!GetSaveFileNameW(
+            &dialog)) {
+        return false;
+    }
+
+    return SaveCurrentSceneTo(
+        path);
+}
+
+bool SaveCurrentScene(
+    HWND owner)
+{
+    if (!g_sceneDocumentPath.empty()) {
+        return SaveCurrentSceneTo(
+            g_sceneDocumentPath);
+    }
+
+    if (g_project) {
+        return SaveCurrentSceneTo(
+            g_project->rootDirectory /
+            "Scenes" /
+            "Main.hamunscene");
+    }
+
+    return SaveSceneAsDialog(
+        owner);
+}
+
+void OpenSceneDialog(
+    HWND owner)
+{
+    wchar_t path[MAX_PATH]{};
+
+    const wchar_t filter[] =
+        L"Hamun Scene or glTF\0"
+        L"*.hamunscene;*.gltf;*.glb\0"
+        L"Hamun Scene (*.hamunscene)\0"
+        L"*.hamunscene\0"
+        L"glTF (*.gltf;*.glb)\0"
+        L"*.gltf;*.glb\0"
+        L"All Files (*.*)\0"
+        L"*.*\0\0";
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize =
+        sizeof(dialog);
+    dialog.hwndOwner =
+        owner;
+    dialog.lpstrFilter =
+        filter;
+    dialog.lpstrFile =
+        path;
+    dialog.nMaxFile =
+        MAX_PATH;
+    dialog.Flags =
+        OFN_FILEMUSTEXIST |
+        OFN_PATHMUSTEXIST |
+        OFN_EXPLORER;
+
+    if (!GetOpenFileNameW(
+            &dialog)) {
+        return;
+    }
+
+    const std::filesystem::path selected =
+        path;
+
+    if (selected.extension() ==
+        L".hamunscene") {
+        OpenSceneDocumentFile(
+            selected);
+    } else {
+        g_sceneDocumentPath.clear();
+
+        LoadSceneAsset(
+            selected);
+    }
+}
+
+void ImportAssetDialog(
+    HWND owner)
+{
+    if (!g_project) {
+        SetStatus(
+            L"Open a project before importing assets.");
+        return;
+    }
+
+    wchar_t path[MAX_PATH]{};
+
+    const wchar_t filter[] =
+        L"Supported Assets\0"
+        L"*.gltf;*.glb;*.png;*.jpg;*.jpeg;*.tfx\0"
+        L"All Files (*.*)\0"
+        L"*.*\0\0";
+
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize =
+        sizeof(dialog);
+    dialog.hwndOwner =
+        owner;
+    dialog.lpstrFilter =
+        filter;
+    dialog.lpstrFile =
+        path;
+    dialog.nMaxFile =
+        MAX_PATH;
+    dialog.Flags =
+        OFN_FILEMUSTEXIST |
+        OFN_PATHMUSTEXIST |
+        OFN_EXPLORER;
+
+    if (!GetOpenFileNameW(
+            &dialog)) {
+        return;
+    }
+
+    std::filesystem::path importedPath;
+    std::string error;
+
+    if (!Hamun::Editor::ImportAssetWithCompanions(
+            path,
+            g_project->rootDirectory,
+            importedPath,
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+        return;
+    }
+
+    PopulateAssets(
+        g_project->rootDirectory);
+
+    if (Hamun::Editor::ClassifyAsset(
+            importedPath) ==
+        Hamun::Editor::AssetKind::Gltf) {
+        g_sceneDocumentPath.clear();
+
+        LoadSceneAsset(
+            importedPath);
+    } else {
+        SetStatus(
+            L"Asset imported: " +
+            importedPath.wstring());
+    }
+}
+
+void ActivateSelectedAsset()
+{
+    const LRESULT selected =
+        SendMessageW(
+            g_assets,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR ||
+        static_cast<std::size_t>(
+            selected) >=
+            g_assetEntries.size()) {
+        return;
+    }
+
+    const auto& asset =
+        g_assetEntries[
+            static_cast<std::size_t>(
+                selected)];
+
+    switch (asset.kind) {
+        case Hamun::Editor::AssetKind::Scene:
+            OpenSceneDocumentFile(
+                asset.absolutePath);
+            break;
+
+        case Hamun::Editor::AssetKind::Gltf:
+            g_sceneDocumentPath.clear();
+
+            LoadSceneAsset(
+                asset.absolutePath);
+            break;
+
+        default:
+            SetStatus(
+                L"Asset selected: " +
+                asset.relativePath
+                    .wstring());
+            break;
+    }
+}
+
+void UpdateEditorCameraNavigation()
+{
+    const ULONGLONG now =
+        GetTickCount64();
+
+    if (g_lastCameraTick == 0) {
+        g_lastCameraTick = now;
+        return;
+    }
+
+    const float deltaSeconds =
+        std::min(
+            static_cast<float>(
+                now -
+                g_lastCameraTick) /
+                1000.0f,
+            0.1f);
+
+    g_lastCameraTick = now;
+
+    if (!g_scenePreview.Ready() ||
+        (GetFocus() != g_viewport &&
+         GetCapture() != g_viewport)) {
+        return;
+    }
+
+    float speed =
+        2.5f *
+        deltaSeconds;
+
+    if ((GetAsyncKeyState(
+             VK_SHIFT) &
+         0x8000) != 0) {
+        speed *= 4.0f;
+    }
+
+    float forward = 0.0f;
+    float right = 0.0f;
+    float up = 0.0f;
+
+    if ((GetAsyncKeyState('W') &
+         0x8000) != 0) {
+        forward += speed;
+    }
+
+    if ((GetAsyncKeyState('S') &
+         0x8000) != 0) {
+        forward -= speed;
+    }
+
+    if ((GetAsyncKeyState('D') &
+         0x8000) != 0) {
+        right += speed;
+    }
+
+    if ((GetAsyncKeyState('A') &
+         0x8000) != 0) {
+        right -= speed;
+    }
+
+    if ((GetAsyncKeyState('E') &
+         0x8000) != 0) {
+        up += speed;
+    }
+
+    if ((GetAsyncKeyState('Q') &
+         0x8000) != 0) {
+        up -= speed;
+    }
+
+    if (forward != 0.0f ||
+        right != 0.0f ||
+        up != 0.0f) {
+        g_scenePreview.MoveCamera(
+            forward,
+            right,
+            up);
     }
 }
 
@@ -1663,10 +2229,34 @@ bool LoadProjectIntoEditor(
         (L"Project: " + name)
             .c_str());
 
-    PopulateOutliner();
-    UpdateInspectorFromSelection();
     PopulateAssets(
         g_project->rootDirectory);
+
+    const auto defaultSceneDocument =
+        g_project->rootDirectory /
+        "Scenes" /
+        "Main.hamunscene";
+
+    const auto starterScene =
+        g_project->rootDirectory /
+        "Assets" /
+        "Starter" /
+        "TestScene.gltf";
+
+    if (std::filesystem::exists(
+            defaultSceneDocument)) {
+        OpenSceneDocumentFile(
+            defaultSceneDocument);
+    } else if (
+        std::filesystem::exists(
+            starterScene)) {
+        g_sceneDocumentPath.clear();
+        LoadSceneAsset(
+            starterScene);
+    } else {
+        PopulateOutliner();
+        UpdateInspectorFromSelection();
+    }
 
     const std::wstring windowTitle =
         L"BDFR Hamun Engine - HamunEditor - " +
@@ -2016,6 +2606,30 @@ void CreateMainMenu(
 
     AppendMenuW(
         fileMenu,
+        MF_STRING,
+        IdOpenScene,
+        L"Open &Scene...");
+
+    AppendMenuW(
+        fileMenu,
+        MF_STRING,
+        IdSaveScene,
+        L"&Save Scene\tCtrl+S");
+
+    AppendMenuW(
+        fileMenu,
+        MF_STRING,
+        IdSaveSceneAs,
+        L"Save Scene &As...");
+
+    AppendMenuW(
+        fileMenu,
+        MF_STRING,
+        IdImportAsset,
+        L"&Import Asset...");
+
+    AppendMenuW(
+        fileMenu,
         MF_SEPARATOR,
         0,
         nullptr);
@@ -2224,7 +2838,9 @@ LRESULT CALLBACK WindowProc(
                     L"",
                     WS_BORDER |
                         WS_HSCROLL |
-                        WS_VSCROLL);
+                        WS_VSCROLL |
+                        LBS_NOTIFY,
+                    IdAssets);
 
             g_status =
                 AddControl(
@@ -2284,6 +2900,7 @@ LRESULT CALLBACK WindowProc(
             if (wParam ==
                 IdViewportTimer) {
                 ProcessViewportResize();
+                UpdateEditorCameraNavigation();
                 RenderViewportFrame();
                 return 0;
             }
@@ -2315,6 +2932,14 @@ LRESULT CALLBACK WindowProc(
             }
 
             if (id ==
+                    IdAssets &&
+                HIWORD(wParam) ==
+                    LBN_DBLCLK) {
+                ActivateSelectedAsset();
+                return 0;
+            }
+
+            if (id ==
                     IdApplyTransform &&
                 HIWORD(wParam) ==
                     BN_CLICKED) {
@@ -2325,6 +2950,34 @@ LRESULT CALLBACK WindowProc(
             if (id ==
                 IdOpenProject) {
                 OpenProjectDialog(
+                    window);
+                return 0;
+            }
+
+            if (id ==
+                IdOpenScene) {
+                OpenSceneDialog(
+                    window);
+                return 0;
+            }
+
+            if (id ==
+                IdSaveScene) {
+                SaveCurrentScene(
+                    window);
+                return 0;
+            }
+
+            if (id ==
+                IdSaveSceneAs) {
+                SaveSceneAsDialog(
+                    window);
+                return 0;
+            }
+
+            if (id ==
+                IdImportAsset) {
+                ImportAssetDialog(
                     window);
                 return 0;
             }
