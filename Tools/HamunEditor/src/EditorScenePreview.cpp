@@ -873,6 +873,29 @@ ScenePreview::CameraPosition() const noexcept
     return camera_.Position();
 }
 
+float ScenePreview::CameraYaw() const noexcept
+{
+    return camera_.Yaw();
+}
+
+float ScenePreview::CameraPitch() const noexcept
+{
+    return camera_.Pitch();
+}
+
+void ScenePreview::SetCameraPose(
+    const Renderer::Vec3& position,
+    float yaw,
+    float pitch) noexcept
+{
+    camera_.SetPosition(
+        position);
+
+    camera_.SetOrientation(
+        yaw,
+        pitch);
+}
+
 const std::filesystem::path&
 ScenePreview::ScenePath() const noexcept
 {
