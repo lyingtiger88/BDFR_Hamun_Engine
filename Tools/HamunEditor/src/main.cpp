@@ -1890,15 +1890,15 @@ void UpdateInspectorFromSelection()
         << L"\r\n\r\nMaterial\r\nMetallic: "
         << std::fixed
         << std::setprecision(3)
-        << info->metallic
+        << info->material.metallic
         << L"\r\nRoughness: "
-        << info->roughness
+        << info->material.roughness
         << L"\r\nBase Color: "
-        << info->baseColorFactor[0]
+        << info->material.baseColorFactor[0]
         << L", "
-        << info->baseColorFactor[1]
+        << info->material.baseColorFactor[1]
         << L", "
-        << info->baseColorFactor[2];
+        << info->material.baseColorFactor[2];
 
     SetWindowTextW(
         g_inspector,
@@ -2306,6 +2306,33 @@ bool OpenSceneDocumentFile(
         return false;
     }
 
+    if (!document.objects.empty()) {
+        std::string replaceError;
+
+        if (!g_scenePreview.ReplaceObjects(
+                *g_viewportBackend,
+                document.objects,
+                &replaceError)) {
+            SetStatus(
+                Utf8ToWide(
+                    replaceError));
+            return false;
+        }
+
+        g_sceneTransforms.clear();
+        g_sceneTransforms.reserve(
+            g_scenePreview.InstanceCount());
+
+        for (const auto& object :
+             g_scenePreview.CaptureObjects()) {
+            g_sceneTransforms.push_back(
+                object.transform);
+        }
+
+        PopulateOutliner();
+        UpdateInspectorFromSelection();
+    }
+
     if (document.hasCamera) {
         g_scenePreview.SetCameraPose(
             document.cameraPosition,
@@ -2344,11 +2371,18 @@ BuildCurrentSceneDocument()
     document.sourceAsset =
         CurrentSceneAssetPath();
 
-    if (g_sceneTransforms.size() ==
+    if (g_scenePreview.Ready()) {
+        document.objects =
+            g_scenePreview.CaptureObjects();
+    }
+
+    if (document.objects.empty() &&
+        g_sceneTransforms.size() ==
         g_scenePreview.InstanceCount()) {
         document.transforms =
             g_sceneTransforms;
-    } else {
+    } else if (
+        document.objects.empty()) {
         document.transforms.reserve(
             g_scenePreview.InstanceCount());
 
