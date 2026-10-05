@@ -15,6 +15,7 @@
 #include "EditorScenePreview.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cwchar>
 #include <filesystem>
@@ -591,6 +592,12 @@ bool RunViewportBackendSmoke(
     editedTransform.position[0] +=
         0.25f;
 
+    editedTransform.rotationDegrees[1] +=
+        15.0f;
+
+    editedTransform.scale[1] *=
+        1.1f;
+
     if (!preview.SetTransform(
             1,
             editedTransform)) {
@@ -607,7 +614,14 @@ bool RunViewportBackendSmoke(
             ->transform
             .position[0] !=
             editedTransform
-                .position[0]) {
+                .position[0] ||
+        std::abs(
+            editedObject
+                ->transform
+                .rotationDegrees[1] -
+            editedTransform
+                .rotationDegrees[1]) >
+            0.01f) {
         preview.Reset();
         backend->Shutdown();
         return false;
