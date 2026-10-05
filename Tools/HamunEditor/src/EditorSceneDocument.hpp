@@ -11,6 +11,11 @@ namespace Hamun::Editor {
 struct SceneDocument {
     std::filesystem::path sourceAsset;
     std::vector<SceneObjectTransform> transforms;
+
+    bool hasCamera = false;
+    Renderer::Vec3 cameraPosition{};
+    float cameraYaw = 0.0f;
+    float cameraPitch = 0.0f;
 };
 
 bool SaveSceneDocument(
