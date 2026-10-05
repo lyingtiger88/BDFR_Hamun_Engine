@@ -10,6 +10,10 @@ namespace Hamun::Editor {
 
 struct SceneDocument {
     std::filesystem::path sourceAsset;
+
+    // New scene format stores structural object state. The transform-only
+    // vector is retained to read older scene documents.
+    std::vector<SceneObjectState> objects;
     std::vector<SceneObjectTransform> transforms;
 
     bool hasCamera = false;
