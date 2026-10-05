@@ -42,6 +42,7 @@ constexpr int IdRendererD3D11 = 2103;
 constexpr int IdOutliner = 2201;
 constexpr int IdApplyTransform = 2202;
 constexpr int IdApplyMaterial = 2203;
+constexpr int IdApplyName = 2204;
 constexpr int IdAssets = 2301;
 constexpr int IdUndo = 2401;
 constexpr int IdRedo = 2402;
@@ -56,6 +57,9 @@ HWND g_viewportHeader = nullptr;
 HWND g_viewport = nullptr;
 HWND g_inspectorHeader = nullptr;
 HWND g_inspector = nullptr;
+HWND g_nameLabel = nullptr;
+HWND g_nameEdit = nullptr;
+HWND g_applyName = nullptr;
 HWND g_positionLabel = nullptr;
 HWND g_positionX = nullptr;
 HWND g_positionY = nullptr;
@@ -1170,6 +1174,8 @@ void SetTransformEditorEnabled(
 {
     for (HWND control :
          {
+             g_nameEdit,
+             g_applyName,
              g_positionX,
              g_positionY,
              g_positionZ,
@@ -2009,6 +2015,12 @@ void UpdateInspectorFromSelection()
         g_inspector,
         text.str().c_str());
 
+    SetWindowTextW(
+        g_nameEdit,
+        Utf8ToWide(
+            info->name)
+            .c_str());
+
     SetFloatEdit(
         g_positionX,
         info->transform.position[0]);
@@ -2199,6 +2211,97 @@ void ApplyInspectorTransform()
                 Utf8ToWide(
                     info->name)
             : L"Transform updated.");
+}
+
+void ApplyInspectorName()
+{
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    wchar_t buffer[256]{};
+
+    GetWindowTextW(
+        g_nameEdit,
+        buffer,
+        256);
+
+    const std::wstring wideName =
+        buffer;
+
+    if (wideName.empty()) {
+        SetStatus(
+            L"Object name cannot be empty.");
+        return;
+    }
+
+    const int required =
+        WideCharToMultiByte(
+            CP_UTF8,
+            0,
+            wideName.c_str(),
+            -1,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+
+    if (required <= 1) {
+        SetStatus(
+            L"Object name is invalid.");
+        return;
+    }
+
+    std::string utf8(
+        static_cast<std::size_t>(
+            required),
+        '\0');
+
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wideName.c_str(),
+        -1,
+        utf8.data(),
+        required,
+        nullptr,
+        nullptr);
+
+    if (!utf8.empty() &&
+        utf8.back() == '\0') {
+        utf8.pop_back();
+    }
+
+    if (!g_scenePreview.SetName(
+            static_cast<std::size_t>(
+                selected),
+            std::move(utf8))) {
+        SetStatus(
+            L"Could not rename scene object.");
+        return;
+    }
+
+    g_sceneDirty = true;
+
+    PopulateOutliner();
+
+    SendMessageW(
+        g_outliner,
+        LB_SETCURSEL,
+        static_cast<WPARAM>(
+            selected),
+        0);
+
+    UpdateInspectorFromSelection();
+
+    SetStatus(
+        L"Scene object renamed.");
 }
 
 void ApplyInspectorMaterial()
@@ -3412,9 +3515,9 @@ void LayoutControls(
 
     const int inspectorInfoHeight =
         std::max(
-            50,
+            42,
             inspectorBodyHeight -
-                286);
+                336);
 
     MoveWindow(
         g_inspector,
@@ -3424,10 +3527,53 @@ void LayoutControls(
         inspectorInfoHeight,
         TRUE);
 
-    const int transformTop =
+    const int nameTop =
         inspectorTop +
         inspectorInfoHeight +
         6;
+
+    MoveWindow(
+        g_nameLabel,
+        inspectorX,
+        nameTop,
+        sideWidth,
+        18,
+        TRUE);
+
+    const int nameEditTop =
+        nameTop +
+        20;
+
+    const int nameButtonWidth =
+        64;
+
+    MoveWindow(
+        g_nameEdit,
+        inspectorX,
+        nameEditTop,
+        std::max(
+            60,
+            sideWidth -
+                nameButtonWidth -
+                4),
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_applyName,
+        inspectorX +
+            std::max(
+                60,
+                sideWidth -
+                    nameButtonWidth),
+        nameEditTop,
+        nameButtonWidth,
+        22,
+        TRUE);
+
+    const int transformTop =
+        nameEditTop +
+        28;
 
     MoveWindow(
         g_positionLabel,
@@ -3915,6 +4061,29 @@ LRESULT CALLBACK WindowProc(
                         ES_AUTOVSCROLL |
                         ES_READONLY);
 
+            g_nameLabel =
+                AddControl(
+                    window,
+                    L"STATIC",
+                    L"Object Name",
+                    SS_LEFT);
+
+            g_nameEdit =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_applyName =
+                AddControl(
+                    window,
+                    L"BUTTON",
+                    L"Rename",
+                    BS_PUSHBUTTON,
+                    IdApplyName);
+
             g_positionLabel =
                 AddControl(
                     window,
@@ -4106,6 +4275,9 @@ LRESULT CALLBACK WindowProc(
                      g_viewport,
                      g_inspectorHeader,
                      g_inspector,
+                     g_nameLabel,
+                     g_nameEdit,
+                     g_applyName,
                      g_positionLabel,
                      g_positionX,
                      g_positionY,
@@ -4258,6 +4430,14 @@ LRESULT CALLBACK WindowProc(
                 HIWORD(wParam) ==
                     LBN_DBLCLK) {
                 ActivateSelectedAsset();
+                return 0;
+            }
+
+            if (id ==
+                    IdApplyName &&
+                HIWORD(wParam) ==
+                    BN_CLICKED) {
+                ApplyInspectorName();
                 return 0;
             }
 
