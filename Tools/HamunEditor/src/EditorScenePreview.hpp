@@ -92,6 +92,10 @@ public:
         std::size_t index,
         const SceneMaterialState& material);
 
+    bool SetName(
+        std::size_t index,
+        std::string name);
+
     [[nodiscard]] std::vector<SceneObjectState>
     CaptureObjects() const;
 
