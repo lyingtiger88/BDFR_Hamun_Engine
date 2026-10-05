@@ -97,25 +97,52 @@ bool SaveSceneDocument(
             << "\n";
     }
 
-    for (std::size_t i = 0;
-         i < document.transforms.size();
-         ++i) {
-        const SceneObjectTransform& transform =
-            document.transforms[i];
+    if (!document.objects.empty()) {
+        for (const SceneObjectState& object :
+             document.objects) {
+            output
+                << "entity "
+                << std::quoted(object.name) << ' '
+                << object.meshIndex << ' '
+                << object.hierarchyDepth << ' '
+                << object.transform.position[0] << ' '
+                << object.transform.position[1] << ' '
+                << object.transform.position[2] << ' '
+                << object.transform.rotationDegrees[0] << ' '
+                << object.transform.rotationDegrees[1] << ' '
+                << object.transform.rotationDegrees[2] << ' '
+                << object.transform.scale[0] << ' '
+                << object.transform.scale[1] << ' '
+                << object.transform.scale[2] << ' '
+                << object.material.baseColorFactor[0] << ' '
+                << object.material.baseColorFactor[1] << ' '
+                << object.material.baseColorFactor[2] << ' '
+                << object.material.baseColorFactor[3] << ' '
+                << object.material.metallic << ' '
+                << object.material.roughness
+                << "\n";
+        }
+    } else {
+        for (std::size_t i = 0;
+             i < document.transforms.size();
+             ++i) {
+            const SceneObjectTransform& transform =
+                document.transforms[i];
 
-        output
-            << "object "
-            << i << ' '
-            << transform.position[0] << ' '
-            << transform.position[1] << ' '
-            << transform.position[2] << ' '
-            << transform.rotationDegrees[0] << ' '
-            << transform.rotationDegrees[1] << ' '
-            << transform.rotationDegrees[2] << ' '
-            << transform.scale[0] << ' '
-            << transform.scale[1] << ' '
-            << transform.scale[2]
-            << "\n";
+            output
+                << "object "
+                << i << ' '
+                << transform.position[0] << ' '
+                << transform.position[1] << ' '
+                << transform.position[2] << ' '
+                << transform.rotationDegrees[0] << ' '
+                << transform.rotationDegrees[1] << ' '
+                << transform.rotationDegrees[2] << ' '
+                << transform.scale[0] << ' '
+                << transform.scale[1] << ' '
+                << transform.scale[2]
+                << "\n";
+        }
     }
 
     if (!output.good()) {
@@ -213,6 +240,44 @@ bool LoadSceneDocument(
             }
 
             loaded.hasCamera = true;
+            continue;
+        }
+
+        if (line.rfind(
+                "entity ",
+                0) == 0) {
+            std::istringstream stream(line);
+            std::string keyword;
+            SceneObjectState object;
+
+            if (!(stream >>
+                  keyword >>
+                  std::quoted(object.name) >>
+                  object.meshIndex >>
+                  object.hierarchyDepth >>
+                  object.transform.position[0] >>
+                  object.transform.position[1] >>
+                  object.transform.position[2] >>
+                  object.transform.rotationDegrees[0] >>
+                  object.transform.rotationDegrees[1] >>
+                  object.transform.rotationDegrees[2] >>
+                  object.transform.scale[0] >>
+                  object.transform.scale[1] >>
+                  object.transform.scale[2] >>
+                  object.material.baseColorFactor[0] >>
+                  object.material.baseColorFactor[1] >>
+                  object.material.baseColorFactor[2] >>
+                  object.material.baseColorFactor[3] >>
+                  object.material.metallic >>
+                  object.material.roughness)) {
+                return Fail(
+                    error,
+                    "Invalid scene entity record.");
+            }
+
+            loaded.objects.push_back(
+                std::move(object));
+
             continue;
         }
 
