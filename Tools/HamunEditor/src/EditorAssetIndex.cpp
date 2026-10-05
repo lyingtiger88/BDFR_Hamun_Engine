@@ -155,6 +155,26 @@ std::vector<IndexedAsset> IndexProjectAssets(
             continue;
         }
 
+        if (iterator->is_directory(ec)) {
+            ec.clear();
+
+            const std::string name =
+                iterator->path()
+                    .filename()
+                    .string();
+
+            if (name == ".git" ||
+                name == ".vs" ||
+                name == "build" ||
+                name == "Build" ||
+                name == "out" ||
+                name == "dist") {
+                iterator.disable_recursion_pending();
+            }
+
+            continue;
+        }
+
         if (!iterator->is_regular_file(ec)) {
             ec.clear();
             continue;
@@ -237,7 +257,21 @@ bool ImportAssetWithCompanions(
         destinationRoot /
         source.filename();
 
-    if (!CopyFileReplace(
+    std::error_code equivalentError;
+
+    const bool sameFile =
+        std::filesystem::exists(
+            importedPath,
+            equivalentError) &&
+        !equivalentError &&
+        std::filesystem::equivalent(
+            source,
+            importedPath,
+            equivalentError) &&
+        !equivalentError;
+
+    if (!sameFile &&
+        !CopyFileReplace(
             source,
             importedPath,
             error)) {
