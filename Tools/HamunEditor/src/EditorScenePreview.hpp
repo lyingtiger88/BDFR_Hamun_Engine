@@ -32,6 +32,23 @@ struct SceneObjectTransform {
     };
 };
 
+struct SceneMaterialState {
+    std::array<float, 4> baseColorFactor{
+        1.0f, 1.0f, 1.0f, 1.0f
+    };
+
+    float metallic = 0.0f;
+    float roughness = 1.0f;
+};
+
+struct SceneObjectState {
+    std::string name;
+    std::uint32_t meshIndex = 0;
+    std::uint32_t hierarchyDepth = 0;
+    SceneObjectTransform transform{};
+    SceneMaterialState material{};
+};
+
 struct SceneObjectInfo {
     std::size_t index = 0;
     World::EntityId entityId =
@@ -41,14 +58,9 @@ struct SceneObjectInfo {
     std::uint32_t hierarchyDepth = 0;
     std::string name;
     std::string meshName;
+    std::uint32_t meshIndex = 0;
     SceneObjectTransform transform{};
-
-    std::array<float, 4> baseColorFactor{
-        1.0f, 1.0f, 1.0f, 1.0f
-    };
-
-    float metallic = 0.0f;
-    float roughness = 1.0f;
+    SceneMaterialState material{};
 };
 
 class ScenePreview {
@@ -75,6 +87,29 @@ public:
     bool SetTransform(
         std::size_t index,
         const SceneObjectTransform& transform);
+
+    bool SetMaterial(
+        std::size_t index,
+        const SceneMaterialState& material);
+
+    [[nodiscard]] std::vector<SceneObjectState>
+    CaptureObjects() const;
+
+    bool ReplaceObjects(
+        RHI::IBackend& backend,
+        const std::vector<SceneObjectState>& objects,
+        std::string* error = nullptr);
+
+    bool DuplicateObject(
+        RHI::IBackend& backend,
+        std::size_t index,
+        std::size_t* duplicatedIndex = nullptr,
+        std::string* error = nullptr);
+
+    bool DeleteObject(
+        RHI::IBackend& backend,
+        std::size_t index,
+        std::string* error = nullptr);
 
     void MoveCamera(
         float forward,
@@ -121,6 +156,9 @@ private:
     std::vector<World::EntityId>
         entityIds_;
 
+    std::vector<SceneMaterialState>
+        objectMaterials_;
+
     std::unique_ptr<RHI::IShader> vertexShader_;
     std::unique_ptr<RHI::IShader> pixelShader_;
     std::unique_ptr<RHI::IPipeline> pipeline_;
@@ -130,6 +168,10 @@ private:
     Renderer::Renderer renderer_;
     Renderer::FreeCamera camera_;
     std::vector<Renderer::IndexedDraw> draws_;
+
+    bool RebuildSceneRuntime(
+        RHI::IBackend& backend,
+        std::string* error);
 
     std::uint32_t width_ = 1;
     std::uint32_t height_ = 1;
