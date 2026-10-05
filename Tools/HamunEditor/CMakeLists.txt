@@ -1,5 +1,7 @@
 add_executable(HamunEditor WIN32
   src/main.cpp
+  src/EditorAssetIndex.cpp
+  src/EditorSceneDocument.cpp
   src/EditorScenePreview.cpp
 )
 
