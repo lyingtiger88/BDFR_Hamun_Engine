@@ -1352,7 +1352,13 @@ void PopulateOutliner()
         if (!info)
             continue;
 
-        std::wstring label =
+        std::wstring label(
+            static_cast<std::size_t>(
+                info->hierarchyDepth) *
+                2,
+            L' ');
+
+        label +=
             Utf8ToWide(
                 info->name);
 
