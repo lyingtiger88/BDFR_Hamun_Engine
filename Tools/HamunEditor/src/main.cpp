@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <windowsx.h>
 #include <commdlg.h>
 #include <shellapi.h>
 
@@ -751,7 +752,7 @@ int RunEditorSmokeMode()
             manifest,
             &error);
 
-    const bool valid =
+    const bool projectValid =
         project &&
         project->name ==
             "HamunEditorSmokeProject" &&
@@ -763,14 +764,141 @@ int RunEditorSmokeMode()
             std::filesystem::absolute(
                 created.projectDirectory);
 
+    if (!projectValid) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 33;
+    }
+
+    const auto starterScene =
+        created.projectDirectory /
+        "Scenes" /
+        "Main.hamunscene";
+
+    Hamun::Editor::SceneDocument
+        sceneDocument;
+
+    if (!Hamun::Editor::LoadSceneDocument(
+            starterScene,
+            sceneDocument,
+            &error)) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 34;
+    }
+
+    if (!std::filesystem::exists(
+            sceneDocument.sourceAsset)) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 35;
+    }
+
+    Hamun::Editor::SceneObjectTransform
+        smokeTransform;
+
+    smokeTransform.position = {
+        1.0f,
+        2.0f,
+        3.0f
+    };
+
+    smokeTransform.scale = {
+        1.25f,
+        0.75f,
+        2.0f
+    };
+
+    sceneDocument.transforms = {
+        smokeTransform
+    };
+
+    const auto savedScene =
+        created.projectDirectory /
+        "Scenes" /
+        "SmokeSaved.hamunscene";
+
+    if (!Hamun::Editor::SaveSceneDocument(
+            savedScene,
+            sceneDocument,
+            &error)) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 36;
+    }
+
+    Hamun::Editor::SceneDocument
+        reloadedScene;
+
+    if (!Hamun::Editor::LoadSceneDocument(
+            savedScene,
+            reloadedScene,
+            &error) ||
+        reloadedScene.transforms.size() !=
+            1 ||
+        reloadedScene.transforms[0]
+                .position[1] !=
+            2.0f) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 37;
+    }
+
+    const auto assetsBefore =
+        Hamun::Editor::IndexProjectAssets(
+            created.projectDirectory);
+
+    if (assetsBefore.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 38;
+    }
+
+    std::filesystem::path
+        importedAsset;
+
+    if (!Hamun::Editor::ImportAssetWithCompanions(
+            sceneDocument.sourceAsset,
+            created.projectDirectory,
+            importedAsset,
+            &error) ||
+        !std::filesystem::exists(
+            importedAsset)) {
+        std::error_code ec;
+        std::filesystem::remove_all(
+            smokeRoot,
+            ec);
+        return 39;
+    }
+
+    const auto assetsAfter =
+        Hamun::Editor::IndexProjectAssets(
+            created.projectDirectory);
+
+    const bool toolsValid =
+        assetsAfter.size() >
+            assetsBefore.size();
+
     std::error_code ec;
     std::filesystem::remove_all(
         smokeRoot,
         ec);
 
-    return valid
+    return toolsValid
         ? 0
-        : 33;
+        : 45;
 }
 
 HWND AddControl(
