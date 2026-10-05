@@ -3,6 +3,7 @@
 #include <Hamun/World/WorldPosition.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -35,12 +36,25 @@ struct MeshComponent {
     std::uint32_t meshIndex = 0;
 };
 
+struct MaterialComponent {
+    std::array<float, 4> baseColorFactor{
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f
+    };
+
+    float metallic = 0.0f;
+    float roughness = 1.0f;
+};
+
 struct EntityRecord {
     EntityId id = InvalidEntity;
     EntityId parent = InvalidEntity;
     std::string name;
     TransformComponent transform{};
     std::optional<MeshComponent> mesh;
+    std::optional<MaterialComponent> material;
 };
 
 class World {
