@@ -337,6 +337,7 @@ std::vector<Hamun::Editor::IndexedAsset>
 bool g_viewportMouseLook = false;
 POINT g_viewportLastMouse{};
 ULONGLONG g_lastCameraTick = 0;
+bool g_sceneDirty = false;
 
 enum class ViewportBackendPreference {
     Auto,
@@ -1797,6 +1798,9 @@ void ApplyInspectorTransform()
             transform;
     }
 
+    g_sceneDirty =
+        true;
+
     UpdateInspectorFromSelection();
 
     const auto info =
@@ -1897,6 +1901,9 @@ bool LoadSceneAsset(
         return false;
     }
 
+    g_sceneDirty =
+        false;
+
     SetStatus(
         L"Scene asset loaded: " +
         resolved.wstring());
@@ -1937,6 +1944,9 @@ bool OpenSceneDocumentFile(
     if (!InitializeViewportBackend()) {
         return false;
     }
+
+    g_sceneDirty =
+        false;
 
     SetStatus(
         L"Scene opened: " +
@@ -1996,6 +2006,9 @@ bool SaveCurrentSceneTo(
 
     g_sceneDocumentPath =
         path;
+
+    g_sceneDirty =
+        false;
 
     if (g_project) {
         PopulateAssets(
@@ -2079,6 +2092,11 @@ bool SaveCurrentScene(
 void OpenSceneDialog(
     HWND owner)
 {
+    if (!ConfirmDiscardScene(
+            owner)) {
+        return;
+    }
+
     wchar_t path[MAX_PATH]{};
 
     const wchar_t filter[] =
@@ -2127,6 +2145,47 @@ void OpenSceneDialog(
     }
 }
 
+bool ImportAssetPath(
+    const std::filesystem::path& source)
+{
+    if (!g_project) {
+        SetStatus(
+            L"Open a project before importing assets.");
+        return false;
+    }
+
+    std::filesystem::path importedPath;
+    std::string error;
+
+    if (!Hamun::Editor::ImportAssetWithCompanions(
+            source,
+            g_project->rootDirectory,
+            importedPath,
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+        return false;
+    }
+
+    PopulateAssets(
+        g_project->rootDirectory);
+
+    if (Hamun::Editor::ClassifyAsset(
+            importedPath) ==
+        Hamun::Editor::AssetKind::Gltf) {
+        g_sceneDocumentPath.clear();
+
+        return LoadSceneAsset(
+            importedPath);
+    }
+
+    SetStatus(
+        L"Asset imported: " +
+        importedPath.wstring());
+
+    return true;
+}
+
 void ImportAssetDialog(
     HWND owner)
 {
@@ -2165,34 +2224,8 @@ void ImportAssetDialog(
         return;
     }
 
-    std::filesystem::path importedPath;
-    std::string error;
-
-    if (!Hamun::Editor::ImportAssetWithCompanions(
-            path,
-            g_project->rootDirectory,
-            importedPath,
-            &error)) {
-        SetStatus(
-            Utf8ToWide(error));
-        return;
-    }
-
-    PopulateAssets(
-        g_project->rootDirectory);
-
-    if (Hamun::Editor::ClassifyAsset(
-            importedPath) ==
-        Hamun::Editor::AssetKind::Gltf) {
-        g_sceneDocumentPath.clear();
-
-        LoadSceneAsset(
-            importedPath);
-    } else {
-        SetStatus(
-            L"Asset imported: " +
-            importedPath.wstring());
-    }
+    ImportAssetPath(
+        path);
 }
 
 void ActivateSelectedAsset()
@@ -2218,15 +2251,23 @@ void ActivateSelectedAsset()
 
     switch (asset.kind) {
         case Hamun::Editor::AssetKind::Scene:
-            OpenSceneDocumentFile(
-                asset.absolutePath);
+            if (ConfirmDiscardScene(
+                    GetParent(
+                        g_assets))) {
+                OpenSceneDocumentFile(
+                    asset.absolutePath);
+            }
             break;
 
         case Hamun::Editor::AssetKind::Gltf:
-            g_sceneDocumentPath.clear();
+            if (ConfirmDiscardScene(
+                    GetParent(
+                        g_assets))) {
+                g_sceneDocumentPath.clear();
 
-            LoadSceneAsset(
-                asset.absolutePath);
+                LoadSceneAsset(
+                    asset.absolutePath);
+            }
             break;
 
         default:
@@ -2318,6 +2359,34 @@ void UpdateEditorCameraNavigation()
     }
 }
 
+bool ConfirmDiscardScene(
+    HWND owner)
+{
+    if (!g_sceneDirty)
+        return true;
+
+    const int result =
+        MessageBoxW(
+            owner,
+            L"The current scene has unsaved changes.\n\nSave before continuing?",
+            L"HamunEditor - Unsaved Scene",
+            MB_YESNOCANCEL |
+                MB_ICONWARNING);
+
+    if (result ==
+        IDCANCEL) {
+        return false;
+    }
+
+    if (result ==
+        IDYES) {
+        return SaveCurrentScene(
+            owner);
+    }
+
+    return true;
+}
+
 bool LoadProjectIntoEditor(
     HWND owner,
     const std::filesystem::path& projectFile)
@@ -2347,6 +2416,12 @@ bool LoadProjectIntoEditor(
 
     g_project =
         std::move(*project);
+
+    g_activeScenePath.clear();
+    g_sceneDocumentPath.clear();
+    g_sceneTransforms.clear();
+    g_sceneTransformSource.clear();
+    g_sceneDirty = false;
 
     const std::wstring name =
         Utf8ToWide(
@@ -2382,6 +2457,9 @@ bool LoadProjectIntoEditor(
         LoadSceneAsset(
             starterScene);
     } else {
+        LoadSceneAsset(
+            EditorPreviewScenePath());
+
         PopulateOutliner();
         UpdateInspectorFromSelection();
     }
@@ -2405,6 +2483,11 @@ bool LoadProjectIntoEditor(
 void OpenProjectDialog(
     HWND owner)
 {
+    if (!ConfirmDiscardScene(
+            owner)) {
+        return;
+    }
+
     wchar_t path[MAX_PATH]{};
 
     const wchar_t filter[] =
@@ -2820,6 +2903,10 @@ LRESULT CALLBACK WindowProc(
             CreateMainMenu(
                 window);
 
+            DragAcceptFiles(
+                window,
+                TRUE);
+
             HFONT font =
                 static_cast<HFONT>(
                     GetStockObject(
@@ -3024,6 +3111,70 @@ LRESULT CALLBACK WindowProc(
             RequestViewportResize();
             return 0;
 
+        case WM_DROPFILES: {
+            HDROP drop =
+                reinterpret_cast<HDROP>(
+                    wParam);
+
+            const UINT count =
+                DragQueryFileW(
+                    drop,
+                    0xFFFFFFFF,
+                    nullptr,
+                    0);
+
+            for (UINT i = 0;
+                 i < count;
+                 ++i) {
+                wchar_t path[MAX_PATH]{};
+
+                if (DragQueryFileW(
+                        drop,
+                        i,
+                        path,
+                        MAX_PATH) == 0) {
+                    continue;
+                }
+
+                const std::filesystem::path
+                    dropped =
+                        path;
+
+                const auto kind =
+                    Hamun::Editor::ClassifyAsset(
+                        dropped);
+
+                if (dropped.extension() ==
+                    L".hamunproject") {
+                    if (ConfirmDiscardScene(
+                            window)) {
+                        LoadProjectIntoEditor(
+                            window,
+                            dropped);
+                    }
+
+                    continue;
+                }
+
+                if (kind ==
+                    Hamun::Editor::AssetKind::Scene) {
+                    if (ConfirmDiscardScene(
+                            window)) {
+                        OpenSceneDocumentFile(
+                            dropped);
+                    }
+
+                    continue;
+                }
+
+                ImportAssetPath(
+                    dropped);
+            }
+
+            DragFinish(drop);
+            return 0;
+        }
+
         case WM_TIMER:
             if (wParam ==
                 IdViewportTimer) {
@@ -3149,6 +3300,14 @@ LRESULT CALLBACK WindowProc(
 
             break;
         }
+
+        case WM_CLOSE:
+            if (ConfirmDiscardScene(
+                    window)) {
+                DestroyWindow(
+                    window);
+            }
+            return 0;
 
         case WM_DESTROY:
             KillTimer(
@@ -3278,6 +3437,32 @@ int WINAPI wWinMain(
             startupProject);
     }
 
+    ACCEL accelerators[] = {
+        {
+            static_cast<BYTE>(
+                FVIRTKEY |
+                FCONTROL),
+            static_cast<WORD>('O'),
+            static_cast<WORD>(
+                IdOpenProject)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY |
+                FCONTROL),
+            static_cast<WORD>('S'),
+            static_cast<WORD>(
+                IdSaveScene)
+        }
+    };
+
+    HACCEL acceleratorTable =
+        CreateAcceleratorTableW(
+            accelerators,
+            static_cast<int>(
+                std::size(
+                    accelerators)));
+
     MSG message{};
 
     while (GetMessageW(
@@ -3285,11 +3470,22 @@ int WINAPI wWinMain(
                nullptr,
                0,
                0) > 0) {
-        TranslateMessage(
-            &message);
+        if (!acceleratorTable ||
+            !TranslateAcceleratorW(
+                window,
+                acceleratorTable,
+                &message)) {
+            TranslateMessage(
+                &message);
 
-        DispatchMessageW(
-            &message);
+            DispatchMessageW(
+                &message);
+        }
+    }
+
+    if (acceleratorTable) {
+        DestroyAcceleratorTable(
+            acceleratorTable);
     }
 
     return
