@@ -3,6 +3,7 @@
 #include <Hamun/Assets/ImageAsset.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <utility>
 
@@ -89,6 +90,92 @@ std::unique_ptr<RHI::ITexture> CreateMeshTexture(
     desc.rowPitch = image.width * 4u;
 
     return backend.CreateTexture(desc);
+}
+
+SceneObjectTransform ExtractTransform(
+    const Assets::SceneInstance& instance)
+{
+    SceneObjectTransform result;
+
+    result.position = {
+        instance.worldMatrix[12],
+        instance.worldMatrix[13],
+        instance.worldMatrix[14]
+    };
+
+    const auto rowLength =
+        [&](std::size_t offset) {
+            const float x =
+                instance.worldMatrix[offset + 0];
+
+            const float y =
+                instance.worldMatrix[offset + 1];
+
+            const float z =
+                instance.worldMatrix[offset + 2];
+
+            return std::sqrt(
+                x * x +
+                y * y +
+                z * z);
+        };
+
+    result.scale = {
+        rowLength(0),
+        rowLength(4),
+        rowLength(8)
+    };
+
+    return result;
+}
+
+void ApplyScaleToBasis(
+    std::array<float, 16>& matrix,
+    std::size_t offset,
+    float scale)
+{
+    const float x =
+        matrix[offset + 0];
+
+    const float y =
+        matrix[offset + 1];
+
+    const float z =
+        matrix[offset + 2];
+
+    const float length =
+        std::sqrt(
+            x * x +
+            y * y +
+            z * z);
+
+    if (length > 0.000001f) {
+        const float factor =
+            scale /
+            length;
+
+        matrix[offset + 0] *=
+            factor;
+
+        matrix[offset + 1] *=
+            factor;
+
+        matrix[offset + 2] *=
+            factor;
+
+        return;
+    }
+
+    matrix[offset + 0] = 0.0f;
+    matrix[offset + 1] = 0.0f;
+    matrix[offset + 2] = 0.0f;
+
+    if (offset == 0)
+        matrix[0] = scale;
+    else if (offset == 4)
+        matrix[5] = scale;
+    else
+        matrix[10] = scale;
 }
 
 const char* SceneShaderSource()
@@ -649,6 +736,112 @@ std::size_t ScenePreview::InstanceCount() const noexcept
     return asset_
         ? asset_->instances.size()
         : 0;
+}
+
+std::optional<SceneObjectInfo>
+ScenePreview::ObjectInfo(
+    std::size_t index) const
+{
+    if (!asset_ ||
+        index >=
+            asset_->instances.size()) {
+        return std::nullopt;
+    }
+
+    const Assets::SceneInstance& instance =
+        asset_->instances[index];
+
+    if (instance.meshIndex >=
+        meshes_.size()) {
+        return std::nullopt;
+    }
+
+    const RenderMesh& mesh =
+        meshes_[instance.meshIndex];
+
+    SceneObjectInfo result;
+    result.index = index;
+
+    result.name =
+        instance.name.empty()
+            ? "SceneObject_" +
+                std::to_string(index)
+            : instance.name;
+
+    if (instance.meshIndex <
+        asset_->meshes.size()) {
+        const std::string& meshName =
+            asset_->meshes[
+                instance.meshIndex]
+                .name;
+
+        result.meshName =
+            meshName.empty()
+                ? "Mesh_" +
+                    std::to_string(
+                        instance.meshIndex)
+                : meshName;
+    }
+
+    result.transform =
+        ExtractTransform(instance);
+
+    result.baseColorFactor =
+        mesh.baseColorFactor;
+
+    result.metallic =
+        mesh.metallic;
+
+    result.roughness =
+        mesh.roughness;
+
+    return result;
+}
+
+bool ScenePreview::SetTransform(
+    std::size_t index,
+    const SceneObjectTransform& transform)
+{
+    if (!asset_ ||
+        index >=
+            asset_->instances.size()) {
+        return false;
+    }
+
+    Assets::SceneInstance& instance =
+        asset_->instances[index];
+
+    instance.worldMatrix[12] =
+        transform.position[0];
+
+    instance.worldMatrix[13] =
+        transform.position[1];
+
+    instance.worldMatrix[14] =
+        transform.position[2];
+
+    ApplyScaleToBasis(
+        instance.worldMatrix,
+        0,
+        std::max(
+            transform.scale[0],
+            0.0001f));
+
+    ApplyScaleToBasis(
+        instance.worldMatrix,
+        4,
+        std::max(
+            transform.scale[1],
+            0.0001f));
+
+    ApplyScaleToBasis(
+        instance.worldMatrix,
+        8,
+        std::max(
+            transform.scale[2],
+            0.0001f));
+
+    return true;
 }
 
 const std::filesystem::path&
