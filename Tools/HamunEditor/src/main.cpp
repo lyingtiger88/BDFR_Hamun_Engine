@@ -41,9 +41,12 @@ constexpr int IdRendererD3D12 = 2102;
 constexpr int IdRendererD3D11 = 2103;
 constexpr int IdOutliner = 2201;
 constexpr int IdApplyTransform = 2202;
+constexpr int IdApplyMaterial = 2203;
 constexpr int IdAssets = 2301;
 constexpr int IdUndo = 2401;
 constexpr int IdRedo = 2402;
+constexpr int IdDuplicateObject = 2403;
+constexpr int IdDeleteObject = 2404;
 constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
@@ -66,6 +69,13 @@ HWND g_scaleX = nullptr;
 HWND g_scaleY = nullptr;
 HWND g_scaleZ = nullptr;
 HWND g_applyTransform = nullptr;
+HWND g_materialLabel = nullptr;
+HWND g_materialColorR = nullptr;
+HWND g_materialColorG = nullptr;
+HWND g_materialColorB = nullptr;
+HWND g_materialMetallic = nullptr;
+HWND g_materialRoughness = nullptr;
+HWND g_applyMaterial = nullptr;
 HWND g_assetsHeader = nullptr;
 HWND g_assets = nullptr;
 HWND g_status = nullptr;
@@ -1080,7 +1090,13 @@ void SetTransformEditorEnabled(
              g_scaleX,
              g_scaleY,
              g_scaleZ,
-             g_applyTransform
+             g_applyTransform,
+             g_materialColorR,
+             g_materialColorG,
+             g_materialColorB,
+             g_materialMetallic,
+             g_materialRoughness,
+             g_applyMaterial
          }) {
         if (control) {
             EnableWindow(
@@ -1940,6 +1956,26 @@ void UpdateInspectorFromSelection()
         g_scaleZ,
         info->transform.scale[2]);
 
+    SetFloatEdit(
+        g_materialColorR,
+        info->material.baseColorFactor[0]);
+
+    SetFloatEdit(
+        g_materialColorG,
+        info->material.baseColorFactor[1]);
+
+    SetFloatEdit(
+        g_materialColorB,
+        info->material.baseColorFactor[2]);
+
+    SetFloatEdit(
+        g_materialMetallic,
+        info->material.metallic);
+
+    SetFloatEdit(
+        g_materialRoughness,
+        info->material.roughness);
+
     SetTransformEditorEnabled(true);
 }
 
@@ -2074,6 +2110,188 @@ void ApplyInspectorTransform()
                 Utf8ToWide(
                     info->name)
             : L"Transform updated.");
+}
+
+void ApplyInspectorMaterial()
+{
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    Hamun::Editor::SceneMaterialState
+        material;
+
+    if (!ReadFloatEdit(
+            g_materialColorR,
+            material.baseColorFactor[0]) ||
+        !ReadFloatEdit(
+            g_materialColorG,
+            material.baseColorFactor[1]) ||
+        !ReadFloatEdit(
+            g_materialColorB,
+            material.baseColorFactor[2]) ||
+        !ReadFloatEdit(
+            g_materialMetallic,
+            material.metallic) ||
+        !ReadFloatEdit(
+            g_materialRoughness,
+            material.roughness)) {
+        SetStatus(
+            L"Material contains an invalid number.");
+        return;
+    }
+
+    material.baseColorFactor[3] =
+        1.0f;
+
+    const std::size_t index =
+        static_cast<std::size_t>(
+            selected);
+
+    if (!g_scenePreview.SetMaterial(
+            index,
+            material)) {
+        SetStatus(
+            L"Could not update material.");
+        return;
+    }
+
+    g_sceneDirty =
+        true;
+
+    UpdateInspectorFromSelection();
+
+    SetStatus(
+        L"Material updated.");
+}
+
+void SyncTransformsFromPreview()
+{
+    g_sceneTransforms.clear();
+    g_sceneTransforms.reserve(
+        g_scenePreview.InstanceCount());
+
+    for (const auto& object :
+         g_scenePreview.CaptureObjects()) {
+        g_sceneTransforms.push_back(
+            object.transform);
+    }
+
+    g_sceneTransformSource =
+        g_scenePreview.ScenePath();
+}
+
+void DuplicateSelectedObject()
+{
+    if (!g_viewportBackend)
+        return;
+
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    std::size_t duplicateIndex = 0;
+    std::string error;
+
+    if (!g_scenePreview.DuplicateObject(
+            *g_viewportBackend,
+            static_cast<std::size_t>(
+                selected),
+            &duplicateIndex,
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+        return;
+    }
+
+    SyncTransformsFromPreview();
+
+    g_undoStack.clear();
+    g_redoStack.clear();
+    g_sceneDirty = true;
+
+    PopulateOutliner();
+
+    SendMessageW(
+        g_outliner,
+        LB_SETCURSEL,
+        static_cast<WPARAM>(
+            duplicateIndex),
+        0);
+
+    UpdateInspectorFromSelection();
+
+    SetStatus(
+        L"Scene object duplicated.");
+}
+
+void DeleteSelectedObject()
+{
+    if (!g_viewportBackend)
+        return;
+
+    const LRESULT selected =
+        SendMessageW(
+            g_outliner,
+            LB_GETCURSEL,
+            0,
+            0);
+
+    if (selected == LB_ERR)
+        return;
+
+    const std::size_t index =
+        static_cast<std::size_t>(
+            selected);
+
+    std::string error;
+
+    if (!g_scenePreview.DeleteObject(
+            *g_viewportBackend,
+            index,
+            &error)) {
+        SetStatus(
+            Utf8ToWide(error));
+        return;
+    }
+
+    SyncTransformsFromPreview();
+
+    g_undoStack.clear();
+    g_redoStack.clear();
+    g_sceneDirty = true;
+
+    PopulateOutliner();
+
+    const std::size_t nextSelection =
+        std::min(
+            index,
+            g_scenePreview.InstanceCount() -
+                1);
+
+    SendMessageW(
+        g_outliner,
+        LB_SETCURSEL,
+        static_cast<WPARAM>(
+            nextSelection),
+        0);
+
+    UpdateInspectorFromSelection();
+
+    SetStatus(
+        L"Scene object deleted.");
 }
 
 bool ApplyHistoryTransform(
@@ -3105,9 +3323,9 @@ void LayoutControls(
 
     const int inspectorInfoHeight =
         std::max(
-            60,
+            50,
             inspectorBodyHeight -
-                198);
+                286);
 
     MoveWindow(
         g_inspector,
@@ -3262,10 +3480,96 @@ void LayoutControls(
         22,
         TRUE);
 
+    const int applyTransformTop =
+        scaleFieldsTop +
+        28;
+
     MoveWindow(
         g_applyTransform,
         inspectorX,
-        scaleFieldsTop +
+        applyTransformTop,
+        sideWidth,
+        24,
+        TRUE);
+
+    const int materialLabelTop =
+        applyTransformTop +
+        30;
+
+    MoveWindow(
+        g_materialLabel,
+        inspectorX,
+        materialLabelTop,
+        sideWidth,
+        18,
+        TRUE);
+
+    const int materialColorTop =
+        materialLabelTop +
+        20;
+
+    MoveWindow(
+        g_materialColorR,
+        inspectorX,
+        materialColorTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_materialColorG,
+        inspectorX +
+            fieldWidth +
+            fieldGap,
+        materialColorTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_materialColorB,
+        inspectorX +
+            (fieldWidth +
+             fieldGap) *
+                2,
+        materialColorTop,
+        fieldWidth,
+        22,
+        TRUE);
+
+    const int materialParamsTop =
+        materialColorTop +
+        26;
+
+    const int materialHalfWidth =
+        std::max(
+            50,
+            (sideWidth -
+             fieldGap) /
+                2);
+
+    MoveWindow(
+        g_materialMetallic,
+        inspectorX,
+        materialParamsTop,
+        materialHalfWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_materialRoughness,
+        inspectorX +
+            materialHalfWidth +
+            fieldGap,
+        materialParamsTop,
+        materialHalfWidth,
+        22,
+        TRUE);
+
+    MoveWindow(
+        g_applyMaterial,
+        inspectorX,
+        materialParamsTop +
             28,
         sideWidth,
         24,
@@ -3385,6 +3689,24 @@ void CreateMainMenu(
         MF_STRING,
         IdRedo,
         L"&Redo Transform\tCtrl+Y");
+
+    AppendMenuW(
+        editMenu,
+        MF_SEPARATOR,
+        0,
+        nullptr);
+
+    AppendMenuW(
+        editMenu,
+        MF_STRING,
+        IdDuplicateObject,
+        L"&Duplicate Object\tCtrl+D");
+
+    AppendMenuW(
+        editMenu,
+        MF_STRING,
+        IdDeleteObject,
+        L"&Delete Object\tDelete");
 
     AppendMenuW(
         menu,
@@ -3605,6 +3927,61 @@ LRESULT CALLBACK WindowProc(
                     BS_PUSHBUTTON,
                     IdApplyTransform);
 
+            g_materialLabel =
+                AddControl(
+                    window,
+                    L"STATIC",
+                    L"Material: RGB / Metallic / Roughness",
+                    SS_LEFT);
+
+            g_materialColorR =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_materialColorG =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_materialColorB =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_materialMetallic =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"0.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_materialRoughness =
+                AddControl(
+                    window,
+                    L"EDIT",
+                    L"1.000",
+                    WS_BORDER |
+                        ES_AUTOHSCROLL);
+
+            g_applyMaterial =
+                AddControl(
+                    window,
+                    L"BUTTON",
+                    L"Apply Material",
+                    BS_PUSHBUTTON,
+                    IdApplyMaterial);
+
             g_assetsHeader =
                 AddControl(
                     window,
@@ -3653,6 +4030,13 @@ LRESULT CALLBACK WindowProc(
                      g_scaleY,
                      g_scaleZ,
                      g_applyTransform,
+                     g_materialLabel,
+                     g_materialColorR,
+                     g_materialColorG,
+                     g_materialColorB,
+                     g_materialMetallic,
+                     g_materialRoughness,
+                     g_applyMaterial,
                      g_assetsHeader,
                      g_assets,
                      g_status
@@ -3797,6 +4181,14 @@ LRESULT CALLBACK WindowProc(
             }
 
             if (id ==
+                    IdApplyMaterial &&
+                HIWORD(wParam) ==
+                    BN_CLICKED) {
+                ApplyInspectorMaterial();
+                return 0;
+            }
+
+            if (id ==
                 IdOpenProject) {
                 OpenProjectDialog(
                     window);
@@ -3869,6 +4261,18 @@ LRESULT CALLBACK WindowProc(
             if (id ==
                 IdRedo) {
                 RedoTransform();
+                return 0;
+            }
+
+            if (id ==
+                IdDuplicateObject) {
+                DuplicateSelectedObject();
+                return 0;
+            }
+
+            if (id ==
+                IdDeleteObject) {
+                DeleteSelectedObject();
                 return 0;
             }
 
@@ -4091,13 +4495,29 @@ int WINAPI wWinMain(
                 VK_F5),
             static_cast<WORD>(
                 IdRefreshAssets)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY |
+                FCONTROL),
+            static_cast<WORD>('D'),
+            static_cast<WORD>(
+                IdDuplicateObject)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY),
+            static_cast<WORD>(
+                VK_DELETE),
+            static_cast<WORD>(
+                IdDeleteObject)
         }
     };
 
     HACCEL acceleratorTable =
         CreateAcceleratorTableW(
             accelerators,
-            5);
+            7);
 
     MSG message{};
 
