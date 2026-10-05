@@ -115,6 +115,13 @@ public:
         std::size_t index,
         std::string* error = nullptr);
 
+    [[nodiscard]] std::optional<std::size_t>
+    PickObject(
+        float viewportX,
+        float viewportY,
+        float viewportWidth,
+        float viewportHeight) const;
+
     void MoveCamera(
         float forward,
         float right,
