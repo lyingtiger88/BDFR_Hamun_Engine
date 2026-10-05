@@ -31,6 +31,7 @@ struct MeshAsset {
 struct SceneInstance {
     std::string name;
     std::uint32_t meshIndex = 0;
+    std::uint32_t hierarchyDepth = 0;
 
     // Flat glTF world matrix. Hamun currently uses row-vector HLSL math;
     // copying the glTF column-major flat representation directly gives
