@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <regex>
+#include <set>
 #include <system_error>
 #include <utility>
 
@@ -58,6 +61,67 @@ bool CopyFileReplace(
     }
 
     return true;
+}
+
+
+std::vector<std::filesystem::path> ReferencedGltfCompanions(
+    const std::filesystem::path& gltfPath)
+{
+    std::ifstream input(gltfPath, std::ios::binary);
+    if (!input)
+        return {};
+
+    const std::string json(
+        (std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+
+    static const std::regex uriPattern(
+        R"hamun("uri"\s*:\s*"([^"]+)")hamun",
+        std::regex::ECMAScript);
+
+    std::set<std::filesystem::path> unique;
+
+    for (std::sregex_iterator it(
+             json.begin(),
+             json.end(),
+             uriPattern),
+         end;
+         it != end;
+         ++it) {
+        std::string uri = (*it)[1].str();
+
+        if (uri.empty() ||
+            uri.rfind("data:", 0) == 0 ||
+            uri.find("://") != std::string::npos) {
+            continue;
+        }
+
+        std::filesystem::path relative =
+            std::filesystem::path(uri)
+                .lexically_normal();
+
+        if (relative.is_absolute())
+            continue;
+
+        bool traversal = false;
+        for (const auto& component : relative) {
+            if (component == "..") {
+                traversal = true;
+                break;
+            }
+        }
+
+        if (traversal)
+            continue;
+
+        unique.insert(
+            std::move(relative));
+    }
+
+    return {
+        unique.begin(),
+        unique.end()
+    };
 }
 
 } // namespace
@@ -285,34 +349,39 @@ bool ImportAssetWithCompanions(
         const auto sourceFolder =
             source.parent_path();
 
-        for (const auto& entry :
-             std::filesystem::directory_iterator(
-                 sourceFolder,
-                 ec)) {
-            if (ec)
-                break;
+        for (const auto& relative :
+             ReferencedGltfCompanions(source)) {
+            const auto companionSource =
+                sourceFolder /
+                relative;
 
-            if (!entry.is_regular_file())
-                continue;
+            if (!std::filesystem::is_regular_file(
+                    companionSource,
+                    ec)) {
+                ec.clear();
+                return Fail(
+                    error,
+                    "Referenced glTF companion is missing: " +
+                        relative.generic_string());
+            }
 
-            const std::string companionExtension =
-                LowerExtension(
-                    entry.path());
+            const auto companionDestination =
+                destinationRoot /
+                relative;
 
-            const bool companion =
-                companionExtension == ".bin" ||
-                companionExtension == ".png" ||
-                companionExtension == ".jpg" ||
-                companionExtension == ".jpeg";
+            std::filesystem::create_directories(
+                companionDestination.parent_path(),
+                ec);
 
-            if (!companion)
-                continue;
+            if (ec) {
+                return Fail(
+                    error,
+                    "Could not create glTF companion directory.");
+            }
 
             if (!CopyFileReplace(
-                    entry.path(),
-                    destinationRoot /
-                        entry.path()
-                            .filename(),
+                    companionSource,
+                    companionDestination,
                     error)) {
                 return false;
             }
