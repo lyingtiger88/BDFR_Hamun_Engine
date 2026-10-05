@@ -1717,9 +1717,58 @@ LRESULT CALLBACK ViewportProc(
         case WM_ERASEBKGND:
             return 1;
 
-        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDOWN: {
             SetFocus(window);
+
+            RECT rect{};
+            GetClientRect(
+                window,
+                &rect);
+
+            const auto picked =
+                g_scenePreview.PickObject(
+                    static_cast<float>(
+                        GET_X_LPARAM(
+                            lParam)),
+                    static_cast<float>(
+                        GET_Y_LPARAM(
+                            lParam)),
+                    static_cast<float>(
+                        std::max(
+                            1L,
+                            rect.right -
+                                rect.left)),
+                    static_cast<float>(
+                        std::max(
+                            1L,
+                            rect.bottom -
+                                rect.top)));
+
+            if (picked &&
+                g_outliner) {
+                SendMessageW(
+                    g_outliner,
+                    LB_SETCURSEL,
+                    static_cast<WPARAM>(
+                        *picked),
+                    0);
+
+                UpdateInspectorFromSelection();
+
+                const auto info =
+                    g_scenePreview.ObjectInfo(
+                        *picked);
+
+                if (info) {
+                    SetStatus(
+                        L"Selected from viewport: " +
+                        Utf8ToWide(
+                            info->name));
+                }
+            }
+
             return 0;
+        }
 
         case WM_RBUTTONDOWN:
             SetFocus(window);
