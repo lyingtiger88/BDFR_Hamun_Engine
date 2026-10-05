@@ -691,6 +691,9 @@ bool ScenePreview::Initialize(
     entityIds_.reserve(
         asset_->instances.size());
 
+    std::vector<World::EntityId>
+        hierarchyParents;
+
     for (const Assets::SceneInstance& instance :
          asset_->instances) {
         if (instance.meshIndex >=
@@ -721,11 +724,24 @@ bool ScenePreview::Initialize(
 
         draws_.push_back(draw);
 
+        World::EntityId parentEntity =
+            World::InvalidEntity;
+
+        if (instance.hierarchyDepth > 0 &&
+            instance.hierarchyDepth - 1 <
+                hierarchyParents.size()) {
+            parentEntity =
+                hierarchyParents[
+                    instance.hierarchyDepth -
+                    1];
+        }
+
         const World::EntityId entityId =
             world_.CreateEntity(
                 instance.name.empty()
                     ? "SceneObject"
-                    : instance.name);
+                    : instance.name,
+                parentEntity);
 
         if (entityId ==
             World::InvalidEntity) {
@@ -774,6 +790,20 @@ bool ScenePreview::Initialize(
 
         entityIds_.push_back(
             entityId);
+
+        if (hierarchyParents.size() <=
+            instance.hierarchyDepth) {
+            hierarchyParents.resize(
+                instance.hierarchyDepth + 1,
+                World::InvalidEntity);
+        }
+
+        hierarchyParents[
+            instance.hierarchyDepth] =
+                entityId;
+
+        hierarchyParents.resize(
+            instance.hierarchyDepth + 1);
     }
 
     return true;
@@ -971,6 +1001,15 @@ ScenePreview::ObjectInfo(
         entityIds_.size()) {
         result.entityId =
             entityIds_[index];
+
+        const World::EntityRecord* entity =
+            world_.Find(
+                result.entityId);
+
+        if (entity) {
+            result.parentEntityId =
+                entity->parent;
+        }
     }
 
     result.hierarchyDepth =
