@@ -835,6 +835,21 @@ int RunEditorSmokeMode()
         "Scenes" /
         "SmokeSaved.hamunscene";
 
+    sceneDocument.hasCamera =
+        true;
+
+    sceneDocument.cameraPosition = {
+        4.0f,
+        5.0f,
+        -6.0f
+    };
+
+    sceneDocument.cameraYaw =
+        0.25f;
+
+    sceneDocument.cameraPitch =
+        -0.15f;
+
     if (!Hamun::Editor::SaveSceneDocument(
             savedScene,
             sceneDocument,
@@ -857,7 +872,10 @@ int RunEditorSmokeMode()
             1 ||
         reloadedScene.transforms[0]
                 .position[1] !=
-            2.0f) {
+            2.0f ||
+        !reloadedScene.hasCamera ||
+        reloadedScene.cameraPosition.z !=
+            -6.0f) {
         std::error_code ec;
         std::filesystem::remove_all(
             smokeRoot,
@@ -1993,6 +2011,25 @@ bool OpenSceneDocumentFile(
         return false;
     }
 
+    if (document.hasCamera) {
+        g_scenePreview.SetCameraPose(
+            document.cameraPosition,
+            document.cameraYaw,
+            document.cameraPitch);
+
+        g_editorCameraState.position =
+            document.cameraPosition;
+
+        g_editorCameraState.yaw =
+            document.cameraYaw;
+
+        g_editorCameraState.pitch =
+            document.cameraPitch;
+
+        g_editorCameraState.valid =
+            true;
+    }
+
     g_sceneDirty =
         false;
 
@@ -2032,6 +2069,33 @@ BuildCurrentSceneDocument()
                     info->transform);
             }
         }
+    }
+
+    if (g_scenePreview.Ready()) {
+        document.hasCamera =
+            true;
+
+        document.cameraPosition =
+            g_scenePreview.CameraPosition();
+
+        document.cameraYaw =
+            g_scenePreview.CameraYaw();
+
+        document.cameraPitch =
+            g_scenePreview.CameraPitch();
+    } else if (
+        g_editorCameraState.valid) {
+        document.hasCamera =
+            true;
+
+        document.cameraPosition =
+            g_editorCameraState.position;
+
+        document.cameraYaw =
+            g_editorCameraState.yaw;
+
+        document.cameraPitch =
+            g_editorCameraState.pitch;
     }
 
     return document;
@@ -2471,6 +2535,8 @@ bool LoadProjectIntoEditor(
 
         return false;
     }
+
+    ShutdownViewportBackend();
 
     g_project =
         std::move(*project);
