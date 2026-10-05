@@ -815,8 +815,7 @@ bool ReadFloatEdit(
     GetWindowTextW(
         edit,
         buffer,
-        static_cast<int>(
-            std::size(buffer)));
+        64);
 
     wchar_t* end = nullptr;
 
@@ -1843,9 +1842,9 @@ void LayoutControls(
 
     const int inspectorInfoHeight =
         std::max(
-            90,
+            70,
             inspectorBodyHeight -
-                118);
+                150);
 
     MoveWindow(
         g_inspector,
