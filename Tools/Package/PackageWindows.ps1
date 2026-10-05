@@ -1,7 +1,7 @@
 param(
     [string]$BuildDir = "build",
     [string]$Configuration = "Release",
-    [string]$Version = "v0.5",
+    [string]$Version = "v0.6",
     [string]$OutputDir = ""
 )
 
@@ -122,8 +122,13 @@ Project Launcher:
 Editor:
   HamunEditor.exe can open a Project.hamunproject file directly.
   The editor includes a live HamunRenderer glTF scene viewport.
-  The Outliner lists real scene objects; selecting one opens its mesh/material details and editable Position/Scale controls in the Inspector.
-  Transform edits update the live viewport and survive viewport resize or renderer switching.
+  The Outliner lists HamunWorld-backed scene entities with hierarchy and parent/entity IDs.
+  The Inspector edits Position / Rotation / Scale and per-object Base Color / Metallic / Roughness.
+  Scene edits can be saved to .hamunscene files and restored later, including camera pose.
+  Ctrl+Z / Ctrl+Y undo and redo transform edits. Ctrl+D duplicates an object and Delete removes it.
+  The Asset Browser recursively indexes project content; F5 refreshes it and File > Import Asset copies supported assets into the project.
+  Drag .hamunproject, .hamunscene, glTF, image or TressFX files onto the editor for quick workflows.
+  Viewport: WASD + Q/E move, Shift sprints, RMB looks, wheel moves forward/back, F focuses selection, Home resets the camera.
   Use Renderer > Auto / DirectX 12 / DirectX 11 to compare the same scene with live FPS and frame time.
 
 Recommended renderer test:
@@ -143,10 +148,14 @@ Test $Version includes:
   - HamunLauncher project browser
   - HamunEditor native editor shell and project loading
   - live HamunRenderer glTF scene viewport with DX12/DX11 switching and FPS/frame-time display
-  - real glTF hierarchy Outliner and selection-driven Inspector
-  - live editable Position/Scale transforms with persistent editor state
+  - HamunWorld-backed hierarchy Outliner and selection-driven Inspector
+  - live editable Position/Rotation/Scale transforms with Undo/Redo
+  - per-object Base Color / Metallic / Roughness material overrides
+  - persistent .hamunscene documents with object structure, materials and camera pose
+  - recursive Asset Browser, asset import, drag-and-drop and project-folder tools
+  - duplicate/delete scene object tools with runtime GPU/World rebuild
   - data-driven Template catalog and project creation workflow
-  - Blank Project technical template
+  - Blank Project template with project-owned Starter Scene and Assets
   - renderer-owned RenderGraph and indexed scene submission
   - DX12 / DX11 compute pipelines, storage buffers and storage textures
   - double-buffered frame resources
