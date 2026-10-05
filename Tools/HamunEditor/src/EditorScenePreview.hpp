@@ -67,6 +67,18 @@ public:
         std::size_t index,
         const SceneObjectTransform& transform);
 
+    void MoveCamera(
+        float forward,
+        float right,
+        float up) noexcept;
+
+    void RotateCamera(
+        float yawDelta,
+        float pitchDelta) noexcept;
+
+    [[nodiscard]] Renderer::Vec3
+    CameraPosition() const noexcept;
+
     [[nodiscard]] const std::filesystem::path& ScenePath() const noexcept;
 
 private:
