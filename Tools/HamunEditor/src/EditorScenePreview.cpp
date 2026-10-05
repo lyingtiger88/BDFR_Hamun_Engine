@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <utility>
 
 namespace Hamun::Editor {
@@ -322,6 +323,192 @@ void BuildTransformMatrix(
         transform.position[2],
         1.0f
     };
+}
+
+struct PickVec3 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+PickVec3 Add(
+    const PickVec3& a,
+    const PickVec3& b)
+{
+    return {
+        a.x + b.x,
+        a.y + b.y,
+        a.z + b.z
+    };
+}
+
+PickVec3 Multiply(
+    const PickVec3& value,
+    float scalar)
+{
+    return {
+        value.x * scalar,
+        value.y * scalar,
+        value.z * scalar
+    };
+}
+
+PickVec3 Cross(
+    const PickVec3& a,
+    const PickVec3& b)
+{
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+float Dot(
+    const PickVec3& a,
+    const PickVec3& b)
+{
+    return
+        a.x * b.x +
+        a.y * b.y +
+        a.z * b.z;
+}
+
+PickVec3 Normalize(
+    const PickVec3& value)
+{
+    const float lengthSquared =
+        Dot(value, value);
+
+    if (lengthSquared <=
+        0.0000001f) {
+        return {};
+    }
+
+    const float inverse =
+        1.0f /
+        std::sqrt(lengthSquared);
+
+    return Multiply(
+        value,
+        inverse);
+}
+
+PickVec3 TransformPoint(
+    const std::array<float, 16>& matrix,
+    const float position[3])
+{
+    return {
+        position[0] * matrix[0] +
+            position[1] * matrix[4] +
+            position[2] * matrix[8] +
+            matrix[12],
+        position[0] * matrix[1] +
+            position[1] * matrix[5] +
+            position[2] * matrix[9] +
+            matrix[13],
+        position[0] * matrix[2] +
+            position[1] * matrix[6] +
+            position[2] * matrix[10] +
+            matrix[14]
+    };
+}
+
+bool RayIntersectsAabb(
+    const PickVec3& origin,
+    const PickVec3& direction,
+    const PickVec3& minimum,
+    const PickVec3& maximum,
+    float& distance)
+{
+    float tMin = 0.0f;
+
+    float tMax =
+        std::numeric_limits<float>
+            ::max();
+
+    const float originValues[3] = {
+        origin.x,
+        origin.y,
+        origin.z
+    };
+
+    const float directionValues[3] = {
+        direction.x,
+        direction.y,
+        direction.z
+    };
+
+    const float minimumValues[3] = {
+        minimum.x,
+        minimum.y,
+        minimum.z
+    };
+
+    const float maximumValues[3] = {
+        maximum.x,
+        maximum.y,
+        maximum.z
+    };
+
+    for (int axis = 0;
+         axis < 3;
+         ++axis) {
+        const float axisDirection =
+            directionValues[axis];
+
+        if (std::abs(
+                axisDirection) <
+            0.000001f) {
+            if (originValues[axis] <
+                    minimumValues[axis] ||
+                originValues[axis] >
+                    maximumValues[axis]) {
+                return false;
+            }
+
+            continue;
+        }
+
+        const float inverse =
+            1.0f /
+            axisDirection;
+
+        float nearDistance =
+            (minimumValues[axis] -
+             originValues[axis]) *
+            inverse;
+
+        float farDistance =
+            (maximumValues[axis] -
+             originValues[axis]) *
+            inverse;
+
+        if (nearDistance >
+            farDistance) {
+            std::swap(
+                nearDistance,
+                farDistance);
+        }
+
+        tMin =
+            std::max(
+                tMin,
+                nearDistance);
+
+        tMax =
+            std::min(
+                tMax,
+                farDistance);
+
+        if (tMin >
+            tMax) {
+            return false;
+        }
+    }
+
+    distance = tMin;
+    return true;
 }
 
 const char* SceneShaderSource()
@@ -1397,6 +1584,208 @@ bool ScenePreview::DeleteObject(
     }
 
     return true;
+}
+
+std::optional<std::size_t>
+ScenePreview::PickObject(
+    float viewportX,
+    float viewportY,
+    float viewportWidth,
+    float viewportHeight) const
+{
+    if (!asset_ ||
+        viewportWidth <= 1.0f ||
+        viewportHeight <= 1.0f) {
+        return std::nullopt;
+    }
+
+    const float ndcX =
+        (viewportX /
+         viewportWidth) *
+            2.0f -
+        1.0f;
+
+    const float ndcY =
+        1.0f -
+        (viewportY /
+         viewportHeight) *
+            2.0f;
+
+    const float yaw =
+        camera_.Yaw();
+
+    const float pitch =
+        camera_.Pitch();
+
+    const float cosPitch =
+        std::cos(pitch);
+
+    const PickVec3 forward =
+        Normalize({
+            std::sin(yaw) *
+                cosPitch,
+            std::sin(pitch),
+            std::cos(yaw) *
+                cosPitch
+        });
+
+    const PickVec3 worldUp{
+        0.0f,
+        1.0f,
+        0.0f
+    };
+
+    const PickVec3 right =
+        Normalize(
+            Cross(
+                worldUp,
+                forward));
+
+    const PickVec3 up =
+        Normalize(
+            Cross(
+                forward,
+                right));
+
+    const float aspect =
+        viewportWidth /
+        viewportHeight;
+
+    const float tangent =
+        std::tan(
+            camera_
+                .verticalFovRadians *
+            0.5f);
+
+    PickVec3 direction =
+        Add(
+            forward,
+            Add(
+                Multiply(
+                    right,
+                    ndcX *
+                        aspect *
+                        tangent),
+                Multiply(
+                    up,
+                    ndcY *
+                        tangent)));
+
+    direction =
+        Normalize(direction);
+
+    const Renderer::Vec3&
+        cameraPosition =
+            camera_.Position();
+
+    const PickVec3 origin{
+        cameraPosition.x,
+        cameraPosition.y,
+        cameraPosition.z
+    };
+
+    float closestDistance =
+        std::numeric_limits<float>
+            ::max();
+
+    std::optional<std::size_t>
+        closest;
+
+    for (std::size_t instanceIndex = 0;
+         instanceIndex <
+            asset_->instances.size();
+         ++instanceIndex) {
+        const Assets::SceneInstance& instance =
+            asset_->instances[
+                instanceIndex];
+
+        if (instance.meshIndex >=
+            asset_->meshes.size()) {
+            continue;
+        }
+
+        const Assets::MeshAsset& mesh =
+            asset_->meshes[
+                instance.meshIndex];
+
+        if (mesh.vertices.empty())
+            continue;
+
+        PickVec3 minimum{
+            std::numeric_limits<float>
+                ::max(),
+            std::numeric_limits<float>
+                ::max(),
+            std::numeric_limits<float>
+                ::max()
+        };
+
+        PickVec3 maximum{
+            std::numeric_limits<float>
+                ::lowest(),
+            std::numeric_limits<float>
+                ::lowest(),
+            std::numeric_limits<float>
+                ::lowest()
+        };
+
+        for (const Assets::MeshVertex& vertex :
+             mesh.vertices) {
+            const PickVec3 world =
+                TransformPoint(
+                    instance.worldMatrix,
+                    vertex.position);
+
+            minimum.x =
+                std::min(
+                    minimum.x,
+                    world.x);
+
+            minimum.y =
+                std::min(
+                    minimum.y,
+                    world.y);
+
+            minimum.z =
+                std::min(
+                    minimum.z,
+                    world.z);
+
+            maximum.x =
+                std::max(
+                    maximum.x,
+                    world.x);
+
+            maximum.y =
+                std::max(
+                    maximum.y,
+                    world.y);
+
+            maximum.z =
+                std::max(
+                    maximum.z,
+                    world.z);
+        }
+
+        float distance = 0.0f;
+
+        if (RayIntersectsAabb(
+                origin,
+                direction,
+                minimum,
+                maximum,
+                distance) &&
+            distance <
+                closestDistance) {
+            closestDistance =
+                distance;
+
+            closest =
+                instanceIndex;
+        }
+    }
+
+    return closest;
 }
 
 bool ScenePreview::RebuildSceneRuntime(
