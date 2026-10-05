@@ -36,7 +36,7 @@ jobs:
         if: runner.os == 'Windows'
         run: ./build/Tools/HamunEditor/Release/HamunEditor.exe --editor-smoke-test
 
-      - name: Validate HamunEditor embedded DX12 and DX11 viewport
+      - name: Validate HamunEditor embedded DX12 and DX11 scene viewport
         if: runner.os == 'Windows'
         run: ./build/Tools/HamunEditor/Release/HamunEditor.exe --viewport-smoke-test
 
