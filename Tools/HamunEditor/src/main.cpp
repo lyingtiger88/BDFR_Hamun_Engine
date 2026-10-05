@@ -39,6 +39,8 @@ constexpr int IdRendererD3D11 = 2103;
 constexpr int IdOutliner = 2201;
 constexpr int IdApplyTransform = 2202;
 constexpr int IdAssets = 2301;
+constexpr int IdUndo = 2401;
+constexpr int IdRedo = 2402;
 constexpr UINT_PTR IdViewportTimer = 3001;
 
 HWND g_projectTitle = nullptr;
@@ -348,6 +350,18 @@ struct EditorCameraState {
 
 EditorCameraState
     g_editorCameraState;
+
+struct TransformEdit {
+    std::size_t objectIndex = 0;
+    Hamun::Editor::SceneObjectTransform before{};
+    Hamun::Editor::SceneObjectTransform after{};
+};
+
+std::vector<TransformEdit>
+    g_undoStack;
+
+std::vector<TransformEdit>
+    g_redoStack;
 
 enum class ViewportBackendPreference {
     Auto,
@@ -1929,6 +1943,32 @@ void ApplyInspectorTransform()
         static_cast<std::size_t>(
             selected);
 
+    const auto beforeInfo =
+        g_scenePreview.ObjectInfo(
+            index);
+
+    if (!beforeInfo) {
+        SetStatus(
+            L"Could not read current object transform.");
+        return;
+    }
+
+    const auto sameTransform =
+        [](const Hamun::Editor::SceneObjectTransform& a,
+           const Hamun::Editor::SceneObjectTransform& b) {
+            return
+                a.position == b.position &&
+                a.scale == b.scale;
+        };
+
+    if (sameTransform(
+            beforeInfo->transform,
+            transform)) {
+        SetStatus(
+            L"Transform is unchanged.");
+        return;
+    }
+
     if (!g_scenePreview.SetTransform(
             index,
             transform)) {
@@ -1946,6 +1986,21 @@ void ApplyInspectorTransform()
     g_sceneDirty =
         true;
 
+    g_undoStack.push_back(
+        {
+            index,
+            beforeInfo->transform,
+            transform
+        });
+
+    if (g_undoStack.size() >
+        100) {
+        g_undoStack.erase(
+            g_undoStack.begin());
+    }
+
+    g_redoStack.clear();
+
     UpdateInspectorFromSelection();
 
     const auto info =
@@ -1958,6 +2013,101 @@ void ApplyInspectorTransform()
                 Utf8ToWide(
                     info->name)
             : L"Transform updated.");
+}
+
+bool ApplyHistoryTransform(
+    const TransformEdit& edit,
+    bool useAfter)
+{
+    const auto& transform =
+        useAfter
+            ? edit.after
+            : edit.before;
+
+    if (!g_scenePreview.SetTransform(
+            edit.objectIndex,
+            transform)) {
+        return false;
+    }
+
+    if (g_sceneTransforms.size() ==
+        g_scenePreview.InstanceCount() &&
+        edit.objectIndex <
+            g_sceneTransforms.size()) {
+        g_sceneTransforms[
+            edit.objectIndex] =
+                transform;
+    }
+
+    SendMessageW(
+        g_outliner,
+        LB_SETCURSEL,
+        static_cast<WPARAM>(
+            edit.objectIndex),
+        0);
+
+    UpdateInspectorFromSelection();
+
+    g_sceneDirty =
+        true;
+
+    return true;
+}
+
+void UndoTransform()
+{
+    if (g_undoStack.empty()) {
+        SetStatus(
+            L"Nothing to undo.");
+        return;
+    }
+
+    const TransformEdit edit =
+        g_undoStack.back();
+
+    g_undoStack.pop_back();
+
+    if (!ApplyHistoryTransform(
+            edit,
+            false)) {
+        SetStatus(
+            L"Undo failed.");
+        return;
+    }
+
+    g_redoStack.push_back(
+        edit);
+
+    SetStatus(
+        L"Transform undone.");
+}
+
+void RedoTransform()
+{
+    if (g_redoStack.empty()) {
+        SetStatus(
+            L"Nothing to redo.");
+        return;
+    }
+
+    const TransformEdit edit =
+        g_redoStack.back();
+
+    g_redoStack.pop_back();
+
+    if (!ApplyHistoryTransform(
+            edit,
+            true)) {
+        SetStatus(
+            L"Redo failed.");
+        return;
+    }
+
+    g_undoStack.push_back(
+        edit);
+
+    SetStatus(
+        L"Transform redone.");
 }
 
 void PopulateAssets(
@@ -2040,6 +2190,8 @@ bool LoadSceneAsset(
     if (!preserveTransforms) {
         g_sceneTransforms.clear();
         g_sceneTransformSource.clear();
+        g_undoStack.clear();
+        g_redoStack.clear();
     }
 
     if (!InitializeViewportBackend()) {
@@ -2085,6 +2237,9 @@ bool OpenSceneDocumentFile(
 
     g_sceneDocumentPath =
         path;
+
+    g_undoStack.clear();
+    g_redoStack.clear();
 
     if (!InitializeViewportBackend()) {
         return false;
@@ -2624,6 +2779,8 @@ bool LoadProjectIntoEditor(
     g_sceneDocumentPath.clear();
     g_sceneTransforms.clear();
     g_sceneTransformSource.clear();
+    g_undoStack.clear();
+    g_redoStack.clear();
     g_sceneDirty = false;
     g_editorCameraState = {};
 
@@ -3062,6 +3219,28 @@ void CreateMainMenu(
             fileMenu),
         L"&File");
 
+    HMENU editMenu =
+        CreatePopupMenu();
+
+    AppendMenuW(
+        editMenu,
+        MF_STRING,
+        IdUndo,
+        L"&Undo Transform\tCtrl+Z");
+
+    AppendMenuW(
+        editMenu,
+        MF_STRING,
+        IdRedo,
+        L"&Redo Transform\tCtrl+Y");
+
+    AppendMenuW(
+        menu,
+        MF_POPUP,
+        reinterpret_cast<UINT_PTR>(
+            editMenu),
+        L"&Edit");
+
     HMENU rendererMenu =
         CreatePopupMenu();
 
@@ -3466,6 +3645,18 @@ LRESULT CALLBACK WindowProc(
             }
 
             if (id ==
+                IdUndo) {
+                UndoTransform();
+                return 0;
+            }
+
+            if (id ==
+                IdRedo) {
+                RedoTransform();
+                return 0;
+            }
+
+            if (id ==
                 IdRendererAuto ||
                 id ==
                     IdRendererD3D12 ||
@@ -3660,13 +3851,29 @@ int WINAPI wWinMain(
             static_cast<WORD>('S'),
             static_cast<WORD>(
                 IdSaveScene)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY |
+                FCONTROL),
+            static_cast<WORD>('Z'),
+            static_cast<WORD>(
+                IdUndo)
+        },
+        {
+            static_cast<BYTE>(
+                FVIRTKEY |
+                FCONTROL),
+            static_cast<WORD>('Y'),
+            static_cast<WORD>(
+                IdRedo)
         }
     };
 
     HACCEL acceleratorTable =
         CreateAcceleratorTableW(
             accelerators,
-            2);
+            4);
 
     MSG message{};
 
