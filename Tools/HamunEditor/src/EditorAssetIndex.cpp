@@ -64,6 +64,51 @@ bool CopyFileReplace(
 }
 
 
+bool DecodeUriPath(
+    const std::string& uri,
+    std::string& decoded)
+{
+    decoded.clear();
+    decoded.reserve(uri.size());
+
+    auto hexValue = [](char ch) -> int {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
+        if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
+        return -1;
+    };
+
+    for (std::size_t i = 0; i < uri.size(); ++i) {
+        if (uri[i] != '%') {
+            decoded.push_back(uri[i]);
+            continue;
+        }
+
+        if (i + 2 >= uri.size())
+            return false;
+
+        const int high = hexValue(uri[i + 1]);
+        const int low = hexValue(uri[i + 2]);
+
+        if (high < 0 || low < 0)
+            return false;
+
+        const char value =
+            static_cast<char>((high << 4) | low);
+
+        // Encoded path separators can turn a harmless filename into a
+        // different path on Windows or POSIX. Keep the import boundary strict.
+        if (value == '/' || value == '\\' || value == '\0')
+            return false;
+
+        decoded.push_back(value);
+        i += 2;
+    }
+
+    return true;
+}
+
+
 std::vector<std::filesystem::path> ReferencedGltfCompanions(
     const std::filesystem::path& gltfPath)
 {
@@ -96,8 +141,12 @@ std::vector<std::filesystem::path> ReferencedGltfCompanions(
             continue;
         }
 
+        std::string decodedUri;
+        if (!DecodeUriPath(uri, decodedUri))
+            continue;
+
         std::filesystem::path relative =
-            std::filesystem::path(uri)
+            std::filesystem::path(decodedUri)
                 .lexically_normal();
 
         if (relative.is_absolute())
