@@ -1,6 +1,8 @@
 #include "EditorSceneDocument.hpp"
 
 #include <fstream>
+#include <chrono>
+#include <atomic>
 #include <iomanip>
 #include <sstream>
 #include <utility>
@@ -63,9 +65,14 @@ bool SaveSceneDocument(
             "Could not create scene directory.");
     }
 
-    std::ofstream output(
-        path,
-        std::ios::trunc);
+    // Never truncate the last saved scene while preparing the new version.
+    // A temporary sibling on the same filesystem allows a final rename.
+    static std::atomic<unsigned long long> nextSave{0};
+    const auto unique = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()) +
+        "-" + std::to_string(nextSave.fetch_add(1));
+    const auto temporary = std::filesystem::path(path.string() + ".tmp-" + unique);
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
 
     if (!output) {
         return Fail(
@@ -145,12 +152,47 @@ bool SaveSceneDocument(
         }
     }
 
-    if (!output.good()) {
-        return Fail(
-            error,
-            "Failed while writing scene file.");
+    output.flush();
+    const bool writeSucceeded = output.good();
+    output.close();
+    if (!writeSucceeded || !output.good()) {
+        std::filesystem::remove(temporary, ec);
+        return Fail(error, "Failed while writing scene file.");
     }
 
+    // Windows cannot rename over an existing file. Preserve it until the
+    // replacement is successfully installed and roll back if installation fails.
+    const auto backup = std::filesystem::path(path.string() + ".bak-" + unique);
+    ec.clear();
+    const bool hadPrevious = std::filesystem::exists(path, ec);
+    if (ec) {
+        std::filesystem::remove(temporary, ec);
+        return Fail(error, "Could not inspect existing scene file.");
+    }
+    if (hadPrevious) {
+        std::filesystem::rename(path, backup, ec);
+        if (ec) {
+            std::filesystem::remove(temporary, ec);
+            return Fail(error, "Could not preserve previous scene file.");
+        }
+    }
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        const auto installationError = ec;
+        if (hadPrevious) {
+            std::error_code restoreError;
+            std::filesystem::rename(backup, path, restoreError);
+            if (restoreError)
+                return Fail(error, "Scene save failed; backup preserved at: " + backup.string());
+        }
+        std::error_code cleanupError;
+        std::filesystem::remove(temporary, cleanupError);
+        return Fail(error, "Could not install new scene file: " + installationError.message());
+    }
+    if (hadPrevious) {
+        std::error_code cleanupError;
+        std::filesystem::remove(backup, cleanupError);
+    }
     return true;
 }
 

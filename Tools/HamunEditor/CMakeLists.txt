@@ -36,3 +36,13 @@ add_custom_command(
           "$<TARGET_FILE_DIR:HamunEditor>/Assets"
   COMMENT "Copying Hamun editor preview scene assets next to executable"
 )
+
+if(BUILD_TESTING)
+  add_executable(HamunEditorSceneTests
+    tests/SceneDocumentTests.cpp
+    src/EditorSceneDocument.cpp
+  )
+  target_compile_features(HamunEditorSceneTests PRIVATE cxx_std_20)
+  target_link_libraries(HamunEditorSceneTests PRIVATE HamunRenderer HamunWorld)
+  add_test(NAME HamunEditorSceneTests COMMAND HamunEditorSceneTests)
+endif()
