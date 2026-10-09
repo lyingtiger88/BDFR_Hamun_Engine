@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <windowsx.h>
 #include <windows.h>
 #include <algorithm>
@@ -98,7 +99,7 @@ void draw(HDC dc,GraphWindow& g,RECT bounds) {
     RECT help{12,8,bounds.right-12,45};
     DrawTextW(dc,L"1 Event   2 Print   3 Return   4 Branch   5 Add   |   Drag nodes   |   Click output then input to connect   |   Ctrl+S save   Ctrl+O open", -1,&help,DT_WORDBREAK);
 }
-bool near(POINT a,int x,int y){return std::abs(a.x-x)<13&&std::abs(a.y-y)<13;}
+bool IsNearPin(POINT a,int x,int y){return std::abs(a.x-x)<13&&std::abs(a.y-y)<13;}
 LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
     GraphWindow* g=reinterpret_cast<GraphWindow*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
     if(msg==WM_NCCREATE){
@@ -113,8 +114,8 @@ LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
     case WM_LBUTTONDOWN:{
         int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
         for(auto it=g->nodes.rbegin();it!=g->nodes.rend();++it){
-            if(near(output(*it),x,y)){g->pending=it->id;InvalidateRect(hwnd,nullptr,FALSE);return 0;}
-            if(near(input(*it),x,y)&&g->pending){
+            if(IsNearPin(output(*it),x,y)){g->pending=it->id;InvalidateRect(hwnd,nullptr,FALSE);return 0;}
+            if(IsNearPin(input(*it),x,y)&&g->pending){
                 if(g->pending!=it->id){
                     g->edges.erase(std::remove_if(g->edges.begin(),g->edges.end(),[&](const Edge& e){return e.target==it->id;}),g->edges.end());
                     g->edges.push_back({g->pending,it->id});
