@@ -26,6 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify generated atmospheric courtyard glTF
+        run: python Tools/Showcase/test_weather_courtyard.py
+
       - name: Configure
         run: cmake -S . -B build -DHAMUN_BUILD_SANDBOX=ON
 
