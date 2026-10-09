@@ -83,6 +83,18 @@ HWND g_applyMaterial = nullptr;
 HWND g_assetsHeader = nullptr;
 HWND g_assets = nullptr;
 HWND g_status = nullptr;
+ 
+// Slate-inspired dark workspace, built with native Win32 controls.
+constexpr COLORREF kWorkspace = RGB(22, 25, 31);
+constexpr COLORREF kPanel = RGB(33, 37, 45);
+constexpr COLORREF kInput = RGB(42, 47, 57);
+constexpr COLORREF kText = RGB(226, 231, 239);
+constexpr COLORREF kMuted = RGB(161, 173, 190);
+HBRUSH g_workspaceBrush = nullptr;
+HBRUSH g_panelBrush = nullptr;
+HBRUSH g_inputBrush = nullptr;
+HFONT g_editorFont = nullptr;
+
 
 std::optional<Hamun::Project::ProjectDescriptor>
     g_project;
@@ -3453,9 +3465,9 @@ void LayoutControls(
         rect.bottom -
         rect.top;
 
-    const int margin = 12;
-    const int titleHeight = 30;
-    const int headerHeight = 22;
+    const int margin = 8;
+    const int titleHeight = 36;
+    const int headerHeight = 26;
     const int statusHeight = 26;
     const int assetHeight =
         std::max(
@@ -3463,7 +3475,7 @@ void LayoutControls(
             height / 4);
     const int sideWidth =
         std::max(
-            200,
+            240,
             width / 5);
 
     const int contentTop =
@@ -4048,10 +4060,17 @@ LRESULT CALLBACK WindowProc(
                 window,
                 TRUE);
 
-            HFONT font =
-                static_cast<HFONT>(
-                    GetStockObject(
-                        DEFAULT_GUI_FONT));
+            g_workspaceBrush = CreateSolidBrush(kWorkspace);
+            g_panelBrush = CreateSolidBrush(kPanel);
+            g_inputBrush = CreateSolidBrush(kInput);
+            g_editorFont = CreateFontW(
+                -16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            HFONT font = g_editorFont
+                ? g_editorFont
+                : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
             g_projectTitle =
                 AddControl(
@@ -4064,7 +4083,7 @@ LRESULT CALLBACK WindowProc(
                 AddControl(
                     window,
                     L"STATIC",
-                    L"Outliner",
+                    L"SCENE OUTLINER",
                     SS_LEFT);
 
             g_outliner =
@@ -4081,7 +4100,7 @@ LRESULT CALLBACK WindowProc(
                 AddControl(
                     window,
                     L"STATIC",
-                    L"Viewport",
+                    L"PERSPECTIVE  |  LIT  |  REALTIME",
                     SS_LEFT);
 
             g_viewport =
@@ -4096,7 +4115,7 @@ LRESULT CALLBACK WindowProc(
                 AddControl(
                     window,
                     L"STATIC",
-                    L"Inspector",
+                    L"DETAILS / INSPECTOR",
                     SS_LEFT);
 
             g_inspector =
@@ -4366,6 +4385,35 @@ LRESULT CALLBACK WindowProc(
                 window);
 
             return 0;
+        }
+
+        case WM_ERASEBKGND: {
+            RECT bounds{};
+            GetClientRect(window, &bounds);
+            FillRect(reinterpret_cast<HDC>(wParam),
+                     &bounds, g_workspaceBrush);
+            return 1;
+        }
+
+        case WM_CTLCOLORSTATIC: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, kMuted);
+            SetBkColor(dc, kWorkspace);
+            return reinterpret_cast<LRESULT>(g_workspaceBrush);
+        }
+
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, kText);
+            SetBkColor(dc, kInput);
+            return reinterpret_cast<LRESULT>(g_inputBrush);
+        }
+
+        case WM_CTLCOLORLISTBOX: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, kText);
+            SetBkColor(dc, kPanel);
+            return reinterpret_cast<LRESULT>(g_panelBrush);
         }
 
         case WM_SIZE:
@@ -4651,6 +4699,12 @@ LRESULT CALLBACK WindowProc(
                 IdViewportTimer);
 
             ShutdownViewportBackend();
+            if (g_editorFont) DeleteObject(g_editorFont);
+            if (g_inputBrush) DeleteObject(g_inputBrush);
+            if (g_panelBrush) DeleteObject(g_panelBrush);
+            if (g_workspaceBrush) DeleteObject(g_workspaceBrush);
+            g_editorFont = nullptr;
+            g_inputBrush = g_panelBrush = g_workspaceBrush = nullptr;
 
             PostQuitMessage(0);
             return 0;
