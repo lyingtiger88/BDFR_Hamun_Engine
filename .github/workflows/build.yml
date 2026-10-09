@@ -232,11 +232,20 @@ jobs:
           cp Samples/WeatherShowcase/AtmosphericCourtyard.gltf release/windows/WeatherShowcase/
           cp docs/WEATHER_SHOWCASE.md release/windows/WeatherShowcase/README.md
           cd release/windows && zip -r ../../Hamun-Weather-Showcase-v0.7-Windows-x64.zip .
+      - name: Add showcase launch helpers
+        shell: bash
+        run: |
+          printf '@echo off\r\ncd /d "%%~dp0"\r\nHamunEditor.exe\r\n' > release/windows/Run_Editor.bat
+          printf '@echo off\r\ncd /d "%%~dp0"\r\nHamunSandbox.exe\r\n' > release/windows/Run_Sandbox.bat
       - name: Publish tagged v0.7 testing release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view v0.7-test --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload v0.7-test Hamun-Weather-Showcase-v0.7-Windows-x64.zip --clobber --repo "${{ github.repository }}"
+            exit 0
+          fi
           gh release create v0.7-test Hamun-Weather-Showcase-v0.7-Windows-x64.zip --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Hamun Weather Showcase v0.7 Test" --notes "Windows editor test with generated atmospheric courtyard scene. Geometry and reference materials are included; true rain, fog and local lights are not yet implemented."
 
   android:
