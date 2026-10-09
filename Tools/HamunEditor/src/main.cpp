@@ -26,8 +26,11 @@
 #include <string>
 #include <vector>
 
+namespace Hamun::Editor { void OpenBlueprintEditor(HWND owner); }
+
 namespace {
 
+constexpr int IdOpenBlueprint = 2501;
 constexpr int IdOpenProject = 2001;
 constexpr int IdExit = 2002;
 constexpr int IdOpenScene = 2003;
@@ -4011,6 +4014,10 @@ void CreateMainMenu(
             editMenu),
         L"&Edit");
 
+    HMENU blueprintMenu = CreatePopupMenu();
+    AppendMenuW(blueprintMenu, MF_STRING, IdOpenBlueprint, L"Open Blueprint Graph...");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(blueprintMenu), L"&Blueprint");
+
     HMENU rendererMenu =
         CreatePopupMenu();
 
@@ -4551,6 +4558,11 @@ LRESULT CALLBACK WindowProc(
                 HIWORD(wParam) ==
                     BN_CLICKED) {
                 ApplyInspectorMaterial();
+                return 0;
+            }
+
+            if (id == IdOpenBlueprint) {
+                Hamun::Editor::OpenBlueprintEditor(window);
                 return 0;
             }
 
