@@ -17,7 +17,7 @@ struct Edge { int source; int target; };
 struct GraphWindow {
     std::vector<Node> nodes{{1,0,80,110},{2,1,360,110},{3,2,640,110}};
     std::vector<Edge> edges{{1,2},{2,3}};
-    int nextId=4, dragId=0, dx=0,dy=0, pending=0;
+    int nextId=4, dragId=0, selectedId=0, dx=0,dy=0, pending=0;
     std::filesystem::path file;
     HWND hwnd=nullptr;
 };
@@ -84,6 +84,13 @@ void draw(HDC dc,GraphWindow& g,RECT bounds) {
     for(auto& n:g.nodes){
         RECT card{n.x,n.y,n.x+cardW,n.y+cardH};
         HBRUSH fill=CreateSolidBrush(panel);FillRect(dc,&card,fill);DeleteObject(fill);
+        if(n.id==g.selectedId){
+            HPEN outline=CreatePen(PS_SOLID,2,RGB(244,176,74));
+            HGDIOBJ previous=SelectObject(dc,outline);
+            HGDIOBJ oldBrush=SelectObject(dc,GetStockObject(HOLLOW_BRUSH));
+            Rectangle(dc,card.left,card.top,card.right,card.bottom);
+            SelectObject(dc,oldBrush);SelectObject(dc,previous);DeleteObject(outline);
+        }
         HBRUSH bar=CreateSolidBrush(n.kind==0?RGB(115,65,165):RGB(35,103,146));
         RECT header{n.x,n.y,n.x+cardW,n.y+34};FillRect(dc,&header,bar);DeleteObject(bar);
         SetTextColor(dc,RGB(242,245,249));RECT label{n.x+10,n.y+9,n.x+cardW-5,n.y+32};
@@ -97,7 +104,7 @@ void draw(HDC dc,GraphWindow& g,RECT bounds) {
     }
     SetTextColor(dc,RGB(175,189,204));
     RECT help{12,8,bounds.right-12,45};
-    DrawTextW(dc,L"1 Event   2 Print   3 Return   4 Branch   5 Add   |   Drag nodes   |   Click output then input to connect   |   Ctrl+S save   Ctrl+O open", -1,&help,DT_WORDBREAK);
+    DrawTextW(dc,L"1 Event   2 Print   3 Return   4 Branch   5 Add   |   Drag nodes   |   Click output then input to connect   |   Ctrl+S save   Ctrl+O open   |   Delete selected node", -1,&help,DT_WORDBREAK);
 }
 bool IsNearPin(POINT a,int x,int y){return std::abs(a.x-x)<13&&std::abs(a.y-y)<13;}
 LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
@@ -123,7 +130,7 @@ LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
                 g->pending=0;InvalidateRect(hwnd,nullptr,FALSE);return 0;
             }
             if(x>=it->x&&x<it->x+cardW&&y>=it->y&&y<it->y+cardH){
-                g->dragId=it->id;g->dx=x-it->x;g->dy=y-it->y;SetCapture(hwnd);return 0;
+                g->selectedId=it->id;g->dragId=it->id;g->dx=x-it->x;g->dy=y-it->y;SetCapture(hwnd);return 0;
             }
         }return 0;
     }
@@ -134,6 +141,16 @@ LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
         }return 0;
     case WM_LBUTTONUP:g->dragId=0;if(GetCapture()==hwnd)ReleaseCapture();return 0;
     case WM_KEYDOWN:{
+        if(wp==VK_DELETE && g->selectedId){
+            const int id=g->selectedId;
+            g->nodes.erase(std::remove_if(g->nodes.begin(),g->nodes.end(),
+                [id](const Node& n){return n.id==id;}),g->nodes.end());
+            g->edges.erase(std::remove_if(g->edges.begin(),g->edges.end(),
+                [id](const Edge& e){return e.source==id||e.target==id;}),g->edges.end());
+            g->selectedId=0;g->pending=0;
+            InvalidateRect(hwnd,nullptr,FALSE);return 0;
+        }
+        if(wp==VK_ESCAPE){g->pending=0;g->selectedId=0;InvalidateRect(hwnd,nullptr,FALSE);return 0;}
         bool ctrl=(GetKeyState(VK_CONTROL)&0x8000)!=0;
         if(ctrl&&(wp=='S'||wp=='O')){
             wchar_t filename[MAX_PATH]=L"";
