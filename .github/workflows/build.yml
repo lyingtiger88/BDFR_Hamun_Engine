@@ -26,6 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify generated atmospheric courtyard glTF
+        run: python Tools/Showcase/test_weather_courtyard.py
+
       - name: Configure
         run: cmake -S . -B build -DHAMUN_BUILD_SANDBOX=ON
 
@@ -207,6 +210,34 @@ jobs:
               --title "Hamun Test v0.6" `
               --notes "v0.6 adds the first usable HamunEditor workflow: project-owned starter scenes, HamunRenderer DX12/DX11 scene viewport, HamunWorld-backed entities, hierarchy/inspector tools, Position/Rotation/Scale editing, material overrides, scene Save/Load, Undo/Redo, object duplicate/delete, recursive Asset Browser/import, drag-and-drop, and editor camera navigation. FSR physical-GPU live dispatch remains a separate validation item."
           }
+
+  release-weather-showcase:
+    needs: [desktop]
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release(test): Hamun Weather Showcase') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download validated Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: Hamun-Test-v0.6-Windows-x64
+          path: release/windows
+      - name: Checkout showcase generator
+        uses: actions/checkout@v4
+      - name: Generate atmosphere showcase scene
+        run: python Tools/Showcase/generate_weather_courtyard.py
+      - name: Bundle release assets
+        shell: bash
+        run: |
+          mkdir -p release/windows/WeatherShowcase
+          cp Samples/WeatherShowcase/AtmosphericCourtyard.gltf release/windows/WeatherShowcase/
+          cp docs/WEATHER_SHOWCASE.md release/windows/WeatherShowcase/README.md
+          cd release/windows && zip -r ../../Hamun-Weather-Showcase-v0.7-Windows-x64.zip .
+      - name: Publish tagged v0.7 testing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.7-test Hamun-Weather-Showcase-v0.7-Windows-x64.zip --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Hamun Weather Showcase v0.7 Test" --notes "Windows editor test with generated atmospheric courtyard scene. Geometry and reference materials are included; true rain, fog and local lights are not yet implemented."
 
   android:
     runs-on: ubuntu-latest
