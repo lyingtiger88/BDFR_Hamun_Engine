@@ -43,6 +43,6 @@ if(BUILD_TESTING)
     src/EditorSceneDocument.cpp
   )
   target_compile_features(HamunEditorSceneTests PRIVATE cxx_std_20)
-  target_link_libraries(HamunEditorSceneTests PRIVATE HamunRenderer HamunWorld)
+  target_link_libraries(HamunEditorSceneTests PRIVATE HamunAssets HamunRenderer HamunWorld)
   add_test(NAME HamunEditorSceneTests COMMAND HamunEditorSceneTests)
 endif()
