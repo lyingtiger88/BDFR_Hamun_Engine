@@ -97,8 +97,8 @@ gltf = {
  "meshes":[{
     "name":name,
     "primitives":[{
-      "attributes":{"POSITION":i*0+2*m,"NORMAL":2*m+1},
-      "indices":2*m+2,"material":material,"mode":4
+      "attributes":{"POSITION":3*m,"NORMAL":3*m+1},
+      "indices":3*m+2,"material":material,"mode":4
     }]
  } for m,(name,start,count,first,icount,material) in enumerate(meshes)],
  "accessors":[]
@@ -107,7 +107,9 @@ gltf = {
 for name,start,count,first,icount,material in meshes:
     gltf["accessors"].extend([
       {"bufferView":0,"byteOffset":start*32,"componentType":5126,
-       "count":count,"type":"VEC3"},
+       "count":count,"type":"VEC3",
+       "min":[min(struct.unpack_from("<f",vertices,(start+j)*32+a*4)[0] for j in range(count)) for a in range(3)],
+       "max":[max(struct.unpack_from("<f",vertices,(start+j)*32+a*4)[0] for j in range(count)) for a in range(3)]},
       {"bufferView":0,"byteOffset":start*32+12,"componentType":5126,
        "count":count,"type":"VEC3"},
       {"bufferView":1,"byteOffset":first*4,"componentType":5125,
