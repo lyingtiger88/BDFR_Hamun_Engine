@@ -32,6 +32,9 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Run CTest unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
       - name: Validate project templates and creation workflow
         if: runner.os == 'Windows'
         run: ./build/Tools/HamunLauncher/Release/HamunLauncher.exe --template-smoke-test
