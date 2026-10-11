@@ -169,7 +169,7 @@ LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
         }
         if(wp>='1'&&wp<='5'){
             RECT r;GetClientRect(hwnd,&r);
-            g->nodes.push_back({g->nextId++,int(wp-'1'),std::max(40,(r.right-cardW)/2),std::max(60,(r.bottom-cardH)/2)});
+            g->nodes.push_back({g->nextId++,int(wp-'1'),std::max<int>(40,(static_cast<int>(r.right)-cardW)/2),std::max<int>(60,(static_cast<int>(r.bottom)-cardH)/2)});
             InvalidateRect(hwnd,nullptr,FALSE);return 0;
         }
         return 0;
