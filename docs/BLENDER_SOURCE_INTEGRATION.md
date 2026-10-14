@@ -43,9 +43,9 @@ Treat the Blender-based authoring application and Hamun runtime as separate comp
 
 ## Next verifiable milestones
 
-- [ ] Pin and document an upstream Blender commit.
+- [x] Pin and document an upstream Blender commit.
 - [ ] Record supported OS/compiler/dependency prerequisites and a reproducible baseline build.
-- [ ] Trace transform gizmo implementation files and identify a minimal visual patch.
+- [x] Trace transform gizmo implementation files and identify a minimal visual patch.
 - [ ] Implement Hamun workspace/theme customization on the Blender source branch.
 - [ ] Build and manually verify Move, Rotate, and Scale.
 - [ ] Design and test the first versioned Hamun asset interchange path.
@@ -53,3 +53,16 @@ Treat the Blender-based authoring application and Hamun runtime as separate comp
 ## Current limitations
 
 This is a source audit and implementation plan, not a completed integration. Access to the public source is confirmed, but a compiled binary, visual patch, runtime bridge, and end-to-end test have not been delivered yet.
+
+
+## Milestone 1 delivered: Blender-side authoring add-on (0.1.0)
+
+Committed under `integrations/blender/` on this branch:
+
+- `hamun_authoring_tools/__init__.py`: adds a Hamun menu to the 3D View header.
+- The menu exposes Blender's native Move, Rotate, and Scale operators, preserving their built-in behavior.
+- **Prepare Hamun Scene** creates/links a `Hamun Assets` collection and stores `hamun_project`, `hamun_schema_version=1`, and `hamun_authoring_profile` scene properties.
+- `tests/test_addon_source.py`: four static tests pass locally for Python parsing, registration entry points, transform operator presence, and versioned metadata.
+- `integrations/blender/README.md`: installation and manual validation steps.
+
+This is an installable add-on prototype, not yet the requested C/C++ gizmo reskin. No Blender executable was available in this workflow, so the add-on has **not** been runtime-tested inside Blender. The next milestone remains a source-level visual change to the actual transform gizmo implementations, followed by a real Blender build and manual UI test.
