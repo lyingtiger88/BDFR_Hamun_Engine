@@ -1,19 +1,19 @@
-# Hamun Editor: Blender-Inspired Editor Roadmap
-# نقشهٔ راه ویرایشگر هامون با الهام از Blender
+# Hamun Editor: Blender-Based Editor Integration Roadmap
+# نقشهٔ راه ادیتور مبتنی بر سورس Blender برای هامون
 
-> **Status:** Planning and architecture audit started  
-> **Branch:** `feature/blender-inspired-editor`  
+> **Status:** Blender source audit started; integration branch created  
+> **Branch:** `feature/blender-source-integration`  
 > **Engine status:** Pre-Alpha  
 >
-> **وضعیت:** برنامه‌ریزی و بررسی معماری آغاز شده است  
-> **شاخه:** `feature/blender-inspired-editor`  
+> **وضعیت:** بررسی سورس Blender آغاز شده و شاخهٔ یکپارچه‌سازی ساخته شده است  
+> **شاخه:** `feature/blender-source-integration`  
 > **وضعیت موتور:** پیش‌آلفا
 
 ## Vision | چشم‌انداز
 
-Build a **native, independent 3D editor inside Hamun Game Engine** with a powerful modeling and content-authoring workflow inspired by Blender. Blender must not be required to run Hamun, and the editor must not merely embed Blender's window or launch Blender as a hidden dependency.
+Use the **actual Blender source code and editor architecture as the foundation** for a Hamun-branded authoring application. Preserve Blender's proven modeling, animation, viewport, and content-authoring systems while customizing the visual identity and selected interaction details (especially Move, Rotate, and Scale gizmos, toolbars, icons, panels, and workspace defaults). Integrate Hamun engine capabilities through a deliberately designed bridge rather than pretending that a UI reskin automatically replaces Blender's scene or renderer.
 
-ساخت یک **ویرایشگر سه‌بعدی بومی و مستقل در داخل موتور بازی هامون** با گردش‌کار قدرتمند مدل‌سازی و تولید محتوا، با الهام از Blender. برای اجرای هامون نباید به نصب Blender نیاز باشد؛ همچنین هدف صرفاً جاسازی پنجرهٔ Blender یا اجرای پنهانی آن نیست.
+از **سورس واقعی Blender و معماری ادیتور آن به‌عنوان پایه** استفاده شود و یک برنامهٔ تولید محتوا با هویت بصری هامون ساخته شود. ابزارهای تثبیت‌شدهٔ مدل‌سازی، انیمیشن، ویوپورت و تولید محتوا حفظ شوند؛ در عین حال ظاهر و جزئیات تعامل، به‌ویژه دستگیره‌های Move/Rotate/Scale، نوار ابزار، آیکون‌ها، پنل‌ها و چیدمان اولیه تغییر کنند. قابلیت‌های موتور هامون از طریق یک لایهٔ ارتباطی مشخص یکپارچه شوند؛ تغییر پوسته به‌تنهایی جایگزینی صحنه یا رندرر Blender محسوب نمی‌شود.
 
 ## Engineering principles | اصول مهندسی
 
@@ -23,7 +23,7 @@ Build a **native, independent 3D editor inside Hamun Game Engine** with a powerf
 - Prefer a coherent, integrated implementation over disconnected demo panels.
 - Keep changes on this feature branch until builds and tests pass.
 - Preserve clear provenance and license notices for every third-party dependency.
-- Do not copy Blender GPL code into the MIT-licensed Hamun codebase unless the project explicitly chooses and satisfies a compatible licensing strategy. Reusing ideas is not the same as copying implementation.
+- Keep Blender-derived code in a clearly identified Blender-based source tree/repository and preserve required copyright and GPL notices. Review distribution and integration boundaries before release; do not assume the existing MIT license automatically covers Blender-derived code.
 
 - معماری فعلی هامون گسترش پیدا کند، نه اینکه موتور دومی ساخته شود.
 - ابزارهای ادیتور تا حد امکان از کد اجرایی بازی جدا باشند.
@@ -31,7 +31,7 @@ Build a **native, independent 3D editor inside Hamun Game Engine** with a powerf
 - به‌جای پنل‌های نمایشیِ جدا از هم، یک پیاده‌سازی منسجم و کاربردی ساخته شود.
 - تغییرات تا عبور از ساخت و تست‌ها در همین شاخه باقی بمانند.
 - منشأ و مجوز تمام وابستگی‌های جانبی ثبت شود.
-- کد GPL بلندر بدون تصمیم‌گیری روشن دربارهٔ مجوز و رعایت کامل الزامات آن وارد کد MIT هامون نشود. الهام‌گرفتن از ایده‌ها با کپی‌کردن پیاده‌سازی یکسان نیست.
+- کد مشتق‌شده از Blender در درخت/مخزن مشخص و جداگانه نگهداری شود و اعلان‌های حق نشر و مجوز GPL حفظ شوند. پیش از انتشار، مرزهای یکپارچه‌سازی و توزیع بررسی شوند؛ مجوز MIT فعلی هامون به‌طور خودکار مجوز کدهای مشتق‌شده از Blender نیست.
 
 ## Existing foundation | زیرساخت فعلی
 
@@ -55,17 +55,19 @@ The current editor target is `Tools/HamunEditor`. Its known components include:
 
 ## Work plan | برنامهٔ اجرایی
 
-### 1. Architecture and license audit | بررسی معماری و مجوز
+### 1. Blender source audit and distribution model | بررسی سورس Blender و مدل انتشار
 
-- Map the current editor UI, scene/world representation, renderer interfaces, asset pipeline, and build/test setup.
-- Identify missing foundations and define the editor/runtime boundary.
-- Review Blender source organization and license obligations before considering code reuse.
-- Record an implementation decision: independent implementation, compatible third-party components, or an explicitly GPL-compatible distribution model.
+- Track the official `blender/blender` repository and pin a tested upstream commit before making patches.
+- Identify the View3D gizmo, transform tool, theme, workspace, and editor registration code paths.
+- Keep the first UI patch narrow: Hamun-branded workspace defaults and custom transform-gizmo styling without removing Blender's underlying tool behavior.
+- Choose an explicit source strategy: a fork or a separately tracked Blender source checkout. Do not copy isolated GPL files into the existing MIT engine tree.
+- Review GPL obligations and any engine-bridge architecture before distributing binaries or source.
 
-- رابط فعلی ادیتور، مدل صحنه و جهان، رابط‌های رندرر، خط لولهٔ دارایی و روند ساخت و تست مستند شوند.
-- زیرساخت‌های ناقص و مرز میان ادیتور و بخش اجرایی مشخص شوند.
-- ساختار سورس Blender و الزامات مجوز آن پیش از هرگونه استفاده از کد بررسی شود.
-- تصمیم استفاده از پیاده‌سازی مستقل، اجزای جانبی سازگار، یا مدل انتشار سازگار با GPL ثبت شود.
+- مخزن رسمی `blender/blender` دنبال و پیش از اعمال تغییرات، یک commit مشخص برای مبنای آزمایش ثبت شود.
+- مسیرهای کد دستگیره‌های View3D، ابزارهای Transform، پوسته، Workspace و ثبت ادیتورها شناسایی شوند.
+- اولین تغییر رابط محدود باشد: چیدمان اولیه و هویت بصری هامون و ظاهر اختصاصی دستگیره‌ها، بدون حذف رفتار اصلی ابزارهای Blender.
+- روش نگهداری سورس روشن باشد: فورک یا checkout جداگانه و قابل‌ردیابی از Blender؛ فایل‌های GPL به‌صورت پراکنده در درخت فعلی موتور MIT کپی نشوند.
+- پیش از انتشار سورس یا فایل اجرایی، الزامات GPL و معماری پل ارتباطی با موتور بررسی شوند.
 
 ### 2. Editor foundation | زیرساخت ادیتور
 
@@ -137,6 +139,6 @@ A feature is considered complete only when it:
 
 ## Current status | وضعیت فعلی
 
-The roadmap is established on a dedicated feature branch. The first implementation gate is the source audit and a build/test baseline; no Blender code has been merged and no end-to-end modeling feature is claimed complete yet.
+The dedicated branch `feature/blender-source-integration` is based on the Hamun repository's current main branch. The official Blender repository is accessible and a View3D navigation-gizmo source file has been inspected. This is an initial source audit only: Blender has not been vendored, compiled, or merged into Hamun, and no modified executable has been built yet.
 
-نقشهٔ راه در یک شاخهٔ توسعهٔ اختصاصی ثبت شده است. نخستین مرحله، بررسی سورس و ثبت وضعیت پایهٔ ساخت و تست‌هاست؛ هنوز کدی از Blender ادغام نشده و هیچ قابلیت کامل مدل‌سازی به‌عنوان خروجی نهایی اعلام نمی‌شود.
+شاخهٔ اختصاصی `feature/blender-source-integration` از شاخهٔ فعلی main هامون ساخته شده است. مخزن رسمی Blender در دسترس است و یکی از فایل‌های سورس دستگیره‌های ناوبری View3D بررسی شده است. این مرحله فقط بررسی اولیهٔ سورس است: هنوز سورس Blender به مخزن اضافه، کامپایل یا با هامون ادغام نشده و فایل اجرایی تغییر‌یافته‌ای ساخته نشده است.
