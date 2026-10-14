@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hamun Engine Contributors <dev@hamun.invalid>
+Date: Wed, 14 Oct 2026 11:15:00 +0330
+Subject: [PATCH] blender: apply Hamun colors to transform gizmo axes
+
+Base: Blender 2622ed297d669e71dbfdc3478d844ed6004d9285
+Target: source/blender/editors/transform/transform_gizmo_3d.cc
+
+This first visual pass changes only the X/Y/Z axis colors. It deliberately
+keeps Blender's native gizmo geometry, hit-testing, operators, drag behavior,
+alpha fading, and view-aligned center colors unchanged.
+
+Hamun palette:
+- X: cyan
+- Y: orange
+- Z: violet
+
+This patch is a source patch, not a compiled or tested Blender binary.
+Preserve Blender's GPL-2.0-or-later licensing and attribution when applying
+or distributing a modified Blender build.
+
+---
+ source/blender/editors/transform/transform_gizmo_3d.cc | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/source/blender/editors/transform/transform_gizmo_3d.cc b/source/blender/editors/transform/transform_gizmo_3d.cc
+index ba1d2a95a83fcc352def9728e4f70262a667f300..0000000000000000000000000000000000000000 100644
+--- a/source/blender/editors/transform/transform_gizmo_3d.cc
++++ b/source/blender/editors/transform/transform_gizmo_3d.cc
+@@ -9273,6 +9273,9 @@ static void gizmo_get_axis_color(const int axis_idx,
+     }
+   }
+
++  /* Hamun transform-axis palette. Keep alpha/fading logic below unchanged. */
++  static const float hamun_axis_x[3] = {0.10f, 0.82f, 0.95f};
++  static const float hamun_axis_y[3] = {1.00f, 0.55f, 0.12f};
++  static const float hamun_axis_z[3] = {0.65f, 0.42f, 1.00f};
+   switch (axis_idx) {
+     case MAN_AXIS_TRANS_X:
+     case MAN_AXIS_ROT_X:
+@@ -9280,7 +9283,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+     case MAN_AXIS_ROT_X:
+     case MAN_AXIS_SCALE_X:
+     case MAN_AXIS_TRANS_YZ:
+     case MAN_AXIS_SCALE_YZ:
+-      ui::theme::get_color_4fv(TH_AXIS_X, r_col);
++      copy_v3_v3(r_col, hamun_axis_x);
++      r_col[3] = 1.0f;
+       break;
+     case MAN_AXIS_TRANS_Y:
+     case MAN_AXIS_ROT_Y:
+@@ -9288,7 +9292,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+     case MAN_AXIS_SCALE_Y:
+     case MAN_AXIS_TRANS_ZX:
+     case MAN_AXIS_SCALE_ZX:
+-      ui::theme::get_color_4fv(TH_AXIS_Y, r_col);
++      copy_v3_v3(r_col, hamun_axis_y);
++      r_col[3] = 1.0f;
+       break;
+     case MAN_AXIS_TRANS_Z:
+     case MAN_AXIS_ROT_Z:
+@@ -9296,7 +9301,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+     case MAN_AXIS_SCALE_Z:
+     case MAN_AXIS_TRANS_XY:
+     case MAN_AXIS_SCALE_XY:
+-      ui::theme::get_color_4fv(TH_AXIS_Z, r_col);
++      copy_v3_v3(r_col, hamun_axis_z);
++      r_col[3] = 1.0f;
+       break;
+     case MAN_AXIS_TRANS_C:
+     case MAN_AXIS_ROT_C:
+-- 
+2.45.0
