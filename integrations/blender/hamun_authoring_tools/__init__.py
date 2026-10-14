@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -43,6 +43,89 @@ class HAMUN_OT_prepare_scene(bpy.types.Operator):
         return {"FINISHED"}
 
 
+
+class HAMUN_OT_setup_workspace(bpy.types.Operator):
+    """Configure the active Blender workspace for Hamun scene authoring"""
+    bl_idname = "hamun.setup_workspace"
+    bl_label = "Set Up Hamun Workspace"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        workspace = context.window.workspace
+        workspace.name = "Hamun Layout"
+        context.scene["hamun_project"] = True
+        context.scene["hamun_schema_version"] = 1
+        for screen in (workspace.screens if hasattr(workspace, "screens") else [context.screen]):
+            for area in screen.areas:
+                if area.type == "VIEW_3D":
+                    space = area.spaces.active
+                    space.show_gizmo = True
+                    space.show_gizmo_object_translate = True
+                    space.show_gizmo_object_rotate = True
+                    space.show_gizmo_object_scale = True
+                    space.overlay.show_floor = True
+                    space.shading.type = "SOLID"
+                elif area.type == "PROPERTIES":
+                    area.spaces.active.context = "OBJECT"
+        self.report({"INFO"}, "Hamun workspace configured using Blender native editors")
+        return {"FINISHED"}
+
+
+class HAMUN_OT_export_scene(bpy.types.Operator):
+    """Export the current Blender scene as glTF for Hamun's existing importer"""
+    bl_idname = "hamun.export_scene"
+    bl_label = "Export Scene to Hamun (glTF)"
+    bl_options = {"REGISTER"}
+
+    filepath: bpy.props.StringProperty(name="Export File", subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.glb", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            import os
+            base = bpy.path.abspath("//") if bpy.data.filepath else os.path.expanduser("~")
+            self.filepath = os.path.join(base, "HamunScene.glb")
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"ERROR"}, "Choose an output file")
+            return {"CANCELLED"}
+        result = bpy.ops.export_scene.gltf(
+            filepath=self.filepath,
+            export_format="GLB",
+            use_selection=False,
+        )
+        if "FINISHED" not in result:
+            self.report({"ERROR"}, "glTF export failed")
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Scene exported for Hamun: " + self.filepath)
+        return {"FINISHED"}
+
+
+class HAMUN_PT_authoring(bpy.types.Panel):
+    bl_label = "Hamun Engine"
+    bl_idname = "HAMUN_PT_authoring"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Hamun"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("hamun.setup_workspace", icon="WORKSPACE")
+        layout.operator("hamun.setup_workspace", icon="WORKSPACE")
+        layout.operator("hamun.prepare_scene", icon="OUTLINER_COLLECTION")
+        layout.separator()
+        col = layout.column(align=True)
+        col.label(text="Native Blender Transform")
+        col.operator("transform.translate", text="Move")
+        col.operator("transform.rotate", text="Rotate")
+        col.operator("transform.resize", text="Scale")
+        layout.separator()
+        layout.operator("hamun.export_scene", icon="EXPORT")
+
+
 class HAMUN_MT_transform_menu(bpy.types.Menu):
     bl_label = "Hamun"
     bl_idname = "HAMUN_MT_transform_menu"
@@ -56,7 +139,7 @@ class HAMUN_MT_transform_menu(bpy.types.Menu):
         layout.operator("transform.rotate", text="Rotate", icon="DRIVER_ROTATIONAL_DIFFERENCE")
         layout.operator("transform.resize", text="Scale", icon="FULLSCREEN_ENTER")
         layout.separator()
-        layout.label(text="Transform gizmos retain Blender behavior")
+        layout.operator("hamun.export_scene", icon="EXPORT")
 
 
 def draw_hamun_menu(self, context):
@@ -65,6 +148,9 @@ def draw_hamun_menu(self, context):
 
 classes = (
     HAMUN_OT_prepare_scene,
+    HAMUN_OT_setup_workspace,
+    HAMUN_OT_export_scene,
+    HAMUN_PT_authoring,
     HAMUN_MT_transform_menu,
 )
 
