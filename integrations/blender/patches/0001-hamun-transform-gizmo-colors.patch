@@ -27,7 +27,7 @@ diff --git a/source/blender/editors/transform/transform_gizmo_3d.cc b/source/ble
 index ba1d2a95a83fcc352def9728e4f70262a667f300..0000000000000000000000000000000000000000 100644
 --- a/source/blender/editors/transform/transform_gizmo_3d.cc
 +++ b/source/blender/editors/transform/transform_gizmo_3d.cc
-@@ -9273,6 +9273,9 @@ static void gizmo_get_axis_color(const int axis_idx,
+@@ -365,3 +365,7 @@ static void gizmo_get_axis_color(const int axis_idx,
      }
    }
 
@@ -38,7 +38,7 @@ index ba1d2a95a83fcc352def9728e4f70262a667f300..00000000000000000000000000000000
    switch (axis_idx) {
      case MAN_AXIS_TRANS_X:
      case MAN_AXIS_ROT_X:
-@@ -9280,7 +9283,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+@@ -368,7 +372,8 @@ static void gizmo_get_axis_color(const int axis_idx,
      case MAN_AXIS_ROT_X:
      case MAN_AXIS_SCALE_X:
      case MAN_AXIS_TRANS_YZ:
@@ -49,7 +49,7 @@ index ba1d2a95a83fcc352def9728e4f70262a667f300..00000000000000000000000000000000
        break;
      case MAN_AXIS_TRANS_Y:
      case MAN_AXIS_ROT_Y:
-@@ -9288,7 +9292,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+@@ -375,7 +380,8 @@ static void gizmo_get_axis_color(const int axis_idx,
      case MAN_AXIS_SCALE_Y:
      case MAN_AXIS_TRANS_ZX:
      case MAN_AXIS_SCALE_ZX:
@@ -59,7 +59,7 @@ index ba1d2a95a83fcc352def9728e4f70262a667f300..00000000000000000000000000000000
        break;
      case MAN_AXIS_TRANS_Z:
      case MAN_AXIS_ROT_Z:
-@@ -9296,7 +9301,8 @@ static void gizmo_get_axis_color(const int axis_idx,
+@@ -382,7 +388,8 @@ static void gizmo_get_axis_color(const int axis_idx,
      case MAN_AXIS_SCALE_Z:
      case MAN_AXIS_TRANS_XY:
      case MAN_AXIS_SCALE_XY:
