@@ -24,3 +24,28 @@ jobs:
           python-version: "3.12"
       - name: Run add-on static tests
         run: python -m unittest discover -s integrations/blender/tests -v
+
+  blender-patch-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Hamun integration
+        uses: actions/checkout@v4
+      - name: Validate Hamun gizmo patch against pinned Blender source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BLENDER_SHA=2622ed297d669e71dbfdc3478d844ed6004d9285
+          TARGET=source/blender/editors/transform/transform_gizmo_3d.cc
+          mkdir -p "${RUNNER_TEMP}/blender-patch-validation/source/blender/editors/transform"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://raw.githubusercontent.com/blender/blender/${BLENDER_SHA}/${TARGET}" \
+            -o "${RUNNER_TEMP}/blender-patch-validation/${TARGET}"
+          cd "${RUNNER_TEMP}/blender-patch-validation"
+          git init -q
+          git apply --check "${GITHUB_WORKSPACE}/integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch"
+          git apply "${GITHUB_WORKSPACE}/integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch"
+          git diff --no-index -- /dev/null "${TARGET}" >/dev/null || test "$?" -eq 1
+          grep -q "hamun_axis_x" "${TARGET}"
+          grep -q "hamun_axis_y" "${TARGET}"
+          grep -q "hamun_axis_z" "${TARGET}"
+          echo "Hamun gizmo patch cleanly applied to pinned Blender source."
