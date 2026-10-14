@@ -27,7 +27,7 @@ diff --git a/source/blender/editors/transform/transform_gizmo_3d.cc b/source/ble
 index ba1d2a95a83fcc352def9728e4f70262a667f300..0000000000000000000000000000000000000000 100644
 --- a/source/blender/editors/transform/transform_gizmo_3d.cc
 +++ b/source/blender/editors/transform/transform_gizmo_3d.cc
-@@ -365,3 +365,7 @@ static void gizmo_get_axis_color(const int axis_idx,
+@@ -363,3 +363,7 @@ static void gizmo_get_axis_color(const int axis_idx,
      }
    }
 
