@@ -23,7 +23,9 @@ jobs:
       - name: Host build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y git git-lfs cmake ninja-build build-essential python3 python3-pip
+          sudo apt-get install -y git git-lfs cmake ninja-build build-essential python3 python3-pip gcc-14 g++-14
+          echo CC=/usr/bin/gcc-14 >> "$GITHUB_ENV"
+          echo CXX=/usr/bin/g++-14 >> "$GITHUB_ENV"
       - name: Checkout pinned Blender
         shell: bash
         run: |
