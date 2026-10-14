@@ -1,0 +1,73 @@
+name: Hamun Blender Windows x64 Editor
+on:
+  push:
+    branches: [feature/blender-source-integration]
+    paths:
+      - ".github/workflows/hamun-blender-windows.yml"
+      - "integrations/blender/patches/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-editor:
+    runs-on: windows-2022
+    timeout-minutes: 330
+    steps:
+      - name: Checkout Hamun integration
+        uses: actions/checkout@v4
+      - name: Install Windows build prerequisites
+        shell: pwsh
+        run: |
+          choco install svn -y --no-progress
+          git lfs install
+      - name: Fetch Blender pinned source
+        shell: pwsh
+        env:
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: |
+          git init blender-src
+          git -C blender-src remote add origin https://projects.blender.org/blender/blender.git
+          git -C blender-src fetch --depth 1 origin 2622ed297d669e71dbfdc3478d844ed6004d9285
+          git -C blender-src -c filter.lfs.smudge= -c filter.lfs.required=false checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Blender source checkout failed" }
+          $sha = (git -C blender-src rev-parse HEAD).Trim()
+          if ($sha -ne "2622ed297d669e71dbfdc3478d844ed6004d9285") { throw "Unexpected Blender source revision $sha" }
+      - name: Fetch official Windows build dependencies
+        shell: cmd
+        working-directory: blender-src
+        run: call make.bat update
+      - name: Verify pinned source and apply Hamun gizmo patch
+        shell: pwsh
+        run: |
+          git -C blender-src checkout --detach 2622ed297d669e71dbfdc3478d844ed6004d9285
+          git -C blender-src apply --check ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
+          if ($LASTEXITCODE -ne 0) { throw "Hamun patch validation failed" }
+          git -C blender-src apply ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
+          if ($LASTEXITCODE -ne 0) { throw "Hamun patch application failed" }
+      - name: Compile Blender-derived Windows editor
+        shell: cmd
+        working-directory: blender-src
+        run: call make.bat release
+      - name: Verify executable and stage editor package
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path . -Filter blender.exe -File -Recurse |
+            Where-Object { $_.FullName -match 'build_windows' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "No compiled Blender executable found" }
+          $root = $exe.DirectoryName
+          New-Item -ItemType Directory -Force dist/Hamun-Windows-x64 | Out-Null
+          Copy-Item "$root/*" dist/Hamun-Windows-x64/ -Recurse -Force
+          Copy-Item integrations/blender/hamun_authoring_tools dist/Hamun-Windows-x64/hamun_authoring_tools -Recurse
+          @"
+          @echo off
+          cd /d "%~dp0"
+          blender.exe
+          "@ | Set-Content -Encoding ASCII dist/Hamun-Windows-x64/Start_Hamun.bat
+      - name: Upload compiled Windows editor
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamun-Blender-Editor-Windows-x64
+          path: dist/Hamun-Windows-x64/
+          if-no-files-found: error
+          retention-days: 14
