@@ -1,0 +1,76 @@
+name: Hamun Blender source build validation
+on:
+  workflow_dispatch:
+    inputs:
+      apply_hamun_patch:
+        description: "Apply validated Hamun gizmo patch after checking Blender baseline"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+  push:
+    branches: [feature/blender-source-integration]
+    paths:
+      - ".github/workflows/hamun-blender-build.yml"
+      - "integrations/blender/scripts/**"
+jobs:
+  blender-source-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Checkout Hamun
+        uses: actions/checkout@v4
+      - name: Host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git git-lfs cmake ninja-build build-essential python3 python3-pip
+      - name: Checkout pinned Blender
+        shell: bash
+        run: |
+          git init blender-upstream
+          cd blender-upstream
+          git remote add origin https://github.com/blender/blender.git
+          git fetch --depth 1 origin 2622ed297d669e71dbfdc3478d844ed6004d9285
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 2622ed297d669e71dbfdc3478d844ed6004d9285
+      - name: Install Blender official build dependencies
+        working-directory: blender-upstream
+        run: |
+          python3 build_files/build_environment/install_linux_packages.py --help
+          sudo python3 build_files/build_environment/install_linux_packages.py --all --yes
+      - name: Configure and compile pristine Blender baseline
+        working-directory: blender-upstream
+        run: |
+          cmake -S . -B build-baseline -G Ninja -DWITH_LIBS_PRECOMPILED=OFF -DWITH_INSTALL_PORTABLE=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-baseline --parallel 4
+      - name: Confirm baseline executable
+        shell: bash
+        run: |
+          find blender-upstream/build-baseline -type f -name blender -executable -print
+          test -n "$(find blender-upstream/build-baseline -type f -name blender -executable -print -quit)"
+      - name: Apply Hamun patch and build modified Blender
+        if: ${{ github.event_name == 'push' || inputs.apply_hamun_patch == 'true' }}
+        shell: bash
+        run: |
+          cd blender-upstream
+          git apply --check ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
+          git apply ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
+          cmake --build build-baseline --parallel 4
+      - name: Save build provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          git -C blender-upstream rev-parse HEAD > evidence/blender-commit.txt 2>/dev/null || true
+          uname -a > evidence/runner.txt
+          cmake --version > evidence/cmake-version.txt
+          if [ -d blender-upstream/build-baseline ]; then
+            find blender-upstream/build-baseline -type f -name blender -executable > evidence/executables.txt
+          fi
+      - name: Upload reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamun-Blender-Build-Evidence
+          path: evidence/
+          retention-days: 14
