@@ -61,6 +61,13 @@ jobs:
           git apply --check ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
           git apply ../integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
           cmake --build build-baseline --parallel 4
+      - name: Smoke-test patched Blender binary in background mode
+        if: success()
+        shell: bash
+        run: |
+          BLENDER_BIN="$(find blender-upstream/build-baseline -type f -name blender -executable -print -quit)"
+          test -n "$BLENDER_BIN"
+          "$BLENDER_BIN" --background --factory-startup --python-expr "import bpy; print('HAMUN_BLENDER_RUNTIME_OK', bpy.app.version_string)"
       - name: Save build provenance
         if: always()
         shell: bash
