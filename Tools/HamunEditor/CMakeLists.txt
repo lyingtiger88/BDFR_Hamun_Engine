@@ -3,6 +3,7 @@ add_executable(HamunEditor WIN32
   src/EditorAssetIndex.cpp
   src/EditorSceneDocument.cpp
   src/EditorScenePreview.cpp
+  src/BlueprintGraphWindow.cpp
 )
 
 target_compile_features(HamunEditor PRIVATE cxx_std_20)
