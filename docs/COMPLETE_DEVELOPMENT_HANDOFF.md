@@ -30,7 +30,64 @@ Do not mix this project with the user's other projects unless the user explicitl
 - Do not ask unnecessary questions when a reasonable next step is clear.
 - The assistant cannot execute commands directly on the user's Windows PC. It can prepare scripts and repository changes, but must be honest about what still needs to be run locally.
 
-## 3. Confirmed repository state
+## 3. UI / editor design plan — preserve this in future chats
+
+This section records the user's broader UI/architecture intent. These are product requirements and planned direction, not claims that the interface has already been implemented.
+
+### Core decision
+Hamun should become a **standalone editor experience based on Blender source**, not merely a separate Blender application launched beside Hamun, and not an Unreal Engine dependency. Blender is intended to provide the foundation for the editor layer and its deep 3D authoring capabilities; Hamun must have its own identity and ultimately connect to its own engine/runtime.
+
+The user explicitly wants broad transfer of Blender capabilities and a substantial integrated result, rather than stopping at a few decorative panels or treating each small mockup as the final product. Build/test milestones still need to be used to catch real integration failures; they are not a reason to shrink the intended end-state.
+
+### Planned UI capabilities
+The intended editor scope includes:
+- Main editor window, workspace/window layout, and a flexible panel/area system.
+- A fully usable 3D viewport.
+- Object selection and core Move / Rotate / Scale tools.
+- Modeling and geometry-editing workflows.
+- Material authoring and related visual asset workflows.
+- UV editing.
+- Rigging and animation tools.
+- Editor panels and property controls that expose real functionality, not just visual placeholders.
+- A Hamun project workflow and a path for edited scene/assets to be used by Hamun's own runtime.
+
+### Visual identity and interaction
+- Keep Blender's proven editing model and workflows wherever they are useful; do not needlessly reinvent established interaction patterns.
+- Rebrand and customize the UI so it reads as **Hamun**, not a generic unmodified Blender window. Use a coherent brand treatment across the main window, workspace/navigation areas, icons, typography, menus, and selected UI accents.
+- Make Transform gizmos distinctive. Existing patch proposes X turquoise, Y orange, Z violet. Preserve normal transform behavior, axis selection, and object movement.
+- The goal is a professional editor with substantial Blender capability and its own identity, not merely changing the application title/logo.
+- Exact final colors beyond the proposed gizmo axes, exact panel dimensions, and a final pixel-perfect mockup have not been verified as settled requirements. Do not invent these as historical decisions.
+
+### Suggested main editor structure
+Use the existing Blender workspace/area model as a practical starting point. A reasonable first layout to implement is:
+- **Top strip:** Hamun branding, project/file controls, workspace tabs, and key global actions.
+- **Center:** large 3D viewport as the primary work surface.
+- **Left viewport toolbar:** selection and transform tools.
+- **Right upper panel:** scene/object hierarchy (Outliner-style).
+- **Right lower panel:** context-sensitive properties and object/material settings.
+- **Bottom area:** timeline for animation; allow it to be resized or replaced by relevant editors.
+- **Task-oriented workspaces:** Layout/Scene, Modeling, Materials/Shading, UV, Rigging, Animation, and later other Blender-derived workflows as the integration supports them.
+
+This is a proposed layout based on the stated goal and Blender's workspace system, not a claim that these Hamun-specific screens already exist. Keep the layout modular so areas can be resized/reassigned rather than hard-coding a single rigid screen.
+
+### Architecture boundary
+- **Hamun Editor layer:** branded UI, workspace layout, viewport interaction, authoring tools, project workflow.
+- **Blender-derived authoring systems:** model/geometry editing, UV, materials, rigging, animation, and other imported capabilities as they are integrated and licensed.
+- **Hamun Core / Runtime:** game execution and engine-side scene/runtime systems. Game execution must not depend on launching Blender as an external companion app.
+- Define a clear handoff/format/API between authoring data and the Hamun runtime. Do not assume that every Blender feature is automatically compatible with the runtime without an export/translation path.
+
+### UI implementation priorities
+1. Establish the main branded editor shell and workspace layout using actual Blender source, not a standalone visual mockup.
+2. Preserve working viewport, selection, transform, and panel behavior.
+3. Apply and verify Hamun transform-gizmo styling.
+4. Connect the scene/project workflow to Hamun's own runtime boundary.
+5. Integrate additional authoring areas (modeling, geometry, materials, UV, rigging, animation) without presenting nonfunctional placeholder panels as complete features.
+6. Produce a real editor showcase once the build and essential interactions work.
+
+### Important interpretation for the next chat
+Do not reduce the agreed vision to “change the gizmo colors and make a demo scene.” Gizmo styling is the first visible patch in the repository, not the full product plan. The larger plan is a Blender-derived, Hamun-branded standalone editor with broad authoring capabilities and a clear separation from the Hamun runtime. At the same time, be truthful about the current status: the repository does not yet prove a successful build or implemented custom main UI.
+
+## 4. Confirmed repository state
 
 Repository: `lyingtiger88/BDFR_Hamun_Engine`
 
@@ -81,7 +138,7 @@ Commit SHA:
 
 This document contains design concepts for three game environment maps (Red Basin, Copperline Industrial, Glass Delta). It is **not** the engine showcase and is not a list of implemented engine features. Do not continue map design unless the user explicitly changes the scope.
 
-## 4. Current truthful status
+## 5. Current truthful status
 
 ### Committed to GitHub
 - Initial Blender transform-gizmo color patch and README.
@@ -100,7 +157,7 @@ This document contains design concepts for three game environment maps (Red Basi
 
 Do not claim any of the above exists or has passed testing until verified.
 
-## 5. Showcase target
+## 6. Showcase target
 
 The first deliverable should be a small, reproducible editor showcase, not a complete game engine rewrite.
 
@@ -122,7 +179,7 @@ Visual direction:
 - Proposed axis colors: X turquoise, Y orange, Z violet. Verify contrast/accessibility in the real viewport.
 - Avoid superficial reskinning that hides broken or untested functionality.
 
-## 6. Recommended development sequence
+## 7. Recommended development sequence
 
 ### Phase 0 — Inspect repository and patch
 1. Confirm current branch and repository tree.
@@ -172,7 +229,7 @@ Acceptance criterion: a fresh build can repeat the showcase demonstration.
 
 Acceptance criterion: another developer can follow the documented instructions and reproduce the working showcase.
 
-## 7. Suggested repository organization
+## 8. Suggested repository organization
 
 ```text
 docs/
@@ -191,13 +248,13 @@ scripts/
 
 Do not create fake placeholder binaries or scripts that claim success without testing.
 
-## 8. Immediate next action for the new chat
+## 9. Immediate next action for the new chat
 
 Start by inspecting the current patch and README on the feature branch. Fetch the actual files through the GitHub connector, review the patch text, and compare it with the exact Blender source revision. Then determine whether the patch applies cleanly and update it if needed.
 
 Do not start by designing gameplay maps or generating promotional concept images. Do not jump straight to claiming a build exists. The next milestone is a valid patch against a pinned Blender source baseline.
 
-## 9. Useful links
+## 10. Useful links
 
 - Repository: https://github.com/lyingtiger88/BDFR_Hamun_Engine
 - Feature branch patch: https://github.com/lyingtiger88/BDFR_Hamun_Engine/blob/feature/blender-source-integration/integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch
@@ -206,7 +263,7 @@ Do not start by designing gameplay maps or generating promotional concept images
 - Earlier map-design handoff (not current scope): https://github.com/lyingtiger88/BDFR_Hamun_Engine/blob/feature/blender-source-integration/docs/MAP_DESIGN_HANDOFF.md
 - Blender source repository: https://projects.blender.org/blender/blender
 
-## 10. Operating rule
+## 11. Operating rule
 
 Keep the handoff truthful and practical. Every progress report should clearly separate:
 - **Committed:** actual GitHub changes and commit SHA.
