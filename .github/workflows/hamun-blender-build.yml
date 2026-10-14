@@ -36,8 +36,9 @@ jobs:
       - name: Install Blender official build dependencies
         working-directory: blender-upstream
         run: |
-          python3 build_files/build_environment/install_linux_packages.py --help
-          sudo python3 build_files/build_environment/install_linux_packages.py --all --yes
+          sudo apt-get install -y subversion libx11-dev libxxf86vm-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libegl-dev libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev linux-libc-dev
+          python3 build_files/linux/install_linux_packages.py --help
+          python3 build_files/linux/install_linux_packages.py --all
       - name: Configure and compile pristine Blender baseline
         working-directory: blender-upstream
         run: |
