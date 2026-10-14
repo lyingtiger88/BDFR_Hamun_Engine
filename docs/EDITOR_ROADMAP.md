@@ -1,11 +1,11 @@
 # Hamun Editor: Blender-Based Editor Integration Roadmap
 # نقشهٔ راه ادیتور مبتنی بر سورس Blender برای هامون
 
-> **Status:** Blender source audit started; integration branch created  
+> **Status:** Blender source audit complete; first Blender-side add-on prototype committed  
 > **Branch:** `feature/blender-source-integration`  
 > **Engine status:** Pre-Alpha  
 >
-> **وضعیت:** بررسی سورس Blender آغاز شده و شاخهٔ یکپارچه‌سازی ساخته شده است  
+> **وضعیت:** بررسی سورس انجام شده و نمونهٔ اولیهٔ افزونهٔ Blender ثبت شده است  
 > **شاخه:** `feature/blender-source-integration`  
 > **وضعیت موتور:** پیش‌آلفا
 
@@ -142,3 +142,10 @@ A feature is considered complete only when it:
 The dedicated branch `feature/blender-source-integration` is based on the Hamun repository's current main branch. The official Blender repository is accessible and a View3D navigation-gizmo source file has been inspected. This is an initial source audit only: Blender has not been vendored, compiled, or merged into Hamun, and no modified executable has been built yet.
 
 شاخهٔ اختصاصی `feature/blender-source-integration` از شاخهٔ فعلی main هامون ساخته شده است. مخزن رسمی Blender در دسترس است و یکی از فایل‌های سورس دستگیره‌های ناوبری View3D بررسی شده است. این مرحله فقط بررسی اولیهٔ سورس است: هنوز سورس Blender به مخزن اضافه، کامپایل یا با هامون ادغام نشده و فایل اجرایی تغییر‌یافته‌ای ساخته نشده است.
+
+
+## Milestone 1 completed: Hamun Authoring Tools 0.1.0
+
+The branch now contains an initial Blender add-on in `integrations/blender/hamun_authoring_tools/`. It adds a Hamun menu to the 3D View, exposes native Move/Rotate/Scale operators, and prepares a scene with a `Hamun Assets` collection plus versioned Hamun metadata. Four static source tests passed. This proves the first integration artifact exists, but does not prove runtime compatibility because it has not yet been launched in Blender.
+
+**Not done yet:** visual redesign of the actual gizmos in Blender C/C++ source, a Blender baseline build, runtime/manual testing, or a Hamun engine asset bridge. These remain explicit next milestones.
