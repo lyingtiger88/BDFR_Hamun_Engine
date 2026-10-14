@@ -1,6 +1,6 @@
 # BDFR Hamun Engine
 
-> **A modern, scalable game engine for large open worlds, high-performance rendering, and visual gameplay authoring.**
+> **A modern, scalable game engine for large open worlds, high-performance rendering, visual gameplay authoring, and a native integrated 3D editor.**
 
 **BDFR Hamun Engine** is an experimental, next-generation game engine project focused on large-scale open worlds, modern low-level graphics APIs, modular engine architecture, and a complete node-based visual scripting environment.
 
@@ -43,7 +43,9 @@ The main goals are:
 - Modular physics, AI, audio, networking, and animation systems
 - Data-driven asset pipeline
 - Extensible plugin architecture
-- Editor-first development workflow
+- Editor-first development workflow with a native integrated 3D editor
+- Blender-class authoring goals for modeling, mesh editing, UVs, materials, rigging, and animation
+- No requirement to run Blender as a separate application during routine authoring
 - Source-friendly and version-control-friendly assets
 - Long-term support for very large worlds and high-speed traversal
 
@@ -429,6 +431,36 @@ Additional managed scripting options may be evaluated later.
 
 ---
 
+## Native 3D Editor Direction
+
+Hamun is planned to grow its own integrated 3D authoring environment. The goal is to bring a broad, Blender-class set of workflows into HamunEditor so that common asset creation and scene-authoring tasks can happen inside the engine instead of requiring users to switch to a separate DCC application.
+
+This is a long-term capability target, not a claim that the current editor already contains all of these tools. The existing editor is a foundation with a live scene viewport, Outliner, Inspector, project loading, and editable object transforms.
+
+### Target capabilities
+
+- Modeling tools and mesh topology editing
+- Vertex, edge, face, and object selection
+- Transform, snapping, and pivot tools
+- UV editing and UV layout inspection
+- Material authoring and node-based material graphs
+- Rigging, skeleton editing, and animation tools
+- Asset import, inspection, organization, and reimport
+- Scene composition, terrain, and world-authoring workflows
+- Undo/redo, shortcuts, configurable layouts, and editor tooling
+
+### Implementation and licensing principles
+
+- Keep HamunEditor as a native, integrated part of Hamun Engine; do not require Blender to run in the background.
+- Reuse suitable open standards, algorithms, and libraries where their licenses and technical fit permit it.
+- Do not copy or link Blender source code into Hamun until the GPL obligations and their effect on Hamun's licensing and distribution model have been reviewed.
+- Build capabilities around Hamun's existing C++20, CMake, asset, renderer, and scene-editor architecture.
+- Mark features as complete only after implementation and relevant build/tests confirm them.
+
+The immediate development focus is to evolve the existing viewport, scene-object model, asset pipeline, and editor UI into a coherent foundation for geometry editing. The full Blender-class feature set is a roadmap objective and is not yet implemented.
+
+---
+
 # Roadmap
 
 The roadmap is intentionally milestone-based. Features may move between phases as engine architecture is validated.
@@ -648,16 +680,22 @@ Win32 Window
 - [x] Scene/world viewport
 - [x] Hierarchy/outliner
 - [x] Inspector/details panel
-- [ ] Asset browser
-- [ ] Material editor
+- [x] Initial glTF-backed scene objects and editable transforms
+- [ ] Full asset browser indexing, import, and reimport workflow
+- [ ] Modeling and mesh-topology editing tools
+- [ ] Vertex / edge / face selection and editing
+- [ ] UV editor
+- [ ] Material editor and material graph
+- [ ] Rigging and animation authoring tools
 - [ ] HamunGraph editor
 - [ ] Terrain tools
 - [ ] World-partition visualization
 - [ ] Profiler UI
 - [ ] Debugging tools
 - [ ] Plugin management UI
+- [ ] Undo/redo, editor shortcuts, and configurable layouts
 
-**Milestone:** build complete projects without relying on external scene-authoring tools for routine workflows.
+**Milestone:** provide an integrated native authoring workflow, progressively reducing the need for external DCC tools for routine tasks. Blender-class breadth is a long-term target, not current functionality.
 
 ---
 
