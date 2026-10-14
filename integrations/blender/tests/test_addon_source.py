@@ -30,6 +30,14 @@ class AddonSourceTests(unittest.TestCase):
         ):
             self.assertIn(operator, self.source)
 
+    def test_hamun_workspace_and_scene_export_are_real_operators(self):
+        self.assertIn('bl_idname = "hamun.setup_workspace"', self.source)
+        self.assertIn('bl_idname = "hamun.export_scene"', self.source)
+        self.assertIn('bpy.ops.export_scene.gltf(', self.source)
+        self.assertIn('bl_region_type = "UI"', self.source)
+        self.assertIn('bl_category = "Hamun"', self.source)
+        self.assertIn('space.show_gizmo_object_translate = True', self.source)
+
     def test_scene_metadata_is_versioned(self):
         self.assertIn('scene["hamun_schema_version"] = 1', self.source)
         self.assertIn('scene["hamun_project"] = True', self.source)
