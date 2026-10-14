@@ -1,6 +1,15 @@
 # COMPLETE HANDOFF — HAMUN ENGINE
 **Purpose:** Transfer the ongoing Hamun Engine development work to a new ChatGPT conversation without losing project scope, decisions, current repository state, or next actions.
 
+## Latest verified progress — 2026-10-14
+
+- **Committed:** `.github/workflows/hamun-blender-addon.yml` now validates the gizmo patch against the exact upstream Blender commit `2622ed297d669e71dbfdc3478d844ed6004d9285`. The patch was regenerated as a valid unified diff in `integrations/blender/patches/0001-hamun-transform-gizmo-colors.patch`.
+- **Tested:** GitHub Actions run [38553215684](https://github.com/lyingtiger88/BDFR_Hamun_Engine/actions/runs/38553215684) passed both `source-tests` and `blender-patch-check`. The latter downloaded the original `transform_gizmo_3d.cc`, ran `git apply --check`, applied the patch, and checked for Hamun axis definitions. This is **real patch-application verification**, not full Blender compilation.
+- **Not yet tested:** Full Blender source checkout with build dependencies, successful Windows/Linux compilation of modified Blender, rendered/interactive gizmo validation, engine/runtime integration, and packaged standalone editor.
+- **Next acceptance criterion:** build the unchanged pinned Blender baseline on the target platform, preserve logs/executable provenance, then apply patch and compile the changed editor. Do not represent static checks as a shipping editor.
+
+---
+
 ## 1. Project identity and scope
 
 Project: **Hamun Engine**  
