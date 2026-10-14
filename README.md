@@ -11,6 +11,17 @@ The project takes inspiration from the open-world and streaming philosophy of en
 
 ---
 
+## Language | زبان
+
+**Choose your language / زبان صفحه را انتخاب کنید:**
+
+- 🇬🇧 [English](README.md)
+- 🇮🇷 [فارسی](README.fa.md)
+
+---
+
+---
+
 ## Why “Hamun”?
 
 **Hamun (هامون)** is a word strongly associated with the landscape and identity of the Balochistan/Sistan region and with large natural expanses and lakes. The name reflects the engine's focus on **large worlds, open environments, scale, and freedom**.
