@@ -38,6 +38,18 @@ The main goals are:
 
 ---
 
+## Editor Roadmap | نقشهٔ راه ادیتور
+
+The native Hamun 3D editor roadmap, including the Blender-inspired modeling workflow and its Persian translation, is maintained here:
+
+- [English + فارسی: Editor Roadmap](docs/EDITOR_ROADMAP.md)
+
+نقشهٔ راه ویرایشگر سه‌بعدی بومی هامون، شامل برنامهٔ مدل‌سازی با الهام از Blender و ترجمهٔ فارسی، در این صفحه نگهداری می‌شود:
+
+- [نقشهٔ راه ادیتور، انگلیسی و فارسی](docs/EDITOR_ROADMAP.md)
+
+---
+
 ## Easy Android Builds
 
 Android packaging is designed to be a one-command workflow rather than a manual
