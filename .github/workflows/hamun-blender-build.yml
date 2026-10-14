@@ -30,9 +30,10 @@ jobs:
           export GIT_LFS_SKIP_SMUDGE=1
           git init blender-upstream
           cd blender-upstream
-          git remote add origin https://github.com/blender/blender.git
+          git remote add origin https://projects.blender.org/blender/blender.git
           git fetch --depth 1 origin 2622ed297d669e71dbfdc3478d844ed6004d9285
           git -c filter.lfs.smudge= -c filter.lfs.required=false checkout --detach FETCH_HEAD
+          git lfs pull --include='release/datafiles/startup.blend,release/datafiles/*' || true
           test "$(git rev-parse HEAD)" = 2622ed297d669e71dbfdc3478d844ed6004d9285
       - name: Install Blender official build dependencies
         working-directory: blender-upstream
