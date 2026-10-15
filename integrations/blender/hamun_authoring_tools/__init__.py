@@ -48,7 +48,7 @@ class HAMUN_OT_create_project(bpy.types.Operator):
     def execute(self, context):
         name = self.project_name.strip()
         if (not name or len(name) > 80 or name in {".", ".."} or
-                re.search(r'[<>:"/\\\\|?*\\x00-\\x1f]', name) or
+                re.search(r'[<>:"/\\|?*\x00-\x1f]', name) or
                 name[-1] in {" ", "."} or
                 name.split(".")[0].upper() in
                 {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
@@ -79,7 +79,7 @@ class HAMUN_OT_create_project(bpy.types.Operator):
                 "asset_directories": list(folders),
             }
             (root / "hamun.project.json").write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n",
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
             bpy.ops.wm.save_as_mainfile(filepath=str(root / "Scenes" / "Main.blend"))
