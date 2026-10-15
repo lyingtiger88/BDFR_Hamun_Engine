@@ -14,6 +14,85 @@ bl_info = {
 }
 
 import bpy
+import json
+import re
+from pathlib import Path
+from datetime import datetime, timezone
+
+
+
+class HAMUN_OT_create_project(bpy.types.Operator):
+    """Create a Hamun project and save the current scene into its Scenes folder"""
+    bl_idname = "hamun.create_project"
+    bl_label = "Create Hamun Project"
+    bl_description = "Create a Hamun project folder, manifest, and initial Blender scene"
+
+    project_name: bpy.props.StringProperty(name="Project Name", default="MyHamunProject")
+    directory: bpy.props.StringProperty(
+        name="Parent Folder",
+        subtype="DIR_PATH",
+        default="//",
+        description="Folder in which to create the new Hamun project",
+    )
+
+    def invoke(self, context, event):
+        if self.directory == "//" and not bpy.data.filepath:
+            self.directory = str(Path.home() / "Documents")
+        return context.window_manager.invoke_props_dialog(self, width=460)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "project_name")
+        layout.prop(self, "directory")
+
+    def execute(self, context):
+        name = self.project_name.strip()
+        if (not name or len(name) > 80 or name in {".", ".."} or
+                re.search(r'[<>:"/\\\\|?*\\x00-\\x1f]', name) or
+                name[-1] in {" ", "."} or
+                name.split(".")[0].upper() in
+                {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                 *(f"LPT{i}" for i in range(1, 10))}):
+            self.report({"ERROR"}, "Invalid Windows project folder name")
+            return {"CANCELLED"}
+
+        parent = Path(bpy.path.abspath(self.directory)).expanduser()
+        if not parent.is_dir():
+            self.report({"ERROR"}, "Choose an existing parent folder")
+            return {"CANCELLED"}
+        root = parent / name
+        if root.exists():
+            self.report({"ERROR"}, "Project folder already exists; choose another name")
+            return {"CANCELLED"}
+
+        folders = ("Assets", "Scenes", "Materials", "Scripts")
+        try:
+            root.mkdir()
+            for folder in folders:
+                (root / folder).mkdir()
+            manifest = {
+                "schema_version": 1,
+                "engine": "Hamun",
+                "name": name,
+                "created_utc": datetime.now(timezone.utc).isoformat(),
+                "startup_scene": "Scenes/Main.blend",
+                "asset_directories": list(folders),
+            }
+            (root / "hamun.project.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n",
+                encoding="utf-8",
+            )
+            bpy.ops.wm.save_as_mainfile(filepath=str(root / "Scenes" / "Main.blend"))
+            context.scene["hamun_project"] = True
+            context.scene["hamun_schema_version"] = 1
+            context.scene["hamun_project_root"] = str(root)
+            # Save again so project metadata persists inside the scene.
+            bpy.ops.wm.save_as_mainfile(filepath=str(root / "Scenes" / "Main.blend"))
+        except Exception as exc:
+            self.report({"ERROR"}, f"Could not finish Hamun project: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Hamun project created: {root}")
+        return {"FINISHED"}
 
 
 class HAMUN_OT_prepare_scene(bpy.types.Operator):
@@ -113,7 +192,7 @@ class HAMUN_PT_authoring(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("hamun.setup_workspace", icon="WORKSPACE")
+        layout.operator("hamun.create_project", icon="FILE_NEW")
         layout.operator("hamun.setup_workspace", icon="WORKSPACE")
         layout.operator("hamun.prepare_scene", icon="OUTLINER_COLLECTION")
         layout.separator()
@@ -132,6 +211,7 @@ class HAMUN_MT_transform_menu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
+        layout.operator("hamun.create_project", icon="FILE_NEW")
         layout.operator("hamun.prepare_scene", icon="OUTLINER_COLLECTION")
         layout.separator()
         layout.label(text="Native Transform Tools")
@@ -147,6 +227,7 @@ def draw_hamun_menu(self, context):
 
 
 classes = (
+    HAMUN_OT_create_project,
     HAMUN_OT_prepare_scene,
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
