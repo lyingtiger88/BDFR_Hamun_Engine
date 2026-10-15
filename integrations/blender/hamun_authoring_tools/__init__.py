@@ -433,9 +433,15 @@ class HAMUN_OT_import_hscene(bpy.types.Operator):
         for entity in entities:
             if entity["parent"]:
                 mapping[entity["id"]].parent = mapping[entity["parent"]]
-        # Apply world matrices after setting hierarchy, independently of item order.
-        for entity in entities:
-            mapping[entity["id"]].matrix_world = matrices[entity["id"]]
+        # Parent world transforms must be assigned before their children.
+        pending = {entity["id"]: entity.get("parent") for entity in entities}
+        while pending:
+            ready = [name for name, parent in pending.items() if parent not in pending]
+            if not ready:
+                raise RuntimeError("Unexpected cyclic hierarchy")
+            for name in ready:
+                mapping[name].matrix_world = matrices[name]
+                del pending[name]
         context.view_layer.update()
         self.report({"INFO"}, f"Imported {len(entities)} HScene placeholders (no mesh data)")
         return {"FINISHED"}
