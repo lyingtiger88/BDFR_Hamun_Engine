@@ -365,10 +365,11 @@ def _validate_hscene(data):
 
 
 def _hamun_asset_path(scene, reference, root_override=None):
-    root = Path(root_override or scene.get("hamun_project_root", "")).resolve()
-    if not root_override and not root.is_dir() and bpy.data.filepath:
+    root_value = root_override or scene.get("hamun_project_root")
+    root = Path(root_value).resolve() if root_value else None
+    if root is None and bpy.data.filepath:
         root = Path(bpy.data.filepath).resolve().parent.parent
-    if not (root / "Assets").is_dir():
+    if root is None or not (root / "Assets").is_dir():
         raise ValueError("Hamun project Assets directory not found")
     path = Path(reference)
     if path.is_absolute() or ".." in path.parts or path.suffix.lower() != ".glb":
@@ -396,9 +397,12 @@ class HAMUN_OT_link_glb(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            root = Path(context.scene.get("hamun_project_root", ""))
-            if not root.is_dir() and bpy.data.filepath:
+            raw_root = context.scene.get("hamun_project_root")
+            root = Path(raw_root) if raw_root else None
+            if root is None and bpy.data.filepath:
                 root = Path(bpy.data.filepath).resolve().parent.parent
+            if root is None:
+                raise ValueError("Open a Hamun project first")
             target = Path(bpy.path.abspath(self.filepath)).resolve()
             reference = target.relative_to(root.resolve()).as_posix()
             _hamun_asset_path(context.scene, reference, root)
