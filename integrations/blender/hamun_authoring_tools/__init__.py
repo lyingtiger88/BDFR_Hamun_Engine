@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -278,6 +278,169 @@ class HAMUN_OT_export_scene(bpy.types.Operator):
         return {"FINISHED"}
 
 
+
+# HScene v1 stores entity hierarchy and WORLD transforms. Geometry, animation,
+# material bindings and physics are intentionally out of scope for this schema.
+_HSCENE_TYPES = {"MESH", "EMPTY", "CAMERA", "LIGHT", "CURVE", "ARMATURE", "OTHER"}
+
+
+def _hscene_default_path():
+    if bpy.data.filepath:
+        return str(Path(bpy.data.filepath).parent / (Path(bpy.data.filepath).stem + ".hscene"))
+    return str(Path.home() / "Documents" / "Main.hscene")
+
+
+def _hscene_document(scene):
+    entities = []
+    for obj in sorted(scene.objects, key=lambda item: item.name):
+        position, rotation, scale = obj.matrix_world.decompose()
+        entities.append({
+            "id": obj.name,
+            "name": obj.name,
+            "type": obj.type if obj.type in _HSCENE_TYPES else "OTHER",
+            "parent": obj.parent.name if obj.parent else None,
+            "transform_space": "world",
+            "position": [float(v) for v in position],
+            "rotation_quaternion": [float(v) for v in rotation],
+            "scale": [float(v) for v in scale],
+        })
+    return {
+        "format": "HamunScene",
+        "schema_version": 1,
+        "name": scene.name,
+        "coordinate_system": "Blender_Z_UP",
+        "transform_space": "world",
+        "entities": entities,
+    }
+
+
+def _validate_hscene(data):
+    import math
+    if not isinstance(data, dict) or data.get("format") != "HamunScene":
+        raise ValueError("Not a HamunScene document")
+    if data.get("schema_version") != 1:
+        raise ValueError("Unsupported HScene schema")
+    if data.get("coordinate_system") != "Blender_Z_UP":
+        raise ValueError("Unsupported coordinate system")
+    entities = data.get("entities")
+    if not isinstance(entities, list) or len(entities) > 100000:
+        raise ValueError("Invalid entity collection")
+    names = set()
+    for entity in entities:
+        if not isinstance(entity, dict):
+            raise ValueError("Invalid entity record")
+        name = entity.get("id")
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError("Duplicate or invalid entity id")
+        names.add(name)
+        if entity.get("type") not in _HSCENE_TYPES:
+            raise ValueError("Unsupported entity type")
+        if entity.get("transform_space") != "world":
+            raise ValueError("Unsupported transform space")
+        for key, size in (("position", 3), ("rotation_quaternion", 4), ("scale", 3)):
+            value = entity.get(key)
+            if (not isinstance(value, list) or len(value) != size or
+                    any(not isinstance(n, (int, float)) or isinstance(n, bool) or
+                        not math.isfinite(n) for n in value)):
+                raise ValueError("Invalid " + key + " for " + name)
+    for entity in entities:
+        parent = entity.get("parent")
+        if parent is not None and (parent not in names or parent == entity["id"]):
+            raise ValueError("Invalid parent for " + entity["id"])
+    parents = {e["id"]: e.get("parent") for e in entities}
+    for name in names:
+        seen = set()
+        current = name
+        while current is not None:
+            if current in seen:
+                raise ValueError("Cyclic entity hierarchy")
+            seen.add(current)
+            current = parents[current]
+    return entities
+
+
+class HAMUN_OT_export_hscene(bpy.types.Operator):
+    """Export scene entity hierarchy and transforms as a HamunScene file"""
+    bl_idname = "hamun.export_hscene"
+    bl_label = "Export Hamun Scene (.hscene)"
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.hscene", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        self.filepath = _hscene_default_path()
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            path = Path(bpy.path.abspath(self.filepath))
+            if path.suffix.lower() != ".hscene":
+                path = path.with_suffix(".hscene")
+            if not path.parent.is_dir():
+                raise ValueError("Destination folder does not exist")
+            content = json.dumps(_hscene_document(context.scene), indent=2, ensure_ascii=False) + "\n"
+            # Avoid overwriting project source files accidentally.
+            path.write_text(content, encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            self.report({"ERROR"}, f"HScene export failed: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Exported {len(context.scene.objects)} HScene entities")
+        return {"FINISHED"}
+
+
+class HAMUN_OT_import_hscene(bpy.types.Operator):
+    """Import HScene as transform placeholders, without mesh geometry"""
+    bl_idname = "hamun.import_hscene"
+    bl_label = "Import Hamun Scene (.hscene)"
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.hscene", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        from mathutils import Matrix, Quaternion, Vector
+        try:
+            source = Path(bpy.path.abspath(self.filepath))
+            if source.suffix.lower() != ".hscene":
+                raise ValueError("Choose a .hscene file")
+            if source.stat().st_size > 32 * 1024 * 1024:
+                raise ValueError("HScene file exceeds 32 MB limit")
+            entities = _validate_hscene(json.loads(source.read_text(encoding="utf-8-sig")))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.report({"ERROR"}, f"HScene import failed: {exc}")
+            return {"CANCELLED"}
+
+        collection = bpy.data.collections.new("Hamun Import")
+        context.scene.collection.children.link(collection)
+        mapping = {}
+        matrices = {}
+        for entity in entities:
+            obj = bpy.data.objects.new(entity["name"], None)
+            obj.empty_display_type = "PLAIN_AXES"
+            obj["hamun_entity_id"] = entity["id"]
+            obj["hamun_original_type"] = entity["type"]
+            collection.objects.link(obj)
+            mapping[entity["id"]] = obj
+            pos = Vector(entity["position"])
+            quat = Quaternion(entity["rotation_quaternion"])
+            quat.normalize()
+            sc = Vector(entity["scale"])
+            matrices[entity["id"]] = Matrix.LocRotScale(pos, quat, sc)
+        for entity in entities:
+            if entity["parent"]:
+                mapping[entity["id"]].parent = mapping[entity["parent"]]
+        # Apply world matrices after setting hierarchy, independently of item order.
+        for entity in entities:
+            mapping[entity["id"]].matrix_world = matrices[entity["id"]]
+        context.view_layer.update()
+        self.report({"INFO"}, f"Imported {len(entities)} HScene placeholders (no mesh data)")
+        return {"FINISHED"}
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -300,6 +463,8 @@ class HAMUN_PT_authoring(bpy.types.Panel):
         col.operator("transform.resize", text="Scale")
         layout.separator()
         layout.operator("hamun.export_scene", icon="EXPORT")
+        layout.operator("hamun.export_hscene", icon="EXPORT")
+        layout.operator("hamun.import_hscene", icon="IMPORT")
 
 
 class HAMUN_MT_transform_menu(bpy.types.Menu):
@@ -330,6 +495,8 @@ classes = (
     HAMUN_OT_prepare_scene,
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
+    HAMUN_OT_export_hscene,
+    HAMUN_OT_import_hscene,
     HAMUN_PT_authoring,
     HAMUN_MT_transform_menu,
 )
