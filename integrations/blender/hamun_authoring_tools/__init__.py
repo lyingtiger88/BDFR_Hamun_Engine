@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -294,7 +294,9 @@ def _hscene_document(scene):
     entities = []
     for obj in sorted(scene.objects, key=lambda item: item.name):
         position, rotation, scale = obj.matrix_world.decompose()
+        asset_ref = obj.get("hamun_asset")
         entities.append({
+            "asset": asset_ref if isinstance(asset_ref, str) else None,
             "id": obj.name,
             "name": obj.name,
             "type": obj.type if obj.type in _HSCENE_TYPES else "OTHER",
@@ -333,6 +335,8 @@ def _validate_hscene(data):
         if not isinstance(name, str) or not name or name in names:
             raise ValueError("Duplicate or invalid entity id")
         names.add(name)
+        if entity.get("asset") is not None and not isinstance(entity["asset"], str):
+            raise ValueError("Invalid asset reference")
         if entity.get("type") not in _HSCENE_TYPES:
             raise ValueError("Unsupported entity type")
         if entity.get("transform_space") != "world":
@@ -357,6 +361,53 @@ def _validate_hscene(data):
             seen.add(current)
             current = parents[current]
     return entities
+
+
+
+def _hamun_asset_path(scene, reference, root_override=None):
+    root = Path(root_override or scene.get("hamun_project_root", "")).resolve()
+    if not root_override and not root.is_dir() and bpy.data.filepath:
+        root = Path(bpy.data.filepath).resolve().parent.parent
+    if not (root / "Assets").is_dir():
+        raise ValueError("Hamun project Assets directory not found")
+    path = Path(reference)
+    if path.is_absolute() or ".." in path.parts or path.suffix.lower() != ".glb":
+        raise ValueError("Only relative .glb paths inside Assets are allowed")
+    target = (root / path).resolve()
+    if not target.is_relative_to((root / "Assets").resolve()) or not target.is_file():
+        raise ValueError("GLB asset not found under project Assets")
+    return target
+
+
+class HAMUN_OT_link_glb(bpy.types.Operator):
+    """Associate an existing project GLB with the selected mesh object"""
+    bl_idname = "hamun.link_glb"
+    bl_label = "Link Project GLB"
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.glb", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == "MESH"
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            root = Path(context.scene.get("hamun_project_root", ""))
+            if not root.is_dir() and bpy.data.filepath:
+                root = Path(bpy.data.filepath).resolve().parent.parent
+            target = Path(bpy.path.abspath(self.filepath)).resolve()
+            reference = target.relative_to(root.resolve()).as_posix()
+            _hamun_asset_path(context.scene, reference, root)
+            context.active_object["hamun_asset"] = reference
+        except (ValueError, OSError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Asset linked: " + reference)
+        return {"FINISHED"}
 
 
 class HAMUN_OT_export_hscene(bpy.types.Operator):
@@ -410,6 +461,12 @@ class HAMUN_OT_import_hscene(bpy.types.Operator):
             if source.stat().st_size > 32 * 1024 * 1024:
                 raise ValueError("HScene file exceeds 32 MB limit")
             entities = _validate_hscene(json.loads(source.read_text(encoding="utf-8-sig")))
+            root = source.resolve().parent.parent if source.parent.name == "Scenes" else source.parent
+            assets = {}
+            for entity in entities:
+                reference = entity.get("asset")
+                if reference:
+                    assets[reference] = _hamun_asset_path(context.scene, reference, root)
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             self.report({"ERROR"}, f"HScene import failed: {exc}")
             return {"CANCELLED"}
@@ -419,8 +476,29 @@ class HAMUN_OT_import_hscene(bpy.types.Operator):
         mapping = {}
         matrices = {}
         for entity in entities:
-            obj = bpy.data.objects.new(entity["name"], None)
-            obj.empty_display_type = "PLAIN_AXES"
+            mesh = None
+            reference = entity.get("asset")
+            if reference:
+                previous = set(bpy.data.objects)
+                try:
+                    result = bpy.ops.import_scene.gltf(filepath=str(assets[reference]))
+                    if "FINISHED" not in result:
+                        raise RuntimeError("GLB import cancelled")
+                    created = set(bpy.data.objects) - previous
+                    meshes = [item for item in created if item.type == "MESH"]
+                    if len(meshes) != 1:
+                        raise ValueError("Only single-mesh GLB assets are supported")
+                    mesh = meshes[0].data.copy()
+                    for item in created:
+                        bpy.data.objects.remove(item, do_unlink=True)
+                except Exception as exc:
+                    self.report({"ERROR"}, f"GLB import failed: {exc}")
+                    return {"CANCELLED"}
+            obj = bpy.data.objects.new(entity["name"], mesh)
+            if mesh is None:
+                obj.empty_display_type = "PLAIN_AXES"
+            if reference:
+                obj["hamun_asset"] = reference
             obj["hamun_entity_id"] = entity["id"]
             obj["hamun_original_type"] = entity["type"]
             collection.objects.link(obj)
@@ -469,6 +547,7 @@ class HAMUN_PT_authoring(bpy.types.Panel):
         col.operator("transform.resize", text="Scale")
         layout.separator()
         layout.operator("hamun.export_scene", icon="EXPORT")
+        layout.operator("hamun.link_glb", icon="LINKED")
         layout.operator("hamun.export_hscene", icon="EXPORT")
         layout.operator("hamun.import_hscene", icon="IMPORT")
 
@@ -501,6 +580,7 @@ classes = (
     HAMUN_OT_prepare_scene,
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
+    HAMUN_OT_link_glb,
     HAMUN_OT_export_hscene,
     HAMUN_OT_import_hscene,
     HAMUN_PT_authoring,
