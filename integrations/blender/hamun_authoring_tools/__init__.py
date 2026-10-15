@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -16,9 +16,37 @@ bl_info = {
 import bpy
 import json
 import re
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
+
+
+
+HAMUN_SCHEMA = 1
+HAMUN_DIRECTORIES = ("Assets", "Scenes", "Materials", "Scripts")
+
+
+def _read_hamun_manifest(path):
+    """Accept native .hamun manifests and legacy hamun.project.json files."""
+    path = Path(path).resolve()
+    if path.suffix.lower() != ".hamun" and path.name != "hamun.project.json":
+        raise ValueError("Choose a .hamun project or legacy hamun.project.json file")
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(data, dict) or data.get("engine") != "Hamun":
+        raise ValueError("This is not a Hamun project")
+    if data.get("schema_version") != HAMUN_SCHEMA:
+        raise ValueError("Unsupported Hamun project schema version")
+    scene_relative = data.get("startup_scene")
+    if not isinstance(scene_relative, str) or not scene_relative:
+        raise ValueError("Missing startup_scene in project")
+    root = path.parent
+    scene = (root / scene_relative).resolve()
+    if not scene.is_relative_to(root) or scene.suffix.lower() != ".blend":
+        raise ValueError("Invalid startup scene path")
+    if not scene.is_file():
+        raise FileNotFoundError("Project scene not found: " + str(scene))
+    return path, data, root, scene
 
 
 class HAMUN_OT_create_project(bpy.types.Operator):
@@ -65,7 +93,7 @@ class HAMUN_OT_create_project(bpy.types.Operator):
             self.report({"ERROR"}, "Project folder already exists; choose another name")
             return {"CANCELLED"}
 
-        folders = ("Assets", "Scenes", "Materials", "Scripts")
+        folders = HAMUN_DIRECTORIES
         try:
             root.mkdir()
             for folder in folders:
@@ -78,20 +106,87 @@ class HAMUN_OT_create_project(bpy.types.Operator):
                 "startup_scene": "Scenes/Main.blend",
                 "asset_directories": list(folders),
             }
-            (root / "hamun.project.json").write_text(
+            # Source scenes stay in Blender's native format. The .hamun file is
+            # a genuine project manifest, not a renamed .blend file.
+            scene = root / "Scenes" / "Main.blend"
+            context.scene["hamun_project"] = True
+            context.scene["hamun_schema_version"] = HAMUN_SCHEMA
+            context.scene["hamun_project_root"] = str(root)
+            saved = bpy.ops.wm.save_as_mainfile(filepath=str(scene))
+            if "FINISHED" not in saved:
+                raise RuntimeError("Could not save initial Blender scene")
+            (root / (name + ".hamun")).write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            bpy.ops.wm.save_as_mainfile(filepath=str(root / "Scenes" / "Main.blend"))
-            context.scene["hamun_project"] = True
-            context.scene["hamun_schema_version"] = 1
-            context.scene["hamun_project_root"] = str(root)
-            # Save again so project metadata persists inside the scene.
-            bpy.ops.wm.save_as_mainfile(filepath=str(root / "Scenes" / "Main.blend"))
         except Exception as exc:
             self.report({"ERROR"}, f"Could not finish Hamun project: {exc}")
             return {"CANCELLED"}
         self.report({"INFO"}, f"Hamun project created: {root}")
+        return {"FINISHED"}
+
+
+
+class HAMUN_OT_open_project(bpy.types.Operator):
+    """Load the startup scene from a native or legacy Hamun project file"""
+    bl_idname = "hamun.open_project"
+    bl_label = "Open Hamun Project"
+    bl_description = "Open a .hamun project or an existing hamun.project.json project"
+
+    filepath: bpy.props.StringProperty(name="Project File", subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(
+        default="*.hamun;*.json", options={"HIDDEN"}
+    )
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            path, data, root, scene = _read_hamun_manifest(self.filepath)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.report({"ERROR"}, f"Cannot open project: {exc}")
+            return {"CANCELLED"}
+
+        # Existing projects are read without rewriting their manifest or scene.
+        # Blender will prompt to save unsaved changes when applicable.
+        result = bpy.ops.wm.open_mainfile(filepath=str(scene))
+        if "FINISHED" not in result:
+            self.report({"ERROR"}, "Blender could not open the project scene")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Opened Hamun project: {data.get('name', root.name)}")
+        return {"FINISHED"}
+
+
+class HAMUN_OT_upgrade_project(bpy.types.Operator):
+    """Create a .hamun manifest for an existing Hamun project non-destructively"""
+    bl_idname = "hamun.upgrade_project"
+    bl_label = "Convert Legacy Project to .hamun"
+
+    filepath: bpy.props.StringProperty(name="Legacy Project", subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            path, data, root, scene = _read_hamun_manifest(self.filepath)
+            if path.name != "hamun.project.json":
+                raise ValueError("Select a legacy hamun.project.json file")
+            destination = root / (root.name + ".hamun")
+            if destination.exists():
+                raise FileExistsError("Native .hamun project already exists")
+            destination.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.report({"ERROR"}, f"Conversion failed: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Created {destination.name}; original project preserved")
         return {"FINISHED"}
 
 
@@ -193,6 +288,8 @@ class HAMUN_PT_authoring(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator("hamun.create_project", icon="FILE_NEW")
+        layout.operator("hamun.open_project", icon="FILE_FOLDER")
+        layout.operator("hamun.upgrade_project", icon="FILE_REFRESH")
         layout.operator("hamun.setup_workspace", icon="WORKSPACE")
         layout.operator("hamun.prepare_scene", icon="OUTLINER_COLLECTION")
         layout.separator()
@@ -228,6 +325,8 @@ def draw_hamun_menu(self, context):
 
 classes = (
     HAMUN_OT_create_project,
+    HAMUN_OT_open_project,
+    HAMUN_OT_upgrade_project,
     HAMUN_OT_prepare_scene,
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
