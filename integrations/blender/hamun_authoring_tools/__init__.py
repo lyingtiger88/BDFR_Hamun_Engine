@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 7, 0),
+    "version": (0, 8, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -21,6 +21,7 @@ import shutil
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
+import tempfile
 
 
 
@@ -49,6 +50,32 @@ def _read_hamun_manifest(path):
     if not scene.is_file():
         raise FileNotFoundError("Project scene not found: " + str(scene))
     return path, data, root, scene
+
+
+
+def _recent_projects_path():
+    base = Path(bpy.utils.user_resource("CONFIG", create=True))
+    return base / "hamun_recent_projects.json"
+
+
+def _recent_projects():
+    try:
+        data = json.loads(_recent_projects_path().read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(item) for item in data if isinstance(item, str) and Path(item).is_file()][:12]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _remember_project(path):
+    path = str(Path(path).resolve())
+    recent = [path] + [item for item in _recent_projects() if item != path]
+    recent = recent[:12]
+    target = _recent_projects_path()
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(recent, indent=2), encoding="utf-8")
+    os.replace(tmp, target)
 
 
 class HAMUN_OT_create_project(bpy.types.Operator):
@@ -124,6 +151,7 @@ class HAMUN_OT_create_project(bpy.types.Operator):
         except Exception as exc:
             self.report({"ERROR"}, f"Could not finish Hamun project: {exc}")
             return {"CANCELLED"}
+        _remember_project(root / (name + ".hamun"))
         self.report({"INFO"}, f"Hamun project created: {root}")
         return {"FINISHED"}
 
@@ -151,6 +179,7 @@ class HAMUN_OT_open_project(bpy.types.Operator):
             self.report({"ERROR"}, f"Cannot open project: {exc}")
             return {"CANCELLED"}
 
+        _remember_project(path)
         # Existing projects are read without rewriting their manifest or scene.
         # Blender will prompt to save unsaved changes when applicable.
         result = bpy.ops.wm.open_mainfile(filepath=str(scene))
@@ -616,6 +645,98 @@ class HAMUN_OT_save_project(bpy.types.Operator):
 
 
 
+
+class HAMUN_OT_save_project_as(bpy.types.Operator):
+    """Copy project files to a new folder and save the currently edited scene there"""
+    bl_idname = "hamun.save_project_as"
+    bl_label = "Save Hamun Project As"
+
+    project_name: bpy.props.StringProperty(name="New Project Name", default="MyHamunProjectCopy")
+    directory: bpy.props.StringProperty(name="Destination Parent Folder", subtype="DIR_PATH")
+
+    def invoke(self, context, event):
+        try:
+            root = _hamun_project_root(context)
+            self.project_name = root.name + "_Copy"
+            self.directory = str(root.parent)
+        except ValueError:
+            self.directory = str(Path.home() / "Documents")
+        return context.window_manager.invoke_props_dialog(self, width=480)
+
+    def draw(self, context):
+        self.layout.prop(self, "project_name")
+        self.layout.prop(self, "directory")
+
+    def execute(self, context):
+        name = self.project_name.strip()
+        if (not name or len(name) > 80 or name in {".", ".."} or
+                re.search(r'[<>:"/\\|?*\x00-\x1f]', name) or
+                name[-1] in {" ", "."}):
+            self.report({"ERROR"}, "Invalid project name")
+            return {"CANCELLED"}
+        try:
+            root = _hamun_project_root(context)
+            parent = Path(bpy.path.abspath(self.directory)).resolve()
+            if not parent.is_dir():
+                raise ValueError("Destination parent folder does not exist")
+            destination = parent / name
+            if destination.exists():
+                raise FileExistsError("Destination already exists; nothing was overwritten")
+            if destination.is_relative_to(root):
+                raise ValueError("Destination cannot be inside source project")
+            manifest_candidates = sorted(root.glob("*.hamun"))
+            if not manifest_candidates:
+                manifest_candidates = [root / "hamun.project.json"]
+            old_manifest, manifest, _, old_scene = _read_hamun_manifest(manifest_candidates[0])
+            scene_relative = old_scene.relative_to(root)
+            shutil.copytree(root, destination)
+            new_manifest = dict(manifest)
+            new_manifest["name"] = name
+            new_manifest["created_utc"] = datetime.now(timezone.utc).isoformat()
+            new_manifest["startup_scene"] = scene_relative.as_posix()
+            manifest_dest = destination / (name + ".hamun")
+            manifest_dest.write_text(json.dumps(new_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            for extra in destination.glob("*.hamun"):
+                if extra != manifest_dest:
+                    extra.unlink()
+            context.scene["hamun_project_root"] = str(destination)
+            new_scene = destination / scene_relative
+            result = bpy.ops.wm.save_as_mainfile(filepath=str(new_scene))
+            if "FINISHED" not in result:
+                raise RuntimeError("Could not save copied source scene")
+            (new_scene.with_suffix(".hscene")).write_text(
+                json.dumps(_hscene_document(context.scene), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _remember_project(manifest_dest)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.report({"ERROR"}, f"Save As failed: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Project copied to {destination}")
+        return {"FINISHED"}
+
+
+class HAMUN_OT_recent_projects(bpy.types.Operator):
+    """Open a small project switcher listing recently used Hamun projects"""
+    bl_idname = "hamun.recent_projects"
+    bl_label = "Recent Hamun Projects"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=520)
+
+    def draw(self, context):
+        recent = _recent_projects()
+        if not recent:
+            self.layout.label(text="No recent Hamun projects")
+        for path in recent:
+            row = self.layout.row()
+            button = row.operator("hamun.open_project", text=Path(path).stem, icon="FILE_FOLDER")
+            button.filepath = path
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
 class HAMUN_OT_quick_save(bpy.types.Operator):
     """Save a Hamun project or fall back to Blender's native save"""
     bl_idname = "hamun.quick_save"
@@ -637,6 +758,8 @@ def draw_hamun_file_menu(self, context):
     layout.label(text="Hamun Project")
     layout.operator("hamun.create_project", text="New Hamun Project", icon="FILE_NEW")
     layout.operator("hamun.open_project", text="Open Hamun Project", icon="FILE_FOLDER")
+    layout.operator("hamun.recent_projects", text="Recent Hamun Projects", icon="RECOVER_LAST")
+    layout.operator("hamun.save_project_as", text="Save Hamun Project As", icon="DUPLICATE")
     layout.operator("hamun.quick_save", text="Save Hamun Project", icon="FILE_TICK")
     layout.operator("hamun.import_asset", text="Import Asset", icon="IMPORT")
 
@@ -673,6 +796,8 @@ class HAMUN_PT_authoring(bpy.types.Panel):
         layout.operator("hamun.import_asset", icon="IMPORT")
         layout.operator("hamun.save_project", icon="FILE_TICK")
         layout.operator("hamun.open_project", icon="FILE_FOLDER")
+        layout.operator("hamun.recent_projects", icon="RECOVER_LAST")
+        layout.operator("hamun.save_project_as", icon="DUPLICATE")
         layout.operator("hamun.upgrade_project", icon="FILE_REFRESH")
         layout.operator("hamun.setup_workspace", icon="WORKSPACE")
         layout.operator("hamun.prepare_scene", icon="OUTLINER_COLLECTION")
@@ -715,6 +840,8 @@ classes = (
     HAMUN_OT_import_asset,
     HAMUN_OT_save_project,
     HAMUN_OT_quick_save,
+    HAMUN_OT_save_project_as,
+    HAMUN_OT_recent_projects,
     HAMUN_OT_open_project,
     HAMUN_OT_upgrade_project,
     HAMUN_OT_prepare_scene,
