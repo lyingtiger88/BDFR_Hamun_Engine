@@ -5,10 +5,10 @@ from pathlib import Path
 
 EDITS = {
     "build_files/cmake/platform/platform_win32.cmake": [
-        ("/blender.exe.manifest", "/HamunEditorCore.exe.manifest", 1),
+        ("CURRENT_BINARY_DIR}/blender.exe.manifest", "CURRENT_BINARY_DIR}/HamunEditorCore.exe.manifest", 1),
     ],
     "source/creator/CMakeLists.txt": [
-        ("/blender.exe.manifest", "/HamunEditorCore.exe.manifest", 4),
+        ("CMAKE_BINARY_DIR}/blender.exe.manifest", "CMAKE_BINARY_DIR}/HamunEditorCore.exe.manifest", 4),
         ("RENAME blender-launcher.exe.manifest", "RENAME HamunEditor.exe.manifest", 1),
     ],
 }
