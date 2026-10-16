@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -615,6 +615,51 @@ class HAMUN_OT_save_project(bpy.types.Operator):
         return {"FINISHED"}
 
 
+
+class HAMUN_OT_quick_save(bpy.types.Operator):
+    """Save a Hamun project or fall back to Blender's native save"""
+    bl_idname = "hamun.quick_save"
+    bl_label = "Save Project"
+
+    def execute(self, context):
+        try:
+            _hamun_project_root(context)
+        except ValueError:
+            if bpy.data.filepath:
+                return bpy.ops.wm.save_mainfile()
+            return bpy.ops.wm.save_as_mainfile("INVOKE_DEFAULT")
+        return bpy.ops.hamun.save_project()
+
+
+def draw_hamun_file_menu(self, context):
+    layout = self.layout
+    layout.separator()
+    layout.label(text="Hamun Project")
+    layout.operator("hamun.create_project", text="New Hamun Project", icon="FILE_NEW")
+    layout.operator("hamun.open_project", text="Open Hamun Project", icon="FILE_FOLDER")
+    layout.operator("hamun.quick_save", text="Save Hamun Project", icon="FILE_TICK")
+    layout.operator("hamun.import_asset", text="Import Asset", icon="IMPORT")
+
+
+_hamun_keymaps = []
+
+
+def _register_hamun_shortcuts():
+    keyconfig = bpy.context.window_manager.keyconfigs.addon
+    if keyconfig is None:
+        return
+    km = keyconfig.keymaps.new(name="Window", space_type="EMPTY")
+    for operator, key in (("hamun.quick_save", "S"), ("hamun.open_project", "O")):
+        item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
+        _hamun_keymaps.append((km, item))
+
+
+def _unregister_hamun_shortcuts():
+    for km, item in _hamun_keymaps:
+        km.keymap_items.remove(item)
+    _hamun_keymaps.clear()
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -669,6 +714,7 @@ classes = (
     HAMUN_OT_create_project,
     HAMUN_OT_import_asset,
     HAMUN_OT_save_project,
+    HAMUN_OT_quick_save,
     HAMUN_OT_open_project,
     HAMUN_OT_upgrade_project,
     HAMUN_OT_prepare_scene,
@@ -686,9 +732,16 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_hamun_menu)
+    bpy.types.TOPBAR_MT_blender_file.append(draw_hamun_file_menu) if hasattr(bpy.types, "TOPBAR_MT_blender_file") else bpy.types.TOPBAR_MT_blender.append(draw_hamun_file_menu)
+    _register_hamun_shortcuts()
 
 
 def unregister():
+    _unregister_hamun_shortcuts()
+    if hasattr(bpy.types, "TOPBAR_MT_blender_file"):
+        bpy.types.TOPBAR_MT_blender_file.remove(draw_hamun_file_menu)
+    else:
+        bpy.types.TOPBAR_MT_blender.remove(draw_hamun_file_menu)
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
