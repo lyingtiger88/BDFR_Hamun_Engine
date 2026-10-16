@@ -732,16 +732,13 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_hamun_menu)
-    bpy.types.TOPBAR_MT_blender_file.append(draw_hamun_file_menu) if hasattr(bpy.types, "TOPBAR_MT_blender_file") else bpy.types.TOPBAR_MT_blender.append(draw_hamun_file_menu)
+    bpy.types.TOPBAR_MT_file.prepend(draw_hamun_file_menu)
     _register_hamun_shortcuts()
 
 
 def unregister():
     _unregister_hamun_shortcuts()
-    if hasattr(bpy.types, "TOPBAR_MT_blender_file"):
-        bpy.types.TOPBAR_MT_blender_file.remove(draw_hamun_file_menu)
-    else:
-        bpy.types.TOPBAR_MT_blender.remove(draw_hamun_file_menu)
+    bpy.types.TOPBAR_MT_file.remove(draw_hamun_file_menu)
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
