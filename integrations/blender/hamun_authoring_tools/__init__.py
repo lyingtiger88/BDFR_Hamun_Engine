@@ -657,7 +657,10 @@ class HAMUN_OT_save_project_as(bpy.types.Operator):
     def invoke(self, context, event):
         try:
             root = _hamun_project_root(context)
-            self.project_name = root.name + "_Copy"
+            index = 1
+            while (root.parent / f"{root.name}_{index}").exists():
+                index += 1
+            self.project_name = f"{root.name}_{index}"
             self.directory = str(root.parent)
         except ValueError:
             self.directory = str(Path.home() / "Documents")
