@@ -9,7 +9,7 @@ import argparse
 
 EDITS = {
     "source/blender/cpucheck/CMakeLists.txt": [
-        ('set_target_properties(blender_cpu_check\n  PROPERTIES\n', 'set_target_properties(blender_cpu_check\n  PROPERTIES\n  OUTPUT_NAME "hamun_cpu_check"\n')
+        ('  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${_LIB_SUB_FOLDER}"', '  OUTPUT_NAME "hamun_cpu_check"\n  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${_LIB_SUB_FOLDER}"')
     ],
     "source/blender/blendthumb/CMakeLists.txt": [
         ('set_target_properties(BlendThumb PROPERTIES LINK_FLAGS "/OPT:ref")', 'set_target_properties(BlendThumb PROPERTIES OUTPUT_NAME "HamunThumb")\n  set_target_properties(BlendThumb PROPERTIES LINK_FLAGS "/OPT:ref")')
