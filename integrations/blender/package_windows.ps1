@@ -23,8 +23,12 @@ $release = (Resolve-Path $ReleaseDir -ErrorAction Stop).Path
 $releaseRoot = Join-Path $release '5.4'
 foreach ($required in @(
     (Join-Path $release 'HamunEditor.exe'),
-    (Join-Path $release 'blender.exe'),
+    (Join-Path $release 'HamunEditorCore.exe'),
     (Join-Path $releaseRoot 'scripts'),
+    (Join-Path $release 'hamun.shared\hamun.shared.manifest'),
+    (Join-Path $release 'hamun.crt\hamun.crt.manifest'),
+    (Join-Path $release 'hamun_cpu_check.dll'),
+    (Join-Path $release 'HamunThumb.dll'),
     (Join-Path $release 'license\license.md'),
     (Join-Path $release 'license\licenses.json'),
     (Join-Path $addonSource '__init__.py'),
@@ -47,8 +51,8 @@ if (Test-Path -LiteralPath $staging) {
     Remove-Item -LiteralPath $staging -Recurse -Force
 }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
-Write-Host 'Copying Blender Release runtime...'
-& robocopy.exe $release $staging /E /R:2 /W:2 /NFL /NDL /NP /XF *.pdb *.ilk *.lib *.exp *.pyc
+Write-Host 'Copying Hamun Release runtime...'
+& robocopy.exe $release $staging /E /R:2 /W:2 /NFL /NDL /NP /XD blender.shared blender.crt /XF *.pdb *.ilk *.lib *.exp *.pyc blender.exe blender-launcher.exe blender_cpu_check.dll BlendThumb.dll
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed (exit code $LASTEXITCODE)" }
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
 New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
@@ -64,11 +68,21 @@ foreach ($required in @(
     (Join-Path $addonTarget '__init__.py'),
     $startupTarget,
     (Join-Path $staging 'HamunEditor.exe'),
-    (Join-Path $staging 'blender.exe'),
+    (Join-Path $staging 'HamunEditorCore.exe'),
+    (Join-Path $staging 'hamun.shared\hamun.shared.manifest'),
+    (Join-Path $staging 'hamun.crt\hamun.crt.manifest'),
+    (Join-Path $staging 'hamun_cpu_check.dll'),
+    (Join-Path $staging 'HamunThumb.dll'),
     (Join-Path $staging 'license\license.md'),
     (Join-Path $staging 'license\licenses.json')
 )) {
     if (-not (Test-Path -LiteralPath $required)) { throw "Package validation failed: $required" }
+}
+$oldNames = @('blender.exe','blender-launcher.exe','blender_cpu_check.dll','BlendThumb.dll','blender.shared','blender.crt')
+foreach ($oldName in $oldNames) {
+    if (Test-Path -LiteralPath (Join-Path $staging $oldName)) {
+        throw "Deprecated top-level artifact still exists: $oldName"
+    }
 }
 $readme = @"
 Hamun Editor $Version - Windows x64 portable test build
