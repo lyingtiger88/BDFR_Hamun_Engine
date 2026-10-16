@@ -6,7 +6,7 @@
 bl_info = {
     "name": "Hamun Authoring Tools",
     "author": "Hamun Engine contributors",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (4, 0, 0),
     "location": "3D View > Header > Hamun",
     "description": "Initial Hamun workflow integration for Blender",
@@ -17,6 +17,8 @@ import bpy
 import json
 import re
 import os
+import shutil
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -529,6 +531,90 @@ class HAMUN_OT_import_hscene(bpy.types.Operator):
         return {"FINISHED"}
 
 
+
+def _hamun_project_root(context):
+    stored = context.scene.get("hamun_project_root")
+    if stored:
+        root = Path(stored).resolve()
+        if (root / "Assets").is_dir() and (root / "Scenes").is_dir():
+            return root
+    if bpy.data.filepath:
+        scene_file = Path(bpy.data.filepath).resolve()
+        root = scene_file.parent.parent
+        if (root / "Assets").is_dir() and (root / "Scenes").is_dir():
+            return root
+    raise ValueError("Open a Hamun project before using this command")
+
+
+class HAMUN_OT_import_asset(bpy.types.Operator):
+    """Copy a single-mesh GLB into Assets and place its mesh in the scene"""
+    bl_idname = "hamun.import_asset"
+    bl_label = "Import Asset"
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filter_glob: bpy.props.StringProperty(default="*.glb", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            root = _hamun_project_root(context)
+            source = Path(bpy.path.abspath(self.filepath)).resolve()
+            if source.suffix.lower() != ".glb" or not source.is_file():
+                raise ValueError("Select an existing .glb file")
+            dest = root / "Assets" / source.name
+            if source != dest.resolve():
+                if dest.exists():
+                    dest = root / "Assets" / (source.stem + "_" + uuid.uuid4().hex[:8] + ".glb")
+                shutil.copy2(source, dest)
+            before = set(bpy.data.objects)
+            status = bpy.ops.import_scene.gltf(filepath=str(dest))
+            if "FINISHED" not in status:
+                raise RuntimeError("Blender GLB import failed")
+            created = set(bpy.data.objects) - before
+            mesh_objects = [obj for obj in created if obj.type == "MESH"]
+            if len(mesh_objects) != 1 or len(created) != 1:
+                # Complex GLBs remain imported and editable, but we do not falsely
+                # claim their hierarchy is supported by the HScene GLB reloader.
+                self.report({"WARNING"}, "GLB imported; automatic HScene link requires one mesh and no extras")
+                return {"FINISHED"}
+            mesh_objects[0]["hamun_asset"] = dest.relative_to(root).as_posix()
+            context.scene["hamun_project_root"] = str(root)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.report({"ERROR"}, f"Import Asset: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Asset imported and linked automatically")
+        return {"FINISHED"}
+
+
+class HAMUN_OT_save_project(bpy.types.Operator):
+    """Save native Blender authoring source and Hamun entity scene together"""
+    bl_idname = "hamun.save_project"
+    bl_label = "Save Hamun Project"
+
+    def execute(self, context):
+        try:
+            root = _hamun_project_root(context)
+            if not bpy.data.filepath or not Path(bpy.data.filepath).resolve().is_relative_to(root):
+                raise ValueError("Current Blender scene is outside the Hamun project")
+            # Persist the asset links before creating the engine-facing scene.
+            context.scene["hamun_project_root"] = str(root)
+            result = bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)
+            if "FINISHED" not in result:
+                raise RuntimeError("Saving Blender source scene failed")
+            target = Path(bpy.data.filepath).with_suffix(".hscene")
+            target.write_text(
+                json.dumps(_hscene_document(context.scene), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.report({"ERROR"}, f"Save Project: {exc}")
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Saved Blender scene and Hamun .hscene")
+        return {"FINISHED"}
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -539,6 +625,8 @@ class HAMUN_PT_authoring(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator("hamun.create_project", icon="FILE_NEW")
+        layout.operator("hamun.import_asset", icon="IMPORT")
+        layout.operator("hamun.save_project", icon="FILE_TICK")
         layout.operator("hamun.open_project", icon="FILE_FOLDER")
         layout.operator("hamun.upgrade_project", icon="FILE_REFRESH")
         layout.operator("hamun.setup_workspace", icon="WORKSPACE")
@@ -579,6 +667,8 @@ def draw_hamun_menu(self, context):
 
 classes = (
     HAMUN_OT_create_project,
+    HAMUN_OT_import_asset,
+    HAMUN_OT_save_project,
     HAMUN_OT_open_project,
     HAMUN_OT_upgrade_project,
     HAMUN_OT_prepare_scene,
