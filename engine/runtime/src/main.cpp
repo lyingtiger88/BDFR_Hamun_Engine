@@ -438,7 +438,8 @@ struct Runtime {
         params.camera[0]=yaw; params.camera[1]=pitch;
         params.camera[2]=distance; params.camera[3]=float(extent.width)/float(extent.height);
         const float objects[4][4]={{-3.6f,0,0,0.87f},{-1.2f,0,0,0.87f},{1.2f,0,0,0.87f},{3.6f,0,0,0.87f}};
-        const float seconds=std::chrono::duration<float>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        static const auto animationStart=std::chrono::steady_clock::now();
+        const float seconds=std::chrono::duration<float>(std::chrono::steady_clock::now()-animationStart).count();
         for(int material=0;material<4;++material){
             const auto& obj=objects[material];
             std::memcpy(params.object,obj,sizeof(obj));
