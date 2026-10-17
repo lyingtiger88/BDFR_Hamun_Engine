@@ -55,6 +55,7 @@ struct Runtime {
     VkSemaphore imageReady{}, renderDone{};
     VkFence frameFence{};
     HamunDiagnostics diagnostics;
+    std::wstring presentModeName=L"FIFO";
     HamunMesh mesh=hamunMakeSphere();
     VkBuffer vertexBuffer{}, indexBuffer{};
     VkDeviceMemory vertexMemory{}, indexMemory{};
@@ -261,7 +262,25 @@ struct Runtime {
         sci.preTransform = caps.currentTransform;
         sci.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ?
             VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
-        sci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        // Prefer non-vsync present modes for an uncapped rendering benchmark.
+        // MAILBOX may still synchronize presentation to refresh; IMMEDIATE can tear.
+        uint32_t modeCount=0;
+        check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical,surface,&modeCount,nullptr),
+              "Present mode query failed");
+        std::vector<VkPresentModeKHR> available(modeCount);
+        check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical,surface,&modeCount,available.data()),
+              "Present modes query failed");
+        auto supports=[&](VkPresentModeKHR mode){
+            return std::find(available.begin(),available.end(),mode)!=available.end();
+        };
+        VkPresentModeKHR selectedMode=VK_PRESENT_MODE_FIFO_KHR;
+        if(supports(VK_PRESENT_MODE_IMMEDIATE_KHR)) selectedMode=VK_PRESENT_MODE_IMMEDIATE_KHR;
+        else if(supports(VK_PRESENT_MODE_MAILBOX_KHR)) selectedMode=VK_PRESENT_MODE_MAILBOX_KHR;
+        sci.presentMode=selectedMode;
+        presentModeName=(selectedMode==VK_PRESENT_MODE_IMMEDIATE_KHR)?L"IMMEDIATE (uncapped / tearing possible)":
+          (selectedMode==VK_PRESENT_MODE_MAILBOX_KHR)?L"MAILBOX (refresh-paced presentation)":
+          L"FIFO (VSync fallback)";
+        diagnostics.setPresentMode(presentModeName);
         sci.clipped = VK_TRUE;
         check(vkCreateSwapchainKHR(device, &sci, nullptr, &swapchain), "Swapchain failed");
         check(vkGetSwapchainImagesKHR(device, swapchain, &n, nullptr), "Swapchain images failed");
