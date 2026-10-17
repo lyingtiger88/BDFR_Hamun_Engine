@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Hamun Runtime 0.1 - native Win32 + Vulkan first triangle.
 #include <windows.h>
+#include <shellapi.h>
 #include "mesh.hpp"
 #include "diagnostics.hpp"
 #include <chrono>
@@ -69,6 +70,7 @@ struct Runtime {
     }
     HamunMesh mesh=hamunMakeSphere();
     bool usingImportedMesh=false;
+    std::string sceneFile="scene.hmesh";
     uint32_t groundFirstIndex=0, groundIndexCount=0;
     uint32_t sphereIndexCount=static_cast<uint32_t>(mesh.indices.size());
     VkBuffer vertexBuffer{}, indexBuffer{};
@@ -196,10 +198,10 @@ struct Runtime {
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         check(vkCreateFence(device, &fci, nullptr, &frameFence), "Frame fence failed");
-        { std::ifstream probe("scene.hmesh",std::ios::binary);
+        { std::ifstream probe(sceneFile,std::ios::binary);
           if(probe.good()){
               probe.close();
-              mesh=hamunLoadHmesh("scene.hmesh");
+              mesh=hamunLoadHmesh(sceneFile);
               usingImportedMesh=true;
               sphereIndexCount=static_cast<uint32_t>(mesh.indices.size());
               SetWindowTextW(hwnd,L"Hamun Vulkan Runtime | Imported GLB Mesh");
@@ -584,6 +586,24 @@ int WINAPI wWinMain(HINSTANCE app,HINSTANCE,LPWSTR,int) {
         std::wstring executable(path);
         auto slash=executable.find_last_of(L"\\/");
         if(slash!=std::wstring::npos) SetCurrentDirectoryW(executable.substr(0,slash).c_str());
+        // Optional --scene <absolute.hmesh> allows launching a temporary exported
+        // scene from Hamun Editor without modifying the runtime installation.
+        int argc=0;
+        LPWSTR* argv=CommandLineToArgvW(GetCommandLineW(),&argc);
+        if(argv){
+            for(int i=1;i+1<argc;++i){
+                if(std::wstring(argv[i])==L"--scene"){
+                    int required=WideCharToMultiByte(CP_UTF8,0,argv[i+1],-1,nullptr,0,nullptr,nullptr);
+                    if(required<=0)throw std::runtime_error("Invalid scene path encoding");
+                    std::string path(size_t(required),'\0');
+                    WideCharToMultiByte(CP_UTF8,0,argv[i+1],-1,path.data(),required,nullptr,nullptr);
+                    path.resize(size_t(required-1));
+                    runtime.sceneFile=path;
+                    break;
+                }
+            }
+            LocalFree(argv);
+        }
         runtime.window(app);
         runtime.initialize();
         MSG msg{};
