@@ -2,6 +2,8 @@
 // Hamun Runtime 0.1 - native Win32 + Vulkan first triangle.
 #include <windows.h>
 #include "mesh.hpp"
+#include "diagnostics.hpp"
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <vulkan/vulkan.h>
@@ -52,6 +54,7 @@ struct Runtime {
     std::vector<VkCommandBuffer> cmds;
     VkSemaphore imageReady{}, renderDone{};
     VkFence frameFence{};
+    HamunDiagnostics diagnostics;
     HamunMesh mesh=hamunMakeCube();
     VkBuffer vertexBuffer{}, indexBuffer{};
     VkDeviceMemory vertexMemory{}, indexMemory{};
@@ -107,7 +110,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.3 | 3 Meshes",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.4 | HUD",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -183,6 +186,7 @@ struct Runtime {
         uploadBuffer(mesh.indices.data(),mesh.indices.size()*sizeof(uint32_t),
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT,indexBuffer,indexMemory);
         recreate();
+        diagnostics.create(hwnd,physical);
     }
     void destroySwapchain() {
         if (!device) return;
@@ -401,6 +405,7 @@ struct Runtime {
         resized=false;
     }
     void draw() {
+        const auto frameStart=std::chrono::steady_clock::now();
         if (GetAsyncKeyState(VK_LEFT)&0x8000) yaw-=0.015f;
         if (GetAsyncKeyState(VK_RIGHT)&0x8000) yaw+=0.015f;
         if (GetAsyncKeyState(VK_UP)&0x8000) pitch=std::min(pitch+0.015f,1.3f);
@@ -453,11 +458,17 @@ struct Runtime {
         present.swapchainCount=1; present.pSwapchains=&swapchain; present.pImageIndices=&index;
         result=vkQueuePresentKHR(queue,&present);
         // Single frame in flight: wait before reusing renderDone semaphore.
+        const auto waitStart=std::chrono::steady_clock::now();
         check(vkQueueWaitIdle(queue),"Queue idle failed");
+        const auto waitEnd=std::chrono::steady_clock::now();
+        const double cpuMs=std::chrono::duration<double,std::milli>(waitEnd-frameStart).count();
+        const double waitMs=std::chrono::duration<double,std::milli>(waitEnd-waitStart).count();
+        diagnostics.frame(cpuMs,waitMs);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || resized) recreate();
         else check(result,"Present failed");
     }
     void shutdown() {
+        diagnostics.shutdown();
         if (device) vkDeviceWaitIdle(device);
         destroySwapchain();
         if (device) {
