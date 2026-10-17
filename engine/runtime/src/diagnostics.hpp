@@ -5,6 +5,7 @@
 #include <psapi.h>
 #include <vulkan/vulkan.h>
 #include <chrono>
+#include <algorithm>
 #include <cwchar>
 #include <string>
 #include <sstream>
@@ -112,19 +113,27 @@ public:
         if(bitmap){
             HGDIOBJ old=SelectObject(memory,bitmap);
             RECT area{0,0,PanelWidth,PanelHeight};
-            HBRUSH background=CreateSolidBrush(RGB(13,22,37));
-            FillRect(memory,&area,background);
-            DeleteObject(background);
+            // Draw on black, then convert brightness to per-pixel alpha.
+            // Fully black pixels become transparent; only glyph pixels remain.
+            PatBlt(memory,0,0,PanelWidth,PanelHeight,BLACKNESS);
             SetBkMode(memory,TRANSPARENT);
-            SetTextColor(memory,RGB(230,242,255));
+            SetTextColor(memory,RGB(255,255,255));
             HGDIOBJ priorFont=font_?SelectObject(memory,font_):nullptr;
             RECT body{14,12,PanelWidth-10,PanelHeight-10};
             const auto lines=out.str();
             DrawTextW(memory,lines.c_str(),-1,&body,DT_LEFT|DT_TOP|DT_NOPREFIX|DT_WORDBREAK);
             if(priorFont)SelectObject(memory,priorFont);
+            // GDI does not populate the DIB alpha channel. Build premultiplied
+            // BGRA using the glyph luminance for proper per-pixel transparency.
+            auto* rgba=static_cast<unsigned char*>(pixels);
+            for(int i=0;i<PanelWidth*PanelHeight;++i){
+                unsigned char* pixel=rgba+4*i;
+                const unsigned char alpha=std::max(pixel[0],std::max(pixel[1],pixel[2]));
+                pixel[0]=alpha;pixel[1]=alpha;pixel[2]=alpha;pixel[3]=alpha;
+            }
             SIZE size{PanelWidth,PanelHeight};
             POINT src{0,0};
-            BLENDFUNCTION blend{AC_SRC_OVER,0,235,0};
+            BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
             UpdateLayeredWindow(label_,screen,&origin,&size,memory,&src,0,&blend,ULW_ALPHA);
             SelectObject(memory,old);
             DeleteObject(bitmap);
