@@ -1,3 +1,45 @@
+# Hamun Runtime — GLB Geometry Pipeline (first integration milestone)
+
+This is the first path from a real GLB asset to independent Vulkan rendering.
+It currently uses a conversion step rather than native runtime GLB parsing.
+
+## Windows x64 commands
+
+First build the runtime:
+
+```bat
+cd /d D:\HamunDev\Hamun
+git pull --ff-only origin feature/blender-source-integration
+cmake --build build/hamun-runtime --config Release
+```
+
+Export any static mesh from Hamun Editor as GLB and place it at
+`D:\HamunDev\Hamun\sample.glb`. Convert it:
+
+```bat
+py -3 engine\runtime\tools\glb_to_hmesh.py sample.glb build\hamun-runtime\Release\scene.hmesh
+build\hamun-runtime\Release\HamunRuntime.exe
+```
+
+If `scene.hmesh` is present beside `HamunRuntime.exe`, the runtime displays
+the converted mesh with a basic soil-style material and ground plane.
+Without that file it displays the previous four-sphere material laboratory.
+
+**Limits:** This first reader accepts embedded GLB 2.0 triangle meshes with
+FLOAT32 POSITION/NORMAL and standard unsigned index formats. It combines
+primitive meshes, but does not currently apply glTF node transforms, import
+PBR textures/materials, process skins, animation, extensions, or read external
+buffer files. Ground shadows on imported geometry are not yet implemented.
+The geometry pipeline must be validated on the user's Vega 56 before being
+considered complete.
+
+## Next milestone
+
+Import full glTF scene graphs and PBR materials, then connect the Hamun Editor
+Play workflow to a selected scene and a standalone runtime process.
+
+---
+
 ## v0.8 ground and moving-light shadow test
 
 - Added a flat ground mesh to the existing indexed Vulkan vertex/index buffers.
