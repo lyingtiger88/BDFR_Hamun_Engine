@@ -786,6 +786,54 @@ def _unregister_hamun_shortcuts():
     _hamun_keymaps.clear()
 
 
+class HAMUN_OT_play_runtime(bpy.types.Operator):
+    """Export mesh geometry and launch the standalone Vulkan runtime"""
+    bl_idname = "hamun.play_runtime"
+    bl_label = "Play in Hamun Runtime"
+    bl_description = "Export current scene to temporary GLB/HMESH and launch HamunRuntime.exe"
+
+    runtime_exe: bpy.props.StringProperty(name="HamunRuntime.exe", subtype="FILE_PATH")
+
+    def invoke(self, context, event):
+        if not self.runtime_exe:
+            self.runtime_exe = context.scene.get("hamun_runtime_exe", "")
+        return context.window_manager.invoke_props_dialog(self, width=510)
+
+    def draw(self, context):
+        self.layout.prop(self, "runtime_exe")
+
+    def execute(self, context):
+        import subprocess
+        import importlib.util
+        exe = Path(bpy.path.abspath(self.runtime_exe)).resolve()
+        if not exe.is_file() or exe.name.lower() != "hamunruntime.exe":
+            self.report({"ERROR"}, "Select the compiled HamunRuntime.exe")
+            return {"CANCELLED"}
+        converter = Path(__file__).with_name("glb_to_hmesh.py")
+        if not converter.is_file():
+            self.report({"ERROR"}, "GLB converter missing from Hamun add-on package")
+            return {"CANCELLED"}
+        try:
+            work = Path(tempfile.mkdtemp(prefix="hamun_play_"))
+            glb = work / "scene.glb"
+            hmesh = work / "scene.hmesh"
+            result = bpy.ops.export_scene.gltf(
+                filepath=str(glb), export_format="GLB", use_selection=False)
+            if "FINISHED" not in result:
+                raise RuntimeError("GLB export failed")
+            spec = importlib.util.spec_from_file_location("hamun_glb_converter", converter)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.convert(glb, hmesh)
+            subprocess.Popen([str(exe), "--scene", str(hmesh)], cwd=str(exe.parent))
+            context.scene["hamun_runtime_exe"] = str(exe)
+        except Exception as exc:
+            self.report({"ERROR"}, "Play failed: " + str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Hamun Vulkan Runtime launched")
+        return {"FINISHED"}
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -811,6 +859,7 @@ class HAMUN_PT_authoring(bpy.types.Panel):
         col.operator("transform.rotate", text="Rotate")
         col.operator("transform.resize", text="Scale")
         layout.separator()
+        layout.operator("hamun.play_runtime", text="Play in Hamun Runtime", icon="PLAY")
         layout.operator("hamun.export_scene", icon="EXPORT")
         layout.operator("hamun.link_glb", icon="LINKED")
         layout.operator("hamun.export_hscene", icon="EXPORT")
@@ -850,6 +899,7 @@ classes = (
     HAMUN_OT_prepare_scene,
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
+    HAMUN_OT_play_runtime,
     HAMUN_OT_link_glb,
     HAMUN_OT_export_hscene,
     HAMUN_OT_import_hscene,
