@@ -3,7 +3,7 @@ layout(location=0) in vec3 vNormal;
 layout(location=1) in vec3 vWorld;
 layout(location=0) out vec4 outColor;
 layout(push_constant) uniform Params {
- vec4 camera; vec4 object; vec4 material;
+ vec4 camera; vec4 object; vec4 material; vec4 lightA; vec4 lightB;
 } p;
 const float PI=3.14159265359;
 float hash(vec3 x){return fract(sin(dot(x,vec3(127.1,311.7,74.7)))*43758.5453);}
@@ -47,7 +47,7 @@ void main(){
  }
  // Ambient hemisphere plus two independently positioned point lights.
  vec3 col=base*(0.055+max(N.y,0.)*0.08);
- vec3 lights[2]=vec3[2](vec3(-4.,4.5,4.5),vec3(4.,2.5,2.5));
+ vec3 lights[2]=vec3[2](p.lightA.xyz,p.lightB.xyz);
  vec3 colors[2]=vec3[2](vec3(10.0,8.3,7.0),vec3(3.8,6.8,12.0));
  for(int i=0;i<2;++i){
     vec3 d=lights[i]-world;
