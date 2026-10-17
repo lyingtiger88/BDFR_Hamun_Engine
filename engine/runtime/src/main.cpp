@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Hamun Runtime 0.1 - native Win32 + Vulkan first triangle.
 #include <windows.h>
+#include "mesh.hpp"
+#include <cstddef>
+#include <cstring>
 #include <vulkan/vulkan.h>
 #include <algorithm>
 #include <array>
@@ -49,6 +52,37 @@ struct Runtime {
     std::vector<VkCommandBuffer> cmds;
     VkSemaphore imageReady{}, renderDone{};
     VkFence frameFence{};
+    HamunMesh mesh=hamunMakeCube();
+    VkBuffer vertexBuffer{}, indexBuffer{};
+    VkDeviceMemory vertexMemory{}, indexMemory{};
+    struct Push { float camera[4]; float object[4]; };
+    void uploadBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage,
+        VkBuffer& buffer, VkDeviceMemory& memory) {
+        VkBufferCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        ci.size=size; ci.usage=usage; ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+        check(vkCreateBuffer(device,&ci,nullptr,&buffer),"Create mesh buffer failed");
+        VkMemoryRequirements req{};
+        vkGetBufferMemoryRequirements(device,buffer,&req);
+        VkPhysicalDeviceMemoryProperties props{};
+        vkGetPhysicalDeviceMemoryProperties(physical,&props);
+        uint32_t type=UINT32_MAX;
+        for(uint32_t i=0;i<props.memoryTypeCount;++i)
+            if((req.memoryTypeBits&(1u<<i)) &&
+               (props.memoryTypes[i].propertyFlags&
+                (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))==
+                (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+                {type=i;break;}
+        if(type==UINT32_MAX) throw std::runtime_error("No coherent host-visible GPU memory");
+        VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        ai.allocationSize=req.size; ai.memoryTypeIndex=type;
+        check(vkAllocateMemory(device,&ai,nullptr,&memory),"Allocate mesh buffer failed");
+        check(vkBindBufferMemory(device,buffer,memory,0),"Bind mesh buffer failed");
+        void* mapped=nullptr;
+        check(vkMapMemory(device,memory,0,size,0,&mapped),"Map mesh memory failed");
+        std::memcpy(mapped,data,static_cast<size_t>(size));
+        vkUnmapMemory(device,memory);
+    }
+
 
     void window(HINSTANCE app) {
         hinstance = app;
@@ -73,7 +107,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.2 | Arrows: Orbit | W/S: Zoom",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.3 | 3 Meshes",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -144,6 +178,10 @@ struct Runtime {
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         check(vkCreateFence(device, &fci, nullptr, &frameFence), "Frame fence failed");
+        uploadBuffer(mesh.vertices.data(),mesh.vertices.size()*sizeof(HamunVertex),
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertexBuffer,vertexMemory);
+        uploadBuffer(mesh.indices.data(),mesh.indices.size()*sizeof(uint32_t),
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,indexBuffer,indexMemory);
         recreate();
     }
     void destroySwapchain() {
@@ -296,7 +334,14 @@ struct Runtime {
         for (auto& stage : stages) stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vert; stages[0].pName = "main";
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module = frag; stages[1].pName = "main";
+        VkVertexInputBindingDescription binding{0,sizeof(HamunVertex),VK_VERTEX_INPUT_RATE_VERTEX};
+        VkVertexInputAttributeDescription attrs[2]{
+            {0,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(HamunVertex,x)},
+            {1,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(HamunVertex,r)}
+        };
         VkPipelineVertexInputStateCreateInfo vertex{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+        vertex.vertexBindingDescriptionCount=1; vertex.pVertexBindingDescriptions=&binding;
+        vertex.vertexAttributeDescriptionCount=2; vertex.pVertexAttributeDescriptions=attrs;
         VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
@@ -315,7 +360,7 @@ struct Runtime {
         blend.attachmentCount=1; blend.pAttachments=&blendAttachment;
         VkPushConstantRange cameraRange{};
         cameraRange.stageFlags=VK_SHADER_STAGE_VERTEX_BIT;
-        cameraRange.size=sizeof(float)*4;
+        cameraRange.size=sizeof(Push);
         VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layout.pushConstantRangeCount=1;
         layout.pPushConstantRanges=&cameraRange;
@@ -381,9 +426,18 @@ struct Runtime {
         rb.renderArea.extent=extent; rb.clearValueCount=2; rb.pClearValues=clears;
         vkCmdBeginRenderPass(cmds[index],&rb,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmds[index],VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
-        float camera[4]={yaw,pitch,distance,float(extent.width)/float(extent.height)};
-        vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(camera),camera);
-        vkCmdDraw(cmds[index],36,1,0,0);
+        VkDeviceSize offset=0;
+        vkCmdBindVertexBuffers(cmds[index],0,1,&vertexBuffer,&offset);
+        vkCmdBindIndexBuffer(cmds[index],indexBuffer,0,VK_INDEX_TYPE_UINT32);
+        Push params{};
+        params.camera[0]=yaw; params.camera[1]=pitch;
+        params.camera[2]=distance; params.camera[3]=float(extent.width)/float(extent.height);
+        const float objects[3][4]={{-1.8f,0,0,0.7f},{0,0,0,0.9f},{1.8f,0,0,0.7f}};
+        for(const auto& obj:objects){
+            std::memcpy(params.object,obj,sizeof(obj));
+            vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(Push),&params);
+            vkCmdDrawIndexed(cmds[index],static_cast<uint32_t>(mesh.indices.size()),1,0,0,0);
+        }
         vkCmdEndRenderPass(cmds[index]);
         check(vkEndCommandBuffer(cmds[index]),"Command end failed");
         check(vkResetFences(device,1,&frameFence),"Fence reset failed");
@@ -407,6 +461,10 @@ struct Runtime {
         if (device) vkDeviceWaitIdle(device);
         destroySwapchain();
         if (device) {
+            if(vertexBuffer) vkDestroyBuffer(device,vertexBuffer,nullptr);
+            if(vertexMemory) vkFreeMemory(device,vertexMemory,nullptr);
+            if(indexBuffer) vkDestroyBuffer(device,indexBuffer,nullptr);
+            if(indexMemory) vkFreeMemory(device,indexMemory,nullptr);
             if (frameFence) vkDestroyFence(device,frameFence,nullptr);
             if (imageReady) vkDestroySemaphore(device,imageReady,nullptr);
             if (renderDone) vkDestroySemaphore(device,renderDone,nullptr);
