@@ -56,10 +56,21 @@ struct Runtime {
     VkFence frameFence{};
     HamunDiagnostics diagnostics;
     std::wstring presentModeName=L"FIFO";
+    int fpsLimit=0; // 0 = unlimited
+    int selectedLight=0;
+    float lights[2][4]={{-4.0f,4.5f,4.5f,1.0f},{4.0f,2.5f,2.5f,1.0f}};
+    std::chrono::steady_clock::time_point nextFrame{};
+    bool keyWasDown[256]{};
+    bool pressed(int code){
+        const bool down=(GetAsyncKeyState(code)&0x8000)!=0;
+        const bool hit=down&&!keyWasDown[code];
+        keyWasDown[code]=down;
+        return hit;
+    }
     HamunMesh mesh=hamunMakeSphere();
     VkBuffer vertexBuffer{}, indexBuffer{};
     VkDeviceMemory vertexMemory{}, indexMemory{};
-    struct Push { float camera[4]; float object[4]; float material[4]; };
+    struct Push { float camera[4]; float object[4]; float material[4]; float lightA[4]; float lightB[4]; };
     void uploadBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage,
         VkBuffer& buffer, VkDeviceMemory& memory) {
         VkBufferCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -111,7 +122,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.5 | Material Laboratory",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.7 | FPS and Light Controls",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -382,7 +393,7 @@ struct Runtime {
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         blend.attachmentCount=1; blend.pAttachments=&blendAttachment;
         VkPushConstantRange cameraRange{};
-        cameraRange.stageFlags=VK_SHADER_STAGE_VERTEX_BIT;
+        cameraRange.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;
         cameraRange.size=sizeof(Push);
         VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layout.pushConstantRangeCount=1;
@@ -424,7 +435,32 @@ struct Runtime {
         resized=false;
     }
     void draw() {
+        // Frame cap is independent of swapchain presentation mode.
+        if (fpsLimit>0) {
+            auto interval=std::chrono::duration<double>(1.0/double(fpsLimit));
+            auto now=std::chrono::steady_clock::now();
+            if(nextFrame.time_since_epoch().count()!=0 && now<nextFrame) {
+                auto remaining=nextFrame-now;
+                if(remaining>std::chrono::milliseconds(2))
+                    Sleep(static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count()-1));
+                while(std::chrono::steady_clock::now()<nextFrame) { SwitchToThread(); }
+            }
+            nextFrame=std::chrono::steady_clock::now()+
+              std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
+        } else nextFrame={};
         const auto frameStart=std::chrono::steady_clock::now();
+        if(pressed(VK_F6)) fpsLimit=(fpsLimit==0?30:fpsLimit==30?60:fpsLimit==60?120:fpsLimit==120?144:0);
+        if(pressed('1')) selectedLight=0;
+        if(pressed('2')) selectedLight=1;
+        float* light=lights[selectedLight];
+        constexpr float step=0.065f;
+        if(GetAsyncKeyState('J')&0x8000)light[0]-=step;
+        if(GetAsyncKeyState('L')&0x8000)light[0]+=step;
+        if(GetAsyncKeyState('I')&0x8000)light[2]-=step;
+        if(GetAsyncKeyState('K')&0x8000)light[2]+=step;
+        if(GetAsyncKeyState('U')&0x8000)light[1]+=step;
+        if(GetAsyncKeyState('O')&0x8000)light[1]-=step;
+        diagnostics.setControls(fpsLimit,selectedLight+1,lights[selectedLight]);
         if (GetAsyncKeyState(VK_LEFT)&0x8000) yaw-=0.015f;
         if (GetAsyncKeyState(VK_RIGHT)&0x8000) yaw+=0.015f;
         if (GetAsyncKeyState(VK_UP)&0x8000) pitch=std::min(pitch+0.015f,1.3f);
@@ -464,7 +500,9 @@ struct Runtime {
             std::memcpy(params.object,obj,sizeof(obj));
             params.material[0]=float(material);
             params.material[1]=seconds;
-            vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(Push),&params);
+            std::memcpy(params.lightA,lights[0],sizeof(lights[0]));
+            std::memcpy(params.lightB,lights[1],sizeof(lights[1]));
+            vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(Push),&params);
             vkCmdDrawIndexed(cmds[index],static_cast<uint32_t>(mesh.indices.size()),1,0,0,0);
         }
         vkCmdEndRenderPass(cmds[index]);
