@@ -54,6 +54,8 @@ New-Item -ItemType Directory -Path $staging -Force | Out-Null
 Write-Host 'Copying Hamun Release runtime...'
 & robocopy.exe $release $staging /E /R:2 /W:2 /NFL /NDL /NP /XD blender.shared blender.crt /XF *.pdb *.ilk *.lib *.exp *.pyc blender.exe blender-launcher.exe blender_cpu_check.dll BlendThumb.dll
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed (exit code $LASTEXITCODE)" }
+# Convert all 11 top-level diagnostic command helpers in the staging tree.
+& (Join-Path $PSScriptRoot 'brand_windows_cmd.ps1') -PackageDir $staging
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
 New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
 Copy-Item -LiteralPath $addonSource -Destination $addonTarget -Recurse -Force
@@ -73,6 +75,8 @@ foreach ($required in @(
     (Join-Path $staging 'hamun.crt\hamun.crt.manifest'),
     (Join-Path $staging 'hamun_cpu_check.dll'),
     (Join-Path $staging 'HamunThumb.dll'),
+    (Join-Path $staging 'hamun_debug_log.cmd'),
+    (Join-Path $staging 'hamun_factory_startup.cmd'),
     (Join-Path $staging 'license\license.md'),
     (Join-Path $staging 'license\licenses.json')
 )) {
