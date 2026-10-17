@@ -5,45 +5,63 @@ layout(location=0) out vec4 outColor;
 layout(push_constant) uniform Params {
  vec4 camera; vec4 object; vec4 material;
 } p;
+const float PI=3.14159265359;
 float hash(vec3 x){return fract(sin(dot(x,vec3(127.1,311.7,74.7)))*43758.5453);}
 float noise3(vec3 x){
- vec3 i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);
- float a=hash(i+vec3(0,0,0)),b=hash(i+vec3(1,0,0));
- float c=hash(i+vec3(0,1,0)),d=hash(i+vec3(1,1,0));
- float e=hash(i+vec3(0,0,1)),g=hash(i+vec3(1,0,1));
- float h=hash(i+vec3(0,1,1)),j=hash(i+vec3(1,1,1));
- return mix(mix(mix(a,b,f.x),mix(c,d,f.x),f.y),mix(mix(e,g,f.x),mix(h,j,f.x),f.y),f.z);
+ vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);
+ return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+ mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+vec3 brdf(vec3 base,float rough,float metal,vec3 N,vec3 V,vec3 L,vec3 lightColor){
+ vec3 H=normalize(V+L);
+ float ndl=max(dot(N,L),0.),ndv=max(dot(N,V),0.),ndh=max(dot(N,H),0.),vdh=max(dot(V,H),0.);
+ float a=max(0.055,rough*rough);float a2=a*a;
+ float D=a2/(PI*pow(max(ndh*ndh*(a2-1.)+1.,0.001),2.));
+ float k=pow(rough+1.,2.)/8.;
+ float G=ndl/(ndl*(1.-k)+k)*ndv/(ndv*(1.-k)+k);
+ vec3 f0=mix(vec3(0.04),base,metal);
+ vec3 F=f0+(1.-f0)*pow(1.-vdh,5.);
+ vec3 spec=D*G*F/max(4.*ndl*ndv,0.002);
+ return (base*(1.-metal)*(1.-F)/PI+spec)*lightColor*ndl;
 }
 void main(){
  vec3 N=normalize(vNormal);
- vec3 V=normalize(vec3(0.2,0.2,1.0));
- vec3 L=normalize(vec3(-0.55,0.9,1.1));
- float diffuse=max(dot(N,L),0.0);
- float rim=pow(1.0-max(dot(N,V),0.0),3.0);
- float spec=pow(max(dot(reflect(-L,N),V),0.0),55.0);
- float id=p.material.x;
- float t=p.material.y;
- vec3 col;
- if(id<0.5){ // stylized glass preview, not physical refraction
-    col=mix(vec3(0.06,0.23,0.34),vec3(0.48,0.9,0.96),rim);
-    col+=vec3(1.0)*spec*1.7;
-    col+=0.18*pow(max(dot(N,V),0.0),2.0);
- }else if(id<1.5){ // water surface-like sphere
-    float wave=noise3(vWorld*5.5+vec3(t*0.65,t*0.3,0));
-    col=mix(vec3(0.008,0.10,0.35),vec3(0.05,0.8,0.92),0.25+0.65*wave);
-    col*=0.35+diffuse*0.65;
-    col+=rim*vec3(0.15,0.85,1.0)+spec*vec3(1.0);
- }else if(id<2.5){ // soil
-    float grain=noise3(vWorld*22.0);
-    float mud=noise3(vWorld*5.0);
-    col=mix(vec3(0.13,0.065,0.026),vec3(0.45,0.29,0.12),mud);
-    col*=0.75+0.50*grain;
-    col*=0.27+0.73*diffuse;
- }else{ // animated stylized fire, emissive preview
-    float flame=noise3(vec3(vWorld.x*4.0,vWorld.y*7.0-t*2.2,vWorld.z*4.0));
-    float strength=clamp(0.5+0.6*flame+0.25*vWorld.y,0.0,1.0);
-    col=mix(vec3(0.95,0.11,0.009),vec3(1.0,0.9,0.2),strength);
-    col+=vec3(0.35,0.06,0.0)*rim;
+ vec3 world=vWorld*p.object.w+p.object.xyz;
+ vec3 V=normalize(vec3(0.,0.1,9.)-world);
+ float id=p.material.x,t=p.material.y;
+ vec3 base;float rough=0.5,metal=0.,transmission=0.;
+ if(id<0.5){
+    base=vec3(0.42,0.82,0.91);rough=0.065;transmission=0.85;
+ }else if(id<1.5){
+    float wave=noise3(vWorld*5.5+vec3(t*.4,t*.3,0));
+    base=mix(vec3(0.005,0.18,0.43),vec3(0.03,0.62,0.84),wave);
+    rough=0.095+wave*0.11;transmission=0.48;
+ }else if(id<2.5){
+    float grain=noise3(vWorld*28.),mud=noise3(vWorld*5.);
+    base=mix(vec3(.115,.052,.02),vec3(.43,.26,.11),mud)*(0.7+0.5*grain);
+    rough=0.88;metal=0.;
+ }else{
+    float flame=noise3(vec3(vWorld.x*3.8,vWorld.y*6.-t*1.7,vWorld.z*3.8));
+    base=mix(vec3(0.98,0.08,0.008),vec3(1.,0.85,0.12),clamp(flame*1.3+vWorld.y*.25,0.,1.));
+    rough=0.5;
  }
- outColor=vec4(col,1.0);
+ // Ambient hemisphere plus two independently positioned point lights.
+ vec3 col=base*(0.055+max(N.y,0.)*0.08);
+ vec3 lights[2]=vec3[2](vec3(-4.,4.5,4.5),vec3(4.,2.5,2.5));
+ vec3 colors[2]=vec3[2](vec3(10.0,8.3,7.0),vec3(3.8,6.8,12.0));
+ for(int i=0;i<2;++i){
+    vec3 d=lights[i]-world;
+    float attenuation=1./(1.+0.07*dot(d,d));
+    col+=brdf(base,rough,metal,N,V,normalize(d),colors[i]*attenuation);
+ }
+ if(transmission>0.){
+    // Transparent-looking approximation with Fresnel; no real refraction yet.
+    float fresnel=pow(1.-max(dot(N,V),0.),5.);
+    col=mix(col,base*(0.17+0.32*max(N.y,0.))+col*0.55,
+        transmission*(1.-fresnel)*0.7);
+ }
+ if(id>2.5)col+=base*2.2; // Emissive flame demonstration (not particle simulation).
+ col=col/(vec3(1.)+col); // simple HDR tone mapping
+ col=pow(max(col,vec3(0.)),vec3(1./2.2));
+ outColor=vec4(col,1.);
 }
