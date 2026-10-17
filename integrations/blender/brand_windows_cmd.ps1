@@ -56,7 +56,7 @@ foreach ($job in $jobs) {
     Remove-Item -LiteralPath $job.Source -Force
     Write-Host "Branded: $($job.Name)"
 }
-if (Test-Path -LiteralPath (Join-Path $root 'blender_*.cmd')) {
+if (@(Get-ChildItem -LiteralPath $root -Filter 'blender_*.cmd' -File).Count -gt 0) {
     throw 'Legacy CMD filename remains in staging'
 }
 Write-Host "Branded $($jobs.Count) Windows CMD helpers."
