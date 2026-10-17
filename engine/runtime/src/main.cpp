@@ -39,6 +39,10 @@ struct Runtime {
     std::vector<VkImageView> views;
     std::vector<VkFramebuffer> frames;
     VkRenderPass renderPass{};
+    VkImage depthImage{};
+    VkDeviceMemory depthMemory{};
+    VkImageView depthView{};
+    float yaw=0.45f, pitch=0.35f, distance=5.0f;
     VkPipelineLayout pipelineLayout{};
     VkPipeline pipeline{};
     VkCommandPool commandPool{};
@@ -69,7 +73,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.1",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.2 | Arrows: Orbit | W/S: Zoom",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -148,6 +152,12 @@ struct Runtime {
         cmds.clear();
         for (auto f : frames) vkDestroyFramebuffer(device, f, nullptr);
         frames.clear();
+        if (depthView) vkDestroyImageView(device, depthView, nullptr);
+        depthView=VK_NULL_HANDLE;
+        if (depthImage) vkDestroyImage(device, depthImage, nullptr);
+        depthImage=VK_NULL_HANDLE;
+        if (depthMemory) vkFreeMemory(device, depthMemory, nullptr);
+        depthMemory=VK_NULL_HANDLE;
         if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
         pipeline = VK_NULL_HANDLE;
         if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -224,6 +234,38 @@ struct Runtime {
             check(vkCreateImageView(device, &ci, nullptr, &view), "Image view failed");
             views.push_back(view);
         }
+        VkImageCreateInfo di{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        di.imageType=VK_IMAGE_TYPE_2D; di.format=VK_FORMAT_D32_SFLOAT;
+        di.extent={extent.width,extent.height,1}; di.mipLevels=1; di.arrayLayers=1;
+        di.samples=VK_SAMPLE_COUNT_1_BIT; di.tiling=VK_IMAGE_TILING_OPTIMAL;
+        di.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        check(vkCreateImage(device,&di,nullptr,&depthImage),"Depth image failed");
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device,depthImage,&req);
+        VkPhysicalDeviceMemoryProperties mem{};
+        vkGetPhysicalDeviceMemoryProperties(physical,&mem);
+        uint32_t type=UINT32_MAX;
+        for(uint32_t i=0;i<mem.memoryTypeCount;++i)
+          if((req.memoryTypeBits&(1u<<i)) &&
+             (mem.memoryTypes[i].propertyFlags&VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+             {type=i;break;}
+        if(type==UINT32_MAX) throw std::runtime_error("No local depth memory");
+        VkMemoryAllocateInfo allocMem{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocMem.allocationSize=req.size; allocMem.memoryTypeIndex=type;
+        check(vkAllocateMemory(device,&allocMem,nullptr,&depthMemory),"Depth alloc failed");
+        check(vkBindImageMemory(device,depthImage,depthMemory,0),"Depth bind failed");
+        VkImageViewCreateInfo dvi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        dvi.image=depthImage; dvi.viewType=VK_IMAGE_VIEW_TYPE_2D;
+        dvi.format=VK_FORMAT_D32_SFLOAT; dvi.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+        dvi.subresourceRange.levelCount=1; dvi.subresourceRange.layerCount=1;
+        check(vkCreateImageView(device,&dvi,nullptr,&depthView),"Depth view failed");
+        VkAttachmentDescription depth{};
+        depth.format=VK_FORMAT_D32_SFLOAT; depth.samples=VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference depthRef{1,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
         VkAttachmentDescription color{};
         color.format = format; color.samples = VK_SAMPLE_COUNT_1_BIT;
         color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -235,6 +277,7 @@ struct Runtime {
         sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         sub.colorAttachmentCount = 1;
         sub.pColorAttachments = &cref;
+        sub.pDepthStencilAttachment=&depthRef;
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         dependency.dstSubpass = 0;
@@ -242,7 +285,8 @@ struct Runtime {
         dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         VkRenderPassCreateInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        rp.attachmentCount = 1; rp.pAttachments = &color;
+        VkAttachmentDescription attachments[2]={color,depth};
+        rp.attachmentCount=2; rp.pAttachments=attachments;
         rp.subpassCount = 1; rp.pSubpasses = &sub;
         rp.dependencyCount = 1; rp.pDependencies = &dependency;
         check(vkCreateRenderPass(device, &rp, nullptr, &renderPass), "Render pass failed");
@@ -269,7 +313,12 @@ struct Runtime {
         blendAttachment.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         blend.attachmentCount=1; blend.pAttachments=&blendAttachment;
+        VkPushConstantRange cameraRange{};
+        cameraRange.stageFlags=VK_SHADER_STAGE_VERTEX_BIT;
+        cameraRange.size=sizeof(float)*4;
         VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        layout.pushConstantRangeCount=1;
+        layout.pPushConstantRanges=&cameraRange;
         check(vkCreatePipelineLayout(device,&layout,nullptr,&pipelineLayout),"Pipeline layout failed");
         VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         pipelineCI.stageCount=2; pipelineCI.pStages=stages;
@@ -279,6 +328,10 @@ struct Runtime {
         pipelineCI.pRasterizationState=&raster;
         pipelineCI.pMultisampleState=&multisample;
         pipelineCI.pColorBlendState=&blend;
+        VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        ds.depthTestEnable=VK_TRUE; ds.depthWriteEnable=VK_TRUE;
+        ds.depthCompareOp=VK_COMPARE_OP_LESS;
+        pipelineCI.pDepthStencilState=&ds;
         pipelineCI.layout=pipelineLayout;
         pipelineCI.renderPass=renderPass;
         VkResult pipelineResult=vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pipelineCI,nullptr,&pipeline);
@@ -288,7 +341,8 @@ struct Runtime {
         for (auto view : views) {
             VkFramebufferCreateInfo ci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             ci.renderPass=renderPass;
-            ci.attachmentCount=1; ci.pAttachments=&view;
+            VkImageView attachmentsForFrame[2]={view,depthView};
+            ci.attachmentCount=2; ci.pAttachments=attachmentsForFrame;
             ci.width=extent.width; ci.height=extent.height; ci.layers=1;
             VkFramebuffer framebuffer{};
             check(vkCreateFramebuffer(device,&ci,nullptr,&framebuffer),"Framebuffer failed");
@@ -299,22 +353,15 @@ struct Runtime {
         alloc.commandPool=commandPool; alloc.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc.commandBufferCount=uint32_t(cmds.size());
         check(vkAllocateCommandBuffers(device,&alloc,cmds.data()),"Command buffer allocation failed");
-        for (size_t i=0;i<cmds.size();++i) {
-            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            check(vkBeginCommandBuffer(cmds[i],&begin),"Command buffer begin failed");
-            VkClearValue clear{}; clear.color={{0.015f,0.025f,0.045f,1.0f}};
-            VkRenderPassBeginInfo rpBegin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-            rpBegin.renderPass=renderPass; rpBegin.framebuffer=frames[i];
-            rpBegin.renderArea.extent=extent; rpBegin.clearValueCount=1; rpBegin.pClearValues=&clear;
-            vkCmdBeginRenderPass(cmds[i],&rpBegin,VK_SUBPASS_CONTENTS_INLINE);
-            vkCmdBindPipeline(cmds[i],VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
-            vkCmdDraw(cmds[i],3,1,0,0);
-            vkCmdEndRenderPass(cmds[i]);
-            check(vkEndCommandBuffer(cmds[i]),"Command buffer end failed");
-        }
         resized=false;
     }
     void draw() {
+        if (GetAsyncKeyState(VK_LEFT)&0x8000) yaw-=0.015f;
+        if (GetAsyncKeyState(VK_RIGHT)&0x8000) yaw+=0.015f;
+        if (GetAsyncKeyState(VK_UP)&0x8000) pitch=std::min(pitch+0.015f,1.3f);
+        if (GetAsyncKeyState(VK_DOWN)&0x8000) pitch=std::max(pitch-0.015f,-1.3f);
+        if (GetAsyncKeyState('W')&0x8000) distance=std::max(2.8f,distance-0.04f);
+        if (GetAsyncKeyState('S')&0x8000) distance=std::min(18.0f,distance+0.04f);
         if (resized) { recreate(); return; }
         if (!swapchain) { recreate(); return; }
         check(vkWaitForFences(device,1,&frameFence,VK_TRUE,UINT64_MAX),"Fence wait failed");
@@ -323,6 +370,22 @@ struct Runtime {
         if (result == VK_ERROR_OUT_OF_DATE_KHR) { recreate(); return; }
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
             throw std::runtime_error("Acquire image failed");
+        check(vkResetCommandBuffer(cmds[index],0),"Command reset failed");
+        VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        check(vkBeginCommandBuffer(cmds[index],&begin),"Command begin failed");
+        VkClearValue clears[2]{};
+        clears[0].color={{0.015f,0.025f,0.045f,1.0f}};
+        clears[1].depthStencil={1.0f,0};
+        VkRenderPassBeginInfo rb{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        rb.renderPass=renderPass; rb.framebuffer=frames[index];
+        rb.renderArea.extent=extent; rb.clearValueCount=2; rb.pClearValues=clears;
+        vkCmdBeginRenderPass(cmds[index],&rb,VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmds[index],VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+        float camera[4]={yaw,pitch,distance,float(extent.width)/float(extent.height)};
+        vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(camera),camera);
+        vkCmdDraw(cmds[index],36,1,0,0);
+        vkCmdEndRenderPass(cmds[index]);
+        check(vkEndCommandBuffer(cmds[index]),"Command end failed");
         check(vkResetFences(device,1,&frameFence),"Fence reset failed");
         VkPipelineStageFlags stages[]={VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
