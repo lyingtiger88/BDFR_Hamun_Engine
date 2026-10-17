@@ -68,6 +68,7 @@ struct Runtime {
         return hit;
     }
     HamunMesh mesh=hamunMakeSphere();
+    bool usingImportedMesh=false;
     uint32_t groundFirstIndex=0, groundIndexCount=0;
     uint32_t sphereIndexCount=static_cast<uint32_t>(mesh.indices.size());
     VkBuffer vertexBuffer{}, indexBuffer{};
@@ -195,6 +196,15 @@ struct Runtime {
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         check(vkCreateFence(device, &fci, nullptr, &frameFence), "Frame fence failed");
+        { std::ifstream probe("scene.hmesh",std::ios::binary);
+          if(probe.good()){
+              probe.close();
+              mesh=hamunLoadHmesh("scene.hmesh");
+              usingImportedMesh=true;
+              sphereIndexCount=static_cast<uint32_t>(mesh.indices.size());
+              SetWindowTextW(hwnd,L"Hamun Vulkan Runtime | Imported GLB Mesh");
+          }
+        }
         hamunAppendGround(mesh,groundFirstIndex,groundIndexCount);
         uploadBuffer(mesh.vertices.data(),mesh.vertices.size()*sizeof(HamunVertex),
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertexBuffer,vertexMemory);
@@ -498,10 +508,13 @@ struct Runtime {
         const float objects[4][4]={{-3.6f,0,0,0.87f},{-1.2f,0,0,0.87f},{1.2f,0,0,0.87f},{3.6f,0,0,0.87f}};
         static const auto animationStart=std::chrono::steady_clock::now();
         const float seconds=std::chrono::duration<float>(std::chrono::steady_clock::now()-animationStart).count();
-        for(int material=0;material<4;++material){
+        for(int material=0;material<(usingImportedMesh?1:4);++material){
             const auto& obj=objects[material];
-            std::memcpy(params.object,obj,sizeof(obj));
-            params.material[0]=float(material);
+            if(usingImportedMesh){
+                const float importedTransform[4]={0,0,0,1.0f};
+                std::memcpy(params.object,importedTransform,sizeof(importedTransform));
+            }else std::memcpy(params.object,obj,sizeof(obj));
+            params.material[0]=usingImportedMesh?2.0f:float(material);
             params.material[1]=seconds;
             std::memcpy(params.lightA,lights[0],sizeof(lights[0]));
             std::memcpy(params.lightB,lights[1],sizeof(lights[1]));
@@ -511,7 +524,7 @@ struct Runtime {
         // Ground receives hard analytical shadows cast by the four preview spheres.
         const float groundObject[4]={0,0,0,1};
         std::memcpy(params.object,groundObject,sizeof(groundObject));
-        params.material[0]=4.0f;
+        params.material[0]=usingImportedMesh?5.0f:4.0f;
         vkCmdPushConstants(cmds[index],pipelineLayout,
             VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(Push),&params);
         vkCmdDrawIndexed(cmds[index],groundIndexCount,1,groundFirstIndex,0,0);
