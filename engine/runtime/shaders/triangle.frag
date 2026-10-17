@@ -78,7 +78,7 @@ void main(){
  for(int i=0;i<2;++i){
     vec3 d=lights[i]-world;
     float attenuation=1./(1.+0.07*dot(d,d));
-    float shadow=(id>3.5)?sphereShadow(world+N*0.005,lights[i]):1.0;
+    float shadow=(id>3.5 && id<4.5)?sphereShadow(world+N*0.005,lights[i]):1.0;
     col+=shadow*brdf(base,rough,metal,N,V,normalize(d),colors[i]*attenuation);
  }
  if(transmission>0.){
