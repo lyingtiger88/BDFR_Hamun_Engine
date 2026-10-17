@@ -68,6 +68,8 @@ struct Runtime {
         return hit;
     }
     HamunMesh mesh=hamunMakeSphere();
+    uint32_t groundFirstIndex=0, groundIndexCount=0;
+    uint32_t sphereIndexCount=static_cast<uint32_t>(mesh.indices.size());
     VkBuffer vertexBuffer{}, indexBuffer{};
     VkDeviceMemory vertexMemory{}, indexMemory{};
     struct Push { float camera[4]; float object[4]; float material[4]; float lightA[4]; float lightB[4]; };
@@ -122,7 +124,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.7 | FPS and Light Controls",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.8 | Light Shadow Test",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -193,6 +195,7 @@ struct Runtime {
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         check(vkCreateFence(device, &fci, nullptr, &frameFence), "Frame fence failed");
+        hamunAppendGround(mesh,groundFirstIndex,groundIndexCount);
         uploadBuffer(mesh.vertices.data(),mesh.vertices.size()*sizeof(HamunVertex),
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertexBuffer,vertexMemory);
         uploadBuffer(mesh.indices.data(),mesh.indices.size()*sizeof(uint32_t),
@@ -503,8 +506,15 @@ struct Runtime {
             std::memcpy(params.lightA,lights[0],sizeof(lights[0]));
             std::memcpy(params.lightB,lights[1],sizeof(lights[1]));
             vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(Push),&params);
-            vkCmdDrawIndexed(cmds[index],static_cast<uint32_t>(mesh.indices.size()),1,0,0,0);
+            vkCmdDrawIndexed(cmds[index],sphereIndexCount,1,0,0,0);
         }
+        // Ground receives hard analytical shadows cast by the four preview spheres.
+        const float groundObject[4]={0,0,0,1};
+        std::memcpy(params.object,groundObject,sizeof(groundObject));
+        params.material[0]=4.0f;
+        vkCmdPushConstants(cmds[index],pipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,sizeof(Push),&params);
+        vkCmdDrawIndexed(cmds[index],groundIndexCount,1,groundFirstIndex,0,0);
         vkCmdEndRenderPass(cmds[index]);
         check(vkEndCommandBuffer(cmds[index]),"Command end failed");
         check(vkResetFences(device,1,&frameFence),"Fence reset failed");
