@@ -47,7 +47,7 @@ struct Runtime {
     VkImage depthImage{};
     VkDeviceMemory depthMemory{};
     VkImageView depthView{};
-    float yaw=0.45f, pitch=0.35f, distance=5.0f;
+    float yaw=0.15f, pitch=0.15f, distance=10.0f;
     VkPipelineLayout pipelineLayout{};
     VkPipeline pipeline{};
     VkCommandPool commandPool{};
@@ -55,10 +55,10 @@ struct Runtime {
     VkSemaphore imageReady{}, renderDone{};
     VkFence frameFence{};
     HamunDiagnostics diagnostics;
-    HamunMesh mesh=hamunMakeCube();
+    HamunMesh mesh=hamunMakeSphere();
     VkBuffer vertexBuffer{}, indexBuffer{};
     VkDeviceMemory vertexMemory{}, indexMemory{};
-    struct Push { float camera[4]; float object[4]; };
+    struct Push { float camera[4]; float object[4]; float material[4]; };
     void uploadBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage,
         VkBuffer& buffer, VkDeviceMemory& memory) {
         VkBufferCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -110,7 +110,7 @@ struct Runtime {
         cls.lpszClassName = L"HamunRuntimeWindow";
         cls.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
-        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.4 | HUD",
+        hwnd = CreateWindowExW(0, cls.lpszClassName, L"Hamun Runtime - Vulkan 0.5 | Material Laboratory",
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720,
             nullptr, nullptr, app, this);
         if (!hwnd) throw std::runtime_error("Win32 window creation failed");
@@ -437,9 +437,13 @@ struct Runtime {
         Push params{};
         params.camera[0]=yaw; params.camera[1]=pitch;
         params.camera[2]=distance; params.camera[3]=float(extent.width)/float(extent.height);
-        const float objects[3][4]={{-1.8f,0,0,0.7f},{0,0,0,0.9f},{1.8f,0,0,0.7f}};
-        for(const auto& obj:objects){
+        const float objects[4][4]={{-3.6f,0,0,0.87f},{-1.2f,0,0,0.87f},{1.2f,0,0,0.87f},{3.6f,0,0,0.87f}};
+        const float seconds=std::chrono::duration<float>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        for(int material=0;material<4;++material){
+            const auto& obj=objects[material];
             std::memcpy(params.object,obj,sizeof(obj));
+            params.material[0]=float(material);
+            params.material[1]=seconds;
             vkCmdPushConstants(cmds[index],pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(Push),&params);
             vkCmdDrawIndexed(cmds[index],static_cast<uint32_t>(mesh.indices.size()),1,0,0,0);
         }
