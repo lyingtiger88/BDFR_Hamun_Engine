@@ -42,6 +42,12 @@ class HamunDiagnostics {
         prevIdle_=i;prevKernel_=k;prevUser_=u;hasCpuSample_=true;
     }
 public:
+    int fpsLimit_=0, selectedLight_=1;
+    float lightPosition_[3]{};
+    void setControls(int cap,int selected,const float* position){
+        fpsLimit_=cap; selectedLight_=selected;
+        for(int i=0;i<3;++i)lightPosition_[i]=position[i];
+    }
     void setPresentMode(const std::wstring& name){presentMode_=name;}
     void create(HWND parent, VkPhysicalDevice gpu){
         VkPhysicalDeviceProperties properties{};
@@ -87,6 +93,9 @@ public:
            <<L"Render API: Vulkan  "<<driver_<<L"\r\n"
            <<L"GPU: "<<gpu_<<L"\r\n"
            <<L"Present: "<<presentMode_<<L"\r\n"
+           <<L"FPS cap: "<<(fpsLimit_==0?L"Unlimited":std::to_wstring(fpsLimit_))<<L"\r\n"
+           <<L"Light "<<selectedLight_<<L": ("<<lightPosition_[0]<<L", "<<lightPosition_[1]<<L", "<<lightPosition_[2]<<L")\r\n"
+           <<L"F6 Cap | 1/2 Light | J/L X | U/O Y | I/K Z\r\n"
            <<L"FPS: "<<fps<<L"  |  Frame: "<<avgFrameMs_<<L" ms\r\n"
            <<L"CPU frame: "<<lastCpuFrameMs_<<L" ms\r\n"
            <<L"GPU/Present wait*: "<<lastGpuWaitMs_<<L" ms\r\n"
