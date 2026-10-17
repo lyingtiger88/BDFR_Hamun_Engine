@@ -2,6 +2,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 // v0.3: CPU-side mesh data. GPU upload is owned by the Vulkan runtime.
@@ -65,4 +68,26 @@ inline void hamunAppendGround(HamunMesh& mesh, uint32_t& firstIndex, uint32_t& i
     const uint32_t indices[6]={0,2,1,0,3,2};
     for(uint32_t index:indices)mesh.indices.push_back(vertexStart+index);
     indexCount=6;
+}
+
+inline HamunMesh hamunLoadHmesh(const std::string& filename){
+    std::ifstream file(filename,std::ios::binary);
+    if(!file)throw std::runtime_error("Cannot open HMESH: "+filename);
+    char magic[4]{};
+    uint32_t version=0,vertexCount=0,indexCount=0;
+    file.read(magic,4);
+    file.read(reinterpret_cast<char*>(&version),4);
+    file.read(reinterpret_cast<char*>(&vertexCount),4);
+    file.read(reinterpret_cast<char*>(&indexCount),4);
+    if(!file || std::string(magic,4)!="HMSH" || version!=1 ||
+       vertexCount==0 || vertexCount>2000000 || indexCount==0 || indexCount>6000000 ||
+       indexCount%3!=0) throw std::runtime_error("Unsupported HMESH header");
+    HamunMesh mesh;
+    mesh.vertices.resize(vertexCount);mesh.indices.resize(indexCount);
+    static_assert(sizeof(HamunVertex)==24,"HMESH layout mismatch");
+    file.read(reinterpret_cast<char*>(mesh.vertices.data()),mesh.vertices.size()*sizeof(HamunVertex));
+    file.read(reinterpret_cast<char*>(mesh.indices.data()),mesh.indices.size()*sizeof(uint32_t));
+    if(!file)throw std::runtime_error("Truncated HMESH");
+    for(auto index:mesh.indices)if(index>=vertexCount)throw std::runtime_error("Bad HMESH index");
+    return mesh;
 }
