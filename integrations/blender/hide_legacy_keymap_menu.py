@@ -56,13 +56,16 @@ def main():
     if not target.is_file():
         raise SystemExit(f"Missing UI source: {target}")
     orig = target.read_bytes()
-    if orig.count(OLD) == 1:
-        updated = orig.replace(OLD, NEW)
-    elif orig.count(NEW) == 1:
+    newline = b"\r\n" if b"\r\n" in orig else b"\n"
+    normalized = orig.replace(b"\r\n", b"\n")
+    if normalized.count(OLD) == 1:
+        updated_normalized = normalized.replace(OLD, NEW)
+    elif normalized.count(NEW) == 1:
         print("Already applied; no changes needed.")
         return
     else:
-        raise SystemExit("Unexpected menu source; no files changed.")
+        raise SystemExit("Unexpected menu source; no files changed. Send the class USERPREF_MT_keyconfigs for inspection.")
+    updated = updated_normalized.replace(b"\n", newline)
     if not (root / "5.4" / "scripts" / "presets" / "keyconfig" / "Hamun.py").is_file():
         raise SystemExit("Hamun.py preset missing; create it first. No files changed.")
     if not args.apply:
