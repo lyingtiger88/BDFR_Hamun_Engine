@@ -56,6 +56,7 @@ Write-Host 'Copying Hamun Release runtime...'
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed (exit code $LASTEXITCODE)" }
 # Convert all 11 top-level diagnostic command helpers in the staging tree.
 & (Join-Path $PSScriptRoot 'brand_windows_cmd.ps1') -PackageDir $staging
+& (Join-Path $PSScriptRoot 'brand_windows_themes.ps1') -PackageDir $staging
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
 New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
 Copy-Item -LiteralPath $addonSource -Destination $addonTarget -Recurse -Force
