@@ -100,6 +100,9 @@ foreach ($oldName in $oldNames) {
         throw "Deprecated top-level artifact still exists: $oldName"
     }
 }
+# Inventory remaining resource names, without modifying compiled translation catalogs.
+& py.exe -3 (Join-Path $PSScriptRoot 'audit_package_resources.py') $staging
+if ($LASTEXITCODE -ne 0) { throw "Hamun resource audit failed (exit code $LASTEXITCODE)" }
 $readme = @"
 Hamun Editor $Version - Windows x64 portable test build
 
