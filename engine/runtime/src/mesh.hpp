@@ -52,3 +52,17 @@ inline HamunMesh hamunMakeSphere(unsigned slices=48,unsigned stacks=28){
         }
     return mesh;
 }
+
+inline void hamunAppendGround(HamunMesh& mesh, uint32_t& firstIndex, uint32_t& indexCount) {
+    firstIndex=static_cast<uint32_t>(mesh.indices.size());
+    const uint32_t vertexStart=static_cast<uint32_t>(mesh.vertices.size());
+    const float groundY=-1.0f;
+    // Flat ground with upward normals (stored in secondary vertex attribute).
+    mesh.vertices.push_back({-8.0f,groundY,-5.0f, 0,1,0});
+    mesh.vertices.push_back({ 8.0f,groundY,-5.0f, 0,1,0});
+    mesh.vertices.push_back({ 8.0f,groundY, 5.0f, 0,1,0});
+    mesh.vertices.push_back({-8.0f,groundY, 5.0f, 0,1,0});
+    const uint32_t indices[6]={0,2,1,0,3,2};
+    for(uint32_t index:indices)mesh.indices.push_back(vertexStart+index);
+    indexCount=6;
+}
