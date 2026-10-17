@@ -69,6 +69,10 @@ if ($LASTEXITCODE -ne 0) { throw "Hamun keymap menu branding failed (exit code $
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
 New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
 Copy-Item -LiteralPath $addonSource -Destination $addonTarget -Recurse -Force
+# Bundle the GLB-to-HMESH converter required by the Editor's Play operator.
+$converterSource = Join-Path $repo 'engine\runtime\tools\glb_to_hmesh.py'
+if (-not (Test-Path -LiteralPath $converterSource)) { throw "Missing runtime converter: $converterSource" }
+Copy-Item -LiteralPath $converterSource -Destination (Join-Path $addonTarget 'glb_to_hmesh.py') -Force
 $startupTarget = Join-Path $staging '5.4\scripts\startup\hamun_startup.py'
 Copy-Item -LiteralPath $startupSource -Destination $startupTarget -Force
 # Remove obsolete experimental bootstrap if it existed in the source Release.
