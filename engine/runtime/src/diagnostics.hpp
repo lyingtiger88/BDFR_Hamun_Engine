@@ -9,9 +9,12 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <stdexcept>
 
 class HamunDiagnostics {
     HWND label_{};
+    HWND parent_{};
+    static constexpr int PanelWidth=460, PanelHeight=290;
     HFONT font_{};
     std::wstring gpu_, driver_;
     std::chrono::steady_clock::time_point started_=std::chrono::steady_clock::now();
@@ -51,12 +54,16 @@ public:
         vkGetPhysicalDeviceMemoryProperties(gpu,&memory);
         for(uint32_t i=0;i<memory.memoryHeapCount;++i)
             if(memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ramBytes_+=memory.memoryHeaps[i].size;
-        label_=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"Initializing diagnostics...",
-            WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,
-            12,12,322,224,parent,nullptr,GetModuleHandleW(nullptr),nullptr);
-        font_=CreateFontW(-15,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,
-              CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,FF_DONTCARE,L"Consolas");
-        if(label_&&font_)SendMessageW(label_,WM_SETFONT,reinterpret_cast<WPARAM>(font_),TRUE);
+        parent_=parent;
+        // An owned top-level layered popup is composed by DWM, not painted into
+        // the Vulkan swapchain. A child EDIT control flickers on Vulkan surfaces.
+        label_=CreateWindowExW(WS_EX_LAYERED|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,
+            L"STATIC",L"",WS_POPUP,0,0,PanelWidth,PanelHeight,
+            parent,nullptr,GetModuleHandleW(nullptr),nullptr);
+        if(!label_) throw std::runtime_error("Cannot create diagnostics overlay");
+        font_=CreateFontW(-17,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,FF_DONTCARE,L"Consolas");
+        ShowWindow(label_,SW_SHOWNOACTIVATE);
         previous_=started_=std::chrono::steady_clock::now();
     }
     void frame(double cpuFrameMs,double waitMs){
@@ -88,7 +95,42 @@ public:
            <<L"\r\nGPU local memory total: "<<gib(ramBytes_)<<L" GiB"
            <<L"\r\nGPU utilization: n/a (not measured)"
            <<L"\r\n*CPU-side wait, NOT GPU latency.";
-        SetWindowTextW(label_,out.str().c_str());
+        // Render readable white text onto a dark, translucent layered popup.
+        POINT origin{12,12};
+        ClientToScreen(parent_,&origin);
+        HDC screen=GetDC(nullptr);
+        HDC memory=CreateCompatibleDC(screen);
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth=PanelWidth;
+        bmi.bmiHeader.biHeight=-PanelHeight;
+        bmi.bmiHeader.biPlanes=1;
+        bmi.bmiHeader.biBitCount=32;
+        bmi.bmiHeader.biCompression=BI_RGB;
+        void* pixels=nullptr;
+        HBITMAP bitmap=CreateDIBSection(screen,&bmi,DIB_RGB_COLORS,&pixels,nullptr,0);
+        if(bitmap){
+            HGDIOBJ old=SelectObject(memory,bitmap);
+            RECT area{0,0,PanelWidth,PanelHeight};
+            HBRUSH background=CreateSolidBrush(RGB(13,22,37));
+            FillRect(memory,&area,background);
+            DeleteObject(background);
+            SetBkMode(memory,TRANSPARENT);
+            SetTextColor(memory,RGB(230,242,255));
+            HGDIOBJ priorFont=font_?SelectObject(memory,font_):nullptr;
+            RECT body{14,12,PanelWidth-10,PanelHeight-10};
+            const auto lines=out.str();
+            DrawTextW(memory,lines.c_str(),-1,&body,DT_LEFT|DT_TOP|DT_NOPREFIX|DT_WORDBREAK);
+            if(priorFont)SelectObject(memory,priorFont);
+            SIZE size{PanelWidth,PanelHeight};
+            POINT src{0,0};
+            BLENDFUNCTION blend{AC_SRC_OVER,0,235,0};
+            UpdateLayeredWindow(label_,screen,&origin,&size,memory,&src,0,&blend,ULW_ALPHA);
+            SelectObject(memory,old);
+            DeleteObject(bitmap);
+        }
+        DeleteDC(memory);
+        ReleaseDC(nullptr,screen);
     }
     void shutdown(){
         if(label_ && IsWindow(label_))DestroyWindow(label_);
