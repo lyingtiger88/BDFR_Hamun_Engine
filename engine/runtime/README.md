@@ -1,3 +1,24 @@
+## v0.8 ground and moving-light shadow test
+
+- Added a flat ground mesh to the existing indexed Vulkan vertex/index buffers.
+- Added hard shadows on that ground cast by the four preview spheres, evaluated through analytical ray/sphere tests in the fragment shader.
+- Light positions 1/2 can be moved with J/L (X), U/O (Y), I/K (Z).
+- F6 cycles Unlimited, 30, 60, 120, 144 FPS caps.
+- The existing material spheres and transparent HUD are retained.
+
+**Scope:** This first shadow pass only handles the four known spheres on the floor. It is not a general Shadow Map implementation and will not shadow arbitrary imported GLB geometry. For arbitrary meshes, implement shadow depth passes and per-light shadow maps next.
+
+### Test on Vega 56
+
+```bat
+cd /d D:\HamunDev\Hamun
+git pull --ff-only origin feature/blender-source-integration
+cmake --build build/hamun-runtime --config Release
+build\hamun-runtime\Release\HamunRuntime.exe
+```
+
+Check floor visibility and moving shadow silhouettes when moving each light. No engine/Editor rebuild is required.
+
 # HamunRuntime v0.3 — GPU Mesh Rendering
 
 Standalone Win32 + Vulkan renderer, independent of the Blender-based Hamun Editor.
