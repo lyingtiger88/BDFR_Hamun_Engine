@@ -57,6 +57,15 @@ if ($LASTEXITCODE -ge 8) { throw "Robocopy failed (exit code $LASTEXITCODE)" }
 # Convert all 11 top-level diagnostic command helpers in the staging tree.
 & (Join-Path $PSScriptRoot 'brand_windows_cmd.ps1') -PackageDir $staging
 & (Join-Path $PSScriptRoot 'brand_windows_themes.ps1') -PackageDir $staging
+# Add the tested Hamun keymap as a separate preset, preserving Blender core presets.
+$pythonLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+if (-not $pythonLauncher) { throw 'Python launcher py.exe is required to prepare the Hamun keymap package.' }
+$keymapScript = Join-Path $PSScriptRoot 'create_hamun_keyconfig.py'
+$menuScript = Join-Path $PSScriptRoot 'hide_legacy_keymap_menu.py'
+& py.exe -3 $keymapScript $staging --apply
+if ($LASTEXITCODE -ne 0) { throw "Hamun keymap creation failed (exit code $LASTEXITCODE)" }
+& py.exe -3 $menuScript $staging --apply
+if ($LASTEXITCODE -ne 0) { throw "Hamun keymap menu branding failed (exit code $LASTEXITCODE)" }
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
 New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
 Copy-Item -LiteralPath $addonSource -Destination $addonTarget -Recurse -Force
@@ -78,6 +87,8 @@ foreach ($required in @(
     (Join-Path $staging 'HamunThumb.dll'),
     (Join-Path $staging 'hamun_debug_log.cmd'),
     (Join-Path $staging 'hamun_factory_startup.cmd'),
+    (Join-Path $staging '5.4\scripts\presets\keyconfig\Hamun.py'),
+    (Join-Path $staging '5.4\scripts\presets\keyconfig\Blender.py'),
     (Join-Path $staging 'license\license.md'),
     (Join-Path $staging 'license\licenses.json')
 )) {
