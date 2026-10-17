@@ -17,7 +17,7 @@ class HamunDiagnostics {
     HWND parent_{};
     static constexpr int PanelWidth=460, PanelHeight=290;
     HFONT font_{};
-    std::wstring gpu_, driver_;
+    std::wstring gpu_, driver_, presentMode_=L"FIFO";
     std::chrono::steady_clock::time_point started_=std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point previous_=started_;
     unsigned frames_=0;
@@ -42,6 +42,7 @@ class HamunDiagnostics {
         prevIdle_=i;prevKernel_=k;prevUser_=u;hasCpuSample_=true;
     }
 public:
+    void setPresentMode(const std::wstring& name){presentMode_=name;}
     void create(HWND parent, VkPhysicalDevice gpu){
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(gpu,&properties);
@@ -85,6 +86,7 @@ public:
         out<<L"HAMUN  |  RUNTIME DIAGNOSTICS\r\n"
            <<L"Render API: Vulkan  "<<driver_<<L"\r\n"
            <<L"GPU: "<<gpu_<<L"\r\n"
+           <<L"Present: "<<presentMode_<<L"\r\n"
            <<L"FPS: "<<fps<<L"  |  Frame: "<<avgFrameMs_<<L" ms\r\n"
            <<L"CPU frame: "<<lastCpuFrameMs_<<L" ms\r\n"
            <<L"GPU/Present wait*: "<<lastGpuWaitMs_<<L" ms\r\n"
