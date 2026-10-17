@@ -1,29 +1,28 @@
-# HamunRuntime v0.2 — Interactive Vulkan Cube
+# HamunRuntime v0.3 — GPU Mesh Rendering
 
-Native Windows x64 standalone rendering prototype. No Blender dependency.
+Standalone Win32 + Vulkan renderer, independent of the Blender-based Hamun Editor.
 
 ## Build (VS2022 x64 Native Tools Command Prompt)
 
-Requires the LunarG Vulkan SDK (including `glslc`), CMake and Visual Studio C++ tools.
+Requires LunarG Vulkan SDK (with `glslc`), CMake and Visual Studio C++.
 
 ```bat
 cd /d D:\HamunDev\Hamun
-cmake -S engine/runtime -B build/hamun-runtime -G "Visual Studio 17 2022" -A x64
+git pull --ff-only origin feature/blender-source-integration
 cmake --build build/hamun-runtime --config Release
 build\hamun-runtime\Release\HamunRuntime.exe
 ```
 
-Shader binaries are compiled into the `shaders` directory beside the executable.
+## Features under test
 
-## Controls
+- Vertex data is supplied through a Vulkan vertex buffer instead of hardcoded shader geometry.
+- Indices reside in a Vulkan index buffer and are used with `vkCmdDrawIndexed`.
+- Three instances of a cube mesh have independent transforms using push constants.
+- Depth buffer, surface resize support, and basic orbit camera are retained.
+- Arrow keys rotate the view, W/S change view distance.
 
-- Left/right arrows: rotate cube horizontally
-- Up/down arrows: rotate cube vertically
-- W/S: zoom in/out
-- Window resize: rebuild swapchain and depth resources
+## Important
 
-## Status
+Source changes are committed, but v0.3 has **not yet been compiled or run** on the target system. Confirm build, depth ordering, orbit controls, resize, and clean exit before considering it validated. v0.2 remains the last known-good version.
 
-Implements Vulkan instance, graphics/present queue, swapchain, depth buffer, graphics pipeline, a 36-vertex indexed-by-shader cube, per-frame camera push constants, and basic error handling.
-
-This is an isolated rendering milestone, **not** a complete game runtime or Editor integration. First test the build, camera controls, occlusion, and resizing on your Vega 56.
+Future: split Vulkan backend out of `main.cpp`, introduce proper per-scene camera/object transforms and GLB mesh loading.
