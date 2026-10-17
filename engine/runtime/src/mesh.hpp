@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -25,5 +26,29 @@ inline HamunMesh hamunMakeCube(){
       mesh.vertices.push_back({v[0],v[1],v[2],col[0],col[1],col[2]});
       mesh.indices.push_back(i);
     }
+    return mesh;
+}
+
+// UV sphere with actual GPU vertex/index data; suitable for material previews.
+inline HamunMesh hamunMakeSphere(unsigned slices=48,unsigned stacks=28){
+    HamunMesh mesh;
+    constexpr float pi=3.14159265358979323846f;
+    for(unsigned j=0;j<=stacks;++j){
+        float v=float(j)/stacks;
+        float polar=v*pi;
+        for(unsigned i=0;i<=slices;++i){
+            float u=float(i)/slices;
+            float a=u*2*pi;
+            float x=std::sin(polar)*std::cos(a);
+            float y=std::cos(polar);
+            float z=std::sin(polar)*std::sin(a);
+            mesh.vertices.push_back({x,y,z,x,y,z});
+        }
+    }
+    for(unsigned j=0;j<stacks;++j)
+        for(unsigned i=0;i<slices;++i){
+            uint32_t a=j*(slices+1)+i,b=a+slices+1;
+            mesh.indices.insert(mesh.indices.end(),{a,b,a+1,b,b+1,a+1});
+        }
     return mesh;
 }
