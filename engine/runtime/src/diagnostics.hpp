@@ -15,7 +15,7 @@
 class HamunDiagnostics {
     HWND label_{};
     HWND parent_{};
-    static constexpr int PanelWidth=460, PanelHeight=290;
+    static constexpr int PanelWidth=560, PanelHeight=342;
     HFONT font_{};
     std::wstring gpu_, driver_, presentMode_=L"FIFO";
     std::chrono::steady_clock::time_point started_=std::chrono::steady_clock::now();
