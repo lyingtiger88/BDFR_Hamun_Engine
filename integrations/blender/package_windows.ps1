@@ -67,8 +67,16 @@ if ($LASTEXITCODE -ne 0) { throw "Hamun keymap creation failed (exit code $LASTE
 & py.exe -3 $menuScript $staging --apply
 if ($LASTEXITCODE -ne 0) { throw "Hamun keymap menu branding failed (exit code $LASTEXITCODE)" }
 $addonTarget = Join-Path $staging '5.4\scripts\addons\hamun_authoring_tools'
-New-Item -ItemType Directory -Path (Split-Path $addonTarget) -Force | Out-Null
-Copy-Item -LiteralPath $addonSource -Destination $addonTarget -Recurse -Force
+# Copy the add-on CONTENTS, not the directory itself (avoids nested folders).
+if (Test-Path -LiteralPath $addonTarget) { Remove-Item -LiteralPath $addonTarget -Recurse -Force }
+New-Item -ItemType Directory -Path $addonTarget -Force | Out-Null
+Get-ChildItem -LiteralPath $addonSource -Force | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $addonTarget -Recurse -Force
+}
+$addonInit = Join-Path $addonTarget '__init__.py'
+if (-not (Select-String -LiteralPath $addonInit -Pattern 'class HAMUN_OT_play_runtime' -Quiet)) {
+    throw "Play integration missing from packaged Hamun add-on: $addonInit"
+}
 # Bundle the GLB-to-HMESH converter required by the Editor's Play operator.
 $converterSource = Join-Path $repo 'engine\runtime\tools\glb_to_hmesh.py'
 if (-not (Test-Path -LiteralPath $converterSource)) { throw "Missing runtime converter: $converterSource" }
@@ -82,6 +90,7 @@ if (Test-Path -LiteralPath $legacyBootstrap) {
 }
 foreach ($required in @(
     (Join-Path $addonTarget '__init__.py'),
+    (Join-Path $addonTarget 'glb_to_hmesh.py'),
     $startupTarget,
     (Join-Path $staging 'HamunEditor.exe'),
     (Join-Path $staging 'HamunEditorCore.exe'),
