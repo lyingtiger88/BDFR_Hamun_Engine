@@ -845,6 +845,88 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_use_preview = False
     bl_use_eevee_viewport = False
 
+    def __init__(self):
+        self._hamun_view = None
+        self._hamun_signature = None
+
+    def view_update(self, context, depsgraph):
+        # The editor owns interaction and transforms. Cache is invalidated by
+        # every depsgraph update (G/R/S, modifiers, materials, scene changes).
+        self._hamun_signature = None
+
+    def view_draw(self, context, depsgraph):
+        # Live editor viewport bridge: dynamic scene geometry is rendered each
+        # draw into a GPU texture, without launching HamunRuntime.exe.
+        import ctypes
+        import gpu
+        from gpu_extras.batch import batch_for_shader
+
+        region = context.region
+        if not region or region.width < 1 or region.height < 1:
+            return
+        scene = depsgraph.scene
+        exe_path = getattr(scene, "hamun_vulkan_executable", "")
+        exe = Path(bpy.path.abspath(exe_path)).resolve() if exe_path else None
+        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        if not dll or not dll.is_file():
+            return
+        w, h = min(region.width, 2048), min(region.height, 2048)
+        try:
+            native = ctypes.WinDLL(str(dll))
+            native.hamun_renderer_mesh_preview.argtypes = [
+                ctypes.c_uint32, ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+            ]
+            native.hamun_renderer_mesh_preview.restype = ctypes.c_int
+            positions, indices = [], []
+            for obj in depsgraph.objects:
+                if obj.type != "MESH":
+                    continue
+                evaluated = obj.evaluated_get(depsgraph)
+                mesh = evaluated.to_mesh()
+                try:
+                    if mesh is None:
+                        continue
+                    mesh.calc_loop_triangles()
+                    first = len(positions) // 3
+                    transform = evaluated.matrix_world
+                    for v in mesh.vertices:
+                        p = transform @ v.co
+                        positions.extend((p.x, p.y, p.z))
+                    for tri in mesh.loop_triangles:
+                        indices.extend(first + int(i) for i in tri.vertices)
+                finally:
+                    evaluated.to_mesh_clear()
+            if not positions or not indices:
+                return
+            pixels = (ctypes.c_uint8 * (w * h * 4))()
+            vertex_data = (ctypes.c_float * len(positions))(*positions)
+            index_data = (ctypes.c_uint32 * len(indices))(*indices)
+            if not native.hamun_renderer_mesh_preview(
+                w, h, pixels, ctypes.sizeof(pixels),
+                vertex_data, len(positions) // 3, index_data, len(indices)):
+                return
+            buffer = gpu.types.Buffer("UBYTE", w * h * 4, bytes(pixels))
+            image = gpu.types.GPUTexture((w, h), format="RGBA8", data=buffer)
+            shader = gpu.shader.from_builtin("IMAGE")
+            batch = batch_for_shader(shader, "TRI_FAN", {
+                "pos": ((0, 0), (w, 0), (w, h), (0, h)),
+                "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1)),
+            })
+            gpu.state.blend_set("ALPHA")
+            shader.bind()
+            shader.uniform_sampler("image", image)
+            batch.draw(shader)
+            gpu.state.blend_set("NONE")
+        except Exception as exc:
+            # Errors are diagnostic; never disrupt core editing operations.
+            if self._hamun_signature != str(exc):
+                print("HAMUN Viewport:", exc)
+                self._hamun_signature = str(exc)
+
+
     def render(self, depsgraph):
         # First genuine in-process Vulkan -> RGBA -> Blender Render Result path.
         # This stage renders a diagnostic GPU clear, NOT scene geometry.
