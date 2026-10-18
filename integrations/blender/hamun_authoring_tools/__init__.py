@@ -781,6 +781,11 @@ def _register_hamun_shortcuts():
     viewmap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
     toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
+    for key, modifier, mode in (("F8", {}, "OFF"), ("F8", {"shift": True}, "BASIC"),
+                                ("F8", {"ctrl": True}, "ADVANCED")):
+        item = viewmap.keymap_items.new("hamun.set_metrics_mode", key, "PRESS", **modifier)
+        item.properties.mode = mode
+        _hamun_keymaps.append((viewmap, item))
 
 
 def _unregister_hamun_shortcuts():
@@ -907,7 +912,7 @@ class HAMUN_OT_diagnose_viewport(bpy.types.Operator):
 
 
 # Runtime viewport metrics, separate from the F12 render path.
-_hamun_metrics = {"enabled": True, "last": None, "frame_ms": 0.0, "fps": 0.0,
+_hamun_metrics = {"mode": "BASIC", "last": None, "frame_ms": 0.0, "fps": 0.0,
                   "cpu_ms": 0.0, "sample_frames": 0, "sample_start": None}
 
 
@@ -917,7 +922,23 @@ class HAMUN_OT_toggle_metrics(bpy.types.Operator):
     bl_description = "Show or hide live viewport FPS, frame time and CPU process memory"
 
     def execute(self, context):
-        _hamun_metrics["enabled"] = not _hamun_metrics["enabled"]
+        _hamun_metrics["mode"] = "OFF" if _hamun_metrics["mode"] != "OFF" else "BASIC"
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+        return {"FINISHED"}
+
+
+class HAMUN_OT_set_metrics_mode(bpy.types.Operator):
+    bl_idname = "hamun.set_metrics_mode"
+    bl_label = "Hamun HUD Mode"
+    mode: bpy.props.EnumProperty(items=[
+        ("OFF", "Off", ""), ("BASIC", "Basic", ""), ("ADVANCED", "Advanced", "")])
+
+    def execute(self, context):
+        _hamun_metrics["mode"] = self.mode
+        _hamun_metrics["last"] = None
         for window in context.window_manager.windows:
             for area in window.screen.areas:
                 if area.type == "VIEW_3D":
@@ -926,7 +947,7 @@ class HAMUN_OT_toggle_metrics(bpy.types.Operator):
 
 
 def _hamun_draw_metrics(width, height, cpu_ms=0.0):
-    if not _hamun_metrics["enabled"]:
+    if _hamun_metrics["mode"] == "OFF":
         return
     import time
     import os
@@ -971,18 +992,37 @@ def _hamun_draw_metrics(width, height, cpu_ms=0.0):
     blf.size(font, 13)
     blf.enable(font, blf.SHADOW)
     blf.shadow(font, 3, 0.0, 0.0, 0.0, 0.9)
-    lines = [
-        "HAMUN | VIEWPORT",
-        "FPS: %.1f  Frame: %.2f ms" % (_hamun_metrics["fps"], _hamun_metrics["frame_ms"]),
-        "CPU render+transfer: %.2f ms" % cpu_ms,
-        "Editor RAM: " + working_set,
-        "CPU-GPU latency: not measured",
-        "Render: mixed Vulkan clear / CPU mesh",
-        "Toggle HUD: Ctrl+Shift+F3",
+    fps = _hamun_metrics["fps"]
+    frame_ms = _hamun_metrics["frame_ms"]
+    basic = [
+        ("%.2f FPS" % fps, (0.57, 1.0, 0.48, 1.0)),
+        ("Frame: %.2f ms" % frame_ms, (1.0, 0.72, 0.4, 1.0)),
+        ("Draw CPU: %.2f ms" % cpu_ms, (1.0, 1.0, 1.0, 1.0)),
+        ("Game: n/a", (0.8, 0.8, 0.8, 1.0)),
+        ("RHI Thread: n/a", (0.8, 0.8, 0.8, 1.0)),
+        ("GPU Time: n/a", (0.8, 0.8, 0.8, 1.0)),
+        ("Draws: %s" % _hamun_metrics.get("draws", "n/a"), (1.0, 1.0, 1.0, 1.0)),
+        ("Prims: %s" % _hamun_metrics.get("prims", "n/a"), (1.0, 1.0, 1.0, 1.0)),
     ]
-    for i, line in enumerate(lines):
-        blf.position(font, 18, height - 26 - 19 * i, 0)
-        blf.color(font, 0.94, 0.98, 1.0, 1.0)
+    lines = basic
+    if _hamun_metrics["mode"] == "ADVANCED":
+        lines = [
+            ("HAMUN | ADVANCED PROFILER", (0.6, 0.95, 1.0, 1.0)),
+            *basic,
+            ("Editor RAM: " + working_set, (1.0, 1.0, 1.0, 1.0)),
+            ("GRAPHICS QUEUE    Busy / Wait / Idle", (1.0, 0.7, 0.35, 1.0)),
+            ("Queue Total       n/a / n/a / n/a", (0.6, 1.0, 0.5, 1.0)),
+            ("Mesh Pass         n/a / n/a / n/a", (0.6, 1.0, 0.5, 1.0)),
+            ("Offscreen Clear   n/a / n/a / n/a", (0.6, 1.0, 0.5, 1.0)),
+            ("COMPUTE QUEUE     Busy / Wait / Idle", (1.0, 0.7, 0.35, 1.0)),
+            ("Queue Total       n/a / n/a / n/a", (0.6, 1.0, 0.5, 1.0)),
+            ("Dispatches: 0 (no compute submitted)", (0.8, 0.8, 0.8, 1.0)),
+            ("GPU timestamps: not instrumented", (0.8, 0.8, 0.8, 1.0)),
+            ("Pipeline: Vulkan clear + CPU mesh", (0.8, 0.8, 0.8, 1.0)),
+        ]
+    for i, (line, color) in enumerate(lines):
+        blf.position(font, 16, height - 25 - 17 * i, 0)
+        blf.color(font, *color)
         blf.draw(font, line)
     blf.disable(font, blf.SHADOW)
 
@@ -1056,6 +1096,8 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             rgba = (ctypes.c_uint8 * (width * height * 4))()
             positions = (ctypes.c_float * len(verts))(*verts)
             faces = (ctypes.c_uint32 * len(indices))(*indices)
+            _hamun_metrics["draws"] = 1
+            _hamun_metrics["prims"] = len(indices) // 3
             if not native.hamun_renderer_mesh_camera(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices), matrix):
@@ -1325,6 +1367,7 @@ classes = (
     HAMUN_OT_play_runtime,
     HAMUN_OT_probe_renderer,
     HAMUN_OT_toggle_metrics,
+    HAMUN_OT_set_metrics_mode,
     HAMUN_OT_diagnose_viewport,
     HAMUN_RENDER_VULKAN,
     HAMUN_PT_vulkan_settings,
