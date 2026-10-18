@@ -592,6 +592,16 @@ int WINAPI wWinMain(HINSTANCE app,HINSTANCE,LPWSTR,int) {
         LPWSTR* argv=CommandLineToArgvW(GetCommandLineW(),&argc);
         if(argv){
             for(int i=1;i+1<argc;++i){
+                if(std::wstring(argv[i])==L"--fps"){
+                    wchar_t* end=nullptr;
+                    long cap=wcstol(argv[i+1],&end,10);
+                    if(end==argv[i+1] || *end!=L'\0' ||
+                       (cap!=0 && cap!=30 && cap!=60 && cap!=120 && cap!=144))
+                        throw std::runtime_error("Invalid --fps; use 0, 30, 60, 120 or 144");
+                    runtime.fpsLimit=static_cast<int>(cap);
+                    ++i;
+                    continue;
+                }
                 if(std::wstring(argv[i])==L"--scene"){
                     int required=WideCharToMultiByte(CP_UTF8,0,argv[i+1],-1,nullptr,0,nullptr,nullptr);
                     if(required<=0)throw std::runtime_error("Invalid scene path encoding");
