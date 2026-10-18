@@ -845,10 +845,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_use_preview = False
     bl_use_eevee_viewport = False
 
-    def __init__(self):
-        self._hamun_view = None
-        self._hamun_signature = None
-
     def view_update(self, context, depsgraph):
         # The editor owns interaction and transforms. Cache is invalidated by
         # every depsgraph update (G/R/S, modifiers, materials, scene changes).
