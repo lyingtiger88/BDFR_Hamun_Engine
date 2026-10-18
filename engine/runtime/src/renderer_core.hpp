@@ -9,5 +9,7 @@
 extern "C" {
 struct HamunRendererInfo { uint32_t abiVersion; uint32_t vulkanVersion; uint32_t gpuVendor; char deviceName[256]; };
 HAMUN_API int hamun_renderer_probe(HamunRendererInfo* info);
+// Offscreen Vulkan F12 integration proof: opaque clear to RGBA8, no scene geometry yet.
+HAMUN_API int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount);
 HAMUN_API const char* hamun_renderer_last_error();
 }
