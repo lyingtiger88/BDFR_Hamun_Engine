@@ -850,6 +850,30 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         raise RuntimeError("Hamun Vulkan: Render Result integration unavailable")
 
 
+class HAMUN_PT_vulkan_settings(bpy.types.Panel):
+    """Settings for the external Hamun Vulkan runtime (preview integration)."""
+    bl_label = "Hamun Vulkan Runtime"
+    bl_idname = "HAMUN_PT_vulkan_settings"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "render"
+
+    @classmethod
+    def poll(cls, context):
+        return context.engine == "HAMUN_VULKAN"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        layout.label(text="External Vulkan runtime preview", icon="INFO")
+        layout.label(text="F12 / Render Result not yet integrated")
+        layout.prop(scene, "hamun_vulkan_executable")
+        layout.prop(scene, "hamun_vulkan_fps_cap")
+        layout.separator()
+        button = layout.operator("hamun.play_runtime", text="Play Scene in Vulkan", icon="PLAY")
+        button.runtime_exe = scene.hamun_vulkan_executable
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -917,6 +941,7 @@ classes = (
     HAMUN_OT_export_scene,
     HAMUN_OT_play_runtime,
     HAMUN_RENDER_VULKAN,
+    HAMUN_PT_vulkan_settings,
     HAMUN_OT_link_glb,
     HAMUN_OT_export_hscene,
     HAMUN_OT_import_hscene,
@@ -926,6 +951,15 @@ classes = (
 
 
 def register():
+    bpy.types.Scene.hamun_vulkan_executable = bpy.props.StringProperty(
+        name="Runtime Executable", subtype="FILE_PATH",
+        description="Path to HamunRuntime.exe"
+    )
+    bpy.types.Scene.hamun_vulkan_fps_cap = bpy.props.EnumProperty(
+        name="Target FPS", description="Informational setting; runtime key F6 currently sets cap",
+        items=[('0','Unlimited',''),('30','30',''),('60','60',''),('120','120',''),('144','144','')],
+        default='0'
+    )
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_editor_menus.append(draw_hamun_menu)
@@ -939,6 +973,8 @@ def unregister():
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.hamun_vulkan_fps_cap
+    del bpy.types.Scene.hamun_vulkan_executable
 
 
 if __name__ == "__main__":
