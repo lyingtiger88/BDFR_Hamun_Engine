@@ -8,37 +8,56 @@ from pathlib import Path
 
 
 def enable_hamun():
+    """Repair existing but not registered add-ons on every fresh editor launch."""
     if bpy.app.background:
         return None
 
     scripts_dir = Path(bpy.utils.resource_path("LOCAL")) / "scripts"
     addons_dir = scripts_dir / "addons"
-
     if not addons_dir.is_dir():
         print("HAMUN: Add-ons directory not found:", addons_dir)
         return None
+    if str(addons_dir) not in sys.path:
+        sys.path.insert(0, str(addons_dir))
 
-    addons_path = str(addons_dir)
+    try:
+        addon_utils.modules_refresh()
+        # Being listed in preferences.addons does NOT guarantee that the
+        # classes are registered. This caused HAMUN_VULKAN to be absent.
+        _, loaded = addon_utils.check("hamun_authoring_tools")
+        if not loaded:
+            addon_utils.enable("hamun_authoring_tools", default_set=False, persistent=True)
 
-    if addons_path not in sys.path:
-        sys.path.insert(0, addons_path)
+        import hamun_authoring_tools as module
 
-    addon_utils.modules_refresh()
+        # Older settings can preserve a partial registration of the add-on.
+        # Heal only the missing RenderEngine and render-properties panel.
+        engine = bpy.types.RenderEngine.bl_rna_get_subclass_py("HAMUN_VULKAN")
+        if engine is None:
+            bpy.utils.register_class(module.HAMUN_RENDER_VULKAN)
+            print("HAMUN: Registered Vulkan render engine")
 
-    if "hamun_authoring_tools" not in bpy.context.preferences.addons:
-        try:
-            addon_utils.enable(
-                "hamun_authoring_tools",
-                default_set=False,
-                persistent=True,
-            )
-        except Exception as exc:
-            print("HAMUN: Failed to activate:", exc)
-            return None
+        panel = bpy.types.Panel.bl_rna_get_subclass_py("HAMUN_PT_vulkan_settings")
+        if panel is None and hasattr(module, "HAMUN_PT_vulkan_settings"):
+            if not hasattr(bpy.types.Scene, "hamun_vulkan_executable"):
+                bpy.types.Scene.hamun_vulkan_executable = bpy.props.StringProperty(
+                    name="Runtime Executable", subtype="FILE_PATH")
+            if not hasattr(bpy.types.Scene, "hamun_vulkan_fps_cap"):
+                bpy.types.Scene.hamun_vulkan_fps_cap = bpy.props.EnumProperty(
+                    name="Target FPS",
+                    items=[('0', 'Unlimited', ''), ('30', '30', ''),
+                           ('60', '60', ''), ('120', '120', ''), ('144', '144', '')],
+                    default='0')
+            bpy.utils.register_class(module.HAMUN_PT_vulkan_settings)
+            print("HAMUN: Registered Vulkan settings panel")
 
-    print("HAMUN: Portable authoring tools initialized")
+        print("HAMUN: Engine status:",
+              bpy.types.RenderEngine.bl_rna_get_subclass_py("HAMUN_VULKAN"))
+    except Exception:
+        import traceback
+        print("HAMUN: Startup registration failure:")
+        traceback.print_exc()
     return None
-
 
 def activate_hamun_keymap_first_run():
     """Activate Hamun on an unsaved fresh profile, preserving existing preferences."""
