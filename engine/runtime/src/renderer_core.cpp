@@ -163,9 +163,10 @@ extern "C" int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uin
     }catch(const std::exception& ex){lastError=ex.what();cleanup();return 0;}
 }
 
-extern "C" int hamun_renderer_mesh_preview(
+static int hamun_mesh_render_impl(
     uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
-    const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count){
+    const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count,
+    const float* mvp){
     lastError.clear();
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
@@ -187,7 +188,17 @@ extern "C" int hamun_renderer_mesh_preview(
             float x=xyz[i*3],y=xyz[i*3+1],z=xyz[i*3+2];
             float rx=cy*x+sy*y,ry=-sy*x+cy*y;
             float rz=cp*z-sp*ry,depth=sp*z+cp*ry;
-            projected[i]={width*.5f+rx*scale,height*.52f-rz*scale,depth};
+            if(mvp){
+                float cx=mvp[0]*x+mvp[4]*y+mvp[8]*z+mvp[12];
+                float cy2=mvp[1]*x+mvp[5]*y+mvp[9]*z+mvp[13];
+                float cz=mvp[2]*x+mvp[6]*y+mvp[10]*z+mvp[14];
+                float cw=mvp[3]*x+mvp[7]*y+mvp[11]*z+mvp[15];
+                if(cw>0.0001f)
+                    projected[i]={float(width)*(cx/cw*.5f+.5f),
+                                  float(height)*(1.f-(cy2/cw*.5f+.5f)),
+                                  -(cz/cw)};
+                else projected[i]={-1e8f,-1e8f,-1e8f};
+            }else projected[i]={width*.5f+rx*scale,height*.52f-rz*scale,depth};
         }
         std::vector<float> zbuf(size_t(width)*height,-1e30f);
         auto edge=[](const P& a,const P& b,float x,float y){
@@ -226,4 +237,16 @@ extern "C" int hamun_renderer_mesh_preview(
         }
         return 1;
     }catch(const std::exception& ex){lastError=ex.what();return 0;}
+}
+
+extern "C" int hamun_renderer_mesh_preview(
+    uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
+    uint32_t nv,const uint32_t* idx,uint32_t ni){
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,nullptr);
+}
+extern "C" int hamun_renderer_mesh_camera(
+    uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
+    uint32_t nv,const uint32_t* idx,uint32_t ni,const float* mvp){
+    if(!mvp){lastError="Missing camera matrix";return 0;}
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp);
 }
