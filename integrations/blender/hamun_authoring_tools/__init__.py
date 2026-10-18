@@ -854,6 +854,45 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         raise RuntimeError("Hamun Vulkan: Render Result integration unavailable")
 
 
+class HAMUN_OT_probe_renderer(bpy.types.Operator):
+    """Load HamunRenderer.dll directly into Editor and query Vulkan GPU"""
+    bl_idname = "hamun.probe_renderer"
+    bl_label = "Check Integrated Vulkan"
+    bl_description = "Verify direct DLL integration without launching an external executable"
+
+    def execute(self, context):
+        import ctypes
+        exe_value = context.scene.hamun_vulkan_executable
+        exe = Path(bpy.path.abspath(exe_value)).resolve() if exe_value else None
+        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        if not dll or not dll.is_file():
+            self.report({"ERROR"}, "Choose Runtime Executable next to HamunRenderer.dll")
+            return {"CANCELLED"}
+
+        class RendererInfo(ctypes.Structure):
+            _fields_ = [
+                ("abiVersion", ctypes.c_uint32),
+                ("vulkanVersion", ctypes.c_uint32),
+                ("gpuVendor", ctypes.c_uint32),
+                ("deviceName", ctypes.c_char * 256),
+            ]
+        try:
+            renderer = ctypes.WinDLL(str(dll))
+            renderer.hamun_renderer_probe.argtypes = [ctypes.POINTER(RendererInfo)]
+            renderer.hamun_renderer_probe.restype = ctypes.c_int
+            renderer.hamun_renderer_last_error.restype = ctypes.c_char_p
+            info = RendererInfo()
+            if not renderer.hamun_renderer_probe(ctypes.byref(info)):
+                error = renderer.hamun_renderer_last_error()
+                raise RuntimeError(error.decode("utf-8", "replace") if error else "Vulkan probe failed")
+            context.scene["hamun_renderer_gpu"] = info.deviceName.decode("utf-8", "replace")
+            self.report({"INFO"}, "HamunRenderer.dll: " + context.scene["hamun_renderer_gpu"])
+        except Exception as exc:
+            self.report({"ERROR"}, "HamunRenderer.dll: " + str(exc))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class HAMUN_PT_vulkan_settings(bpy.types.Panel):
     """Settings for the external Hamun Vulkan runtime (preview integration)."""
     bl_label = "Hamun Vulkan Runtime"
@@ -873,6 +912,9 @@ class HAMUN_PT_vulkan_settings(bpy.types.Panel):
         layout.label(text="F12 / Render Result not yet integrated")
         layout.prop(scene, "hamun_vulkan_executable")
         layout.prop(scene, "hamun_vulkan_fps_cap")
+        layout.operator("hamun.probe_renderer", text="Check Integrated Vulkan", icon="SHADING_RENDERED")
+        if scene.get("hamun_renderer_gpu"):
+            layout.label(text="GPU: " + scene["hamun_renderer_gpu"])
         layout.separator()
         button = layout.operator("hamun.play_runtime", text="Play Scene in Vulkan", icon="PLAY")
         button.runtime_exe = scene.hamun_vulkan_executable
@@ -944,6 +986,7 @@ classes = (
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
     HAMUN_OT_play_runtime,
+    HAMUN_OT_probe_renderer,
     HAMUN_RENDER_VULKAN,
     HAMUN_PT_vulkan_settings,
     HAMUN_OT_link_glb,
