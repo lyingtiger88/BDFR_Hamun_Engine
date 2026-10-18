@@ -778,6 +778,9 @@ def _register_hamun_shortcuts():
     for operator, key in (("hamun.quick_save", "S"), ("hamun.open_project", "O")):
         item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
         _hamun_keymaps.append((km, item))
+    viewmap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
+    toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
+    _hamun_keymaps.append((viewmap, toggle))
 
 
 def _unregister_hamun_shortcuts():
@@ -903,6 +906,87 @@ class HAMUN_OT_diagnose_viewport(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# Runtime viewport metrics, separate from the F12 render path.
+_hamun_metrics = {"enabled": True, "last": None, "frame_ms": 0.0, "fps": 0.0,
+                  "cpu_ms": 0.0, "sample_frames": 0, "sample_start": None}
+
+
+class HAMUN_OT_toggle_metrics(bpy.types.Operator):
+    bl_idname = "hamun.toggle_metrics"
+    bl_label = "Toggle Hamun Performance HUD"
+    bl_description = "Show or hide live viewport FPS, frame time and CPU process memory"
+
+    def execute(self, context):
+        _hamun_metrics["enabled"] = not _hamun_metrics["enabled"]
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+        return {"FINISHED"}
+
+
+def _hamun_draw_metrics(width, height, cpu_ms=0.0):
+    if not _hamun_metrics["enabled"]:
+        return
+    import time
+    import os
+    import ctypes
+    import blf
+    now = time.perf_counter()
+    last = _hamun_metrics["last"]
+    if last is not None:
+        elapsed = now - last
+        if elapsed > 0:
+            _hamun_metrics["sample_frames"] += 1
+            if _hamun_metrics["sample_start"] is None:
+                _hamun_metrics["sample_start"] = last
+            span = now - _hamun_metrics["sample_start"]
+            if span >= 0.5:
+                _hamun_metrics["fps"] = _hamun_metrics["sample_frames"] / span
+                _hamun_metrics["frame_ms"] = 1000.0 * span / _hamun_metrics["sample_frames"]
+                _hamun_metrics["sample_frames"] = 0
+                _hamun_metrics["sample_start"] = now
+    _hamun_metrics["last"] = now
+    _hamun_metrics["cpu_ms"] = cpu_ms
+    working_set = "n/a"
+    try:
+        class PMC(ctypes.Structure):
+            _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32),
+                        ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+        counters = PMC()
+        counters.cb = ctypes.sizeof(counters)
+        psapi = ctypes.WinDLL("psapi")
+        psapi.GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
+        psapi.GetProcessMemoryInfo.restype = ctypes.c_int
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        if psapi.GetProcessMemoryInfo(kernel.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            working_set = "%.1f MiB" % (counters.WorkingSetSize / 1048576.0)
+    except Exception:
+        pass
+    font = 0
+    blf.size(font, 13)
+    blf.enable(font, blf.SHADOW)
+    blf.shadow(font, 3, 0.0, 0.0, 0.0, 0.9)
+    lines = [
+        "HAMUN | VIEWPORT",
+        "FPS: %.1f  Frame: %.2f ms" % (_hamun_metrics["fps"], _hamun_metrics["frame_ms"]),
+        "CPU render+transfer: %.2f ms" % cpu_ms,
+        "Editor RAM: " + working_set,
+        "CPU-GPU latency: not measured",
+        "Render: mixed Vulkan clear / CPU mesh",
+        "Toggle HUD: Ctrl+Shift+F3",
+    ]
+    for i, line in enumerate(lines):
+        blf.position(font, 18, height - 26 - 19 * i, 0)
+        blf.color(font, 0.94, 0.98, 1.0, 1.0)
+        blf.draw(font, line)
+    blf.disable(font, blf.SHADOW)
+
+
 class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     """Hamun Vulkan runtime integration placeholder (not an in-editor renderer yet)."""
     bl_idname = "HAMUN_VULKAN"
@@ -919,9 +1003,11 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         """Experimental live image bridge; scene drawing still CPU rasterized."""
         import ctypes
         import traceback
+        import time
         import gpu
         from gpu_extras.batch import batch_for_shader
         try:
+            frame_started = time.perf_counter()
             if not getattr(self, "_hamun_draw_logged", False):
                 _hamun_diagnostic_log("RenderEngine.view_draw CALLED")
                 self._hamun_draw_logged = True
@@ -992,6 +1078,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             shader.bind()
             shader.uniform_sampler("image", texture)
             batch.draw(shader)
+            _hamun_draw_metrics(width, height, (time.perf_counter() - frame_started) * 1000.0)
             if not getattr(self, "_hamun_success_logged", False):
                 _hamun_diagnostic_log("Viewport image drawn " + str((width, height)))
                 self._hamun_success_logged = True
@@ -1237,6 +1324,7 @@ classes = (
     HAMUN_OT_export_scene,
     HAMUN_OT_play_runtime,
     HAMUN_OT_probe_renderer,
+    HAMUN_OT_toggle_metrics,
     HAMUN_OT_diagnose_viewport,
     HAMUN_RENDER_VULKAN,
     HAMUN_PT_vulkan_settings,
