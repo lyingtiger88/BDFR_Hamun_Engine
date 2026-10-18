@@ -868,6 +868,41 @@ def _hamun_renderer_dll(scene=None):
     return None
 
 
+def _hamun_diagnostic_log(message):
+    import datetime
+    import tempfile
+    from pathlib import Path
+    path = Path(tempfile.gettempdir()) / "hamun_viewport_diagnostics.log"
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(datetime.datetime.now().isoformat(timespec="seconds") + " " + str(message) + "\\n")
+    return path
+
+
+class HAMUN_OT_diagnose_viewport(bpy.types.Operator):
+    bl_idname = "hamun.diagnose_viewport"
+    bl_label = "Write Vulkan Diagnostic Log"
+
+    def execute(self, context):
+        import traceback
+        try:
+            engine_cls = bpy.types.RenderEngine.bl_rna_get_subclass_py("HAMUN_VULKAN")
+            space = next((area.spaces.active for area in context.screen.areas
+                          if area.type == "VIEW_3D"), None)
+            shading = space.shading.type if space else "NO_VIEW3D"
+            dll = _hamun_renderer_dll(context.scene)
+            info = ("manual diagnostic: engine_registered=" + str(engine_cls is not None)
+                    + " scene_engine=" + str(context.scene.render.engine)
+                    + " shading=" + shading
+                    + " dll=" + str(dll)
+                    + " callbacks=" + str(bool(engine_cls and hasattr(engine_cls, "view_draw"))))
+            path = _hamun_diagnostic_log(info)
+            self.report({"INFO"}, "Log: " + str(path))
+        except Exception:
+            path = _hamun_diagnostic_log(traceback.format_exc())
+            self.report({"ERROR"}, "See " + str(path))
+        return {"FINISHED"}
+
+
 class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     """Hamun Vulkan runtime integration placeholder (not an in-editor renderer yet)."""
     bl_idname = "HAMUN_VULKAN"
@@ -876,16 +911,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_use_eevee_viewport = True
 
     def view_update(self, context, depsgraph):
-        # The embedded viewport uses Blender's proven material viewport while
-        # the Vulkan draw pipeline is still being integrated.
-        pass
+        if not getattr(self, "_hamun_update_logged", False):
+            _hamun_diagnostic_log("RenderEngine.view_update CALLED")
+            self._hamun_update_logged = True
 
     def view_draw(self, context, depsgraph):
-        # No false Vulkan overlay: Python GPUTexture uploads and fixed-camera
-        # software rasterization were not a working interactive engine.
-        # Keep scene interaction controlled by the Editor until native
-        # graphics integration supplies camera-synchronized draw calls.
-        pass
+        if not getattr(self, "_hamun_draw_logged", False):
+            _hamun_diagnostic_log("RenderEngine.view_draw CALLED")
+            self._hamun_draw_logged = True
+        # Real-time Vulkan drawing is not yet implemented.
 
     def render(self, depsgraph):
         # First genuine in-process Vulkan -> RGBA -> Blender Render Result path.
@@ -1048,6 +1082,7 @@ class HAMUN_PT_vulkan_settings(bpy.types.Panel):
         layout.label(text="Renderer: " + ("DLL found" if dll else "DLL missing"), icon="CHECKMARK" if dll else "ERROR")
         layout.prop(scene, "hamun_vulkan_fps_cap")
         layout.operator("hamun.probe_renderer", text="Check Integrated Vulkan", icon="SHADING_RENDERED")
+        layout.operator("hamun.diagnose_viewport", text="Write Diagnostic Log", icon="TEXT")
         if scene.get("hamun_renderer_gpu"):
             layout.label(text="GPU: " + scene["hamun_renderer_gpu"])
         layout.separator()
@@ -1122,6 +1157,7 @@ classes = (
     HAMUN_OT_export_scene,
     HAMUN_OT_play_runtime,
     HAMUN_OT_probe_renderer,
+    HAMUN_OT_diagnose_viewport,
     HAMUN_RENDER_VULKAN,
     HAMUN_PT_vulkan_settings,
     HAMUN_OT_link_glb,
