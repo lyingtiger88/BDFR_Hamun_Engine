@@ -873,86 +873,19 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_idname = "HAMUN_VULKAN"
     bl_label = "Hamun Vulkan (Preview)"
     bl_use_preview = False
-    bl_use_eevee_viewport = False
+    bl_use_eevee_viewport = True
 
     def view_update(self, context, depsgraph):
-        # The editor owns interaction and transforms. Cache is invalidated by
-        # every depsgraph update (G/R/S, modifiers, materials, scene changes).
-        self._hamun_signature = None
+        # The embedded viewport uses Blender's proven material viewport while
+        # the Vulkan draw pipeline is still being integrated.
+        pass
 
     def view_draw(self, context, depsgraph):
-        # Live editor viewport bridge: dynamic scene geometry is rendered each
-        # draw into a GPU texture, without launching HamunRuntime.exe.
-        import ctypes
-        import gpu
-        from gpu_extras.batch import batch_for_shader
-
-        region = context.region
-        if not region or region.width < 1 or region.height < 1:
-            return
-        scene = depsgraph.scene
-        dll = _hamun_renderer_dll(scene)
-        if not dll or not dll.is_file():
-            return
-        w, h = min(region.width, 2048), min(region.height, 2048)
-        try:
-            native = ctypes.WinDLL(str(dll))
-            native.hamun_renderer_mesh_preview.argtypes = [
-                ctypes.c_uint32, ctypes.c_uint32,
-                ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
-                ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
-                ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
-            ]
-            native.hamun_renderer_mesh_preview.restype = ctypes.c_int
-            positions, indices = [], []
-            for obj in depsgraph.objects:
-                if obj.type != "MESH":
-                    continue
-                evaluated = obj.evaluated_get(depsgraph)
-                mesh = evaluated.to_mesh()
-                try:
-                    if mesh is None:
-                        continue
-                    mesh.calc_loop_triangles()
-                    first = len(positions) // 3
-                    transform = evaluated.matrix_world
-                    for v in mesh.vertices:
-                        p = transform @ v.co
-                        positions.extend((p.x, p.y, p.z))
-                    for tri in mesh.loop_triangles:
-                        indices.extend(first + int(i) for i in tri.vertices)
-                finally:
-                    evaluated.to_mesh_clear()
-            if not positions or not indices:
-                return
-            pixels = (ctypes.c_uint8 * (w * h * 4))()
-            vertex_data = (ctypes.c_float * len(positions))(*positions)
-            index_data = (ctypes.c_uint32 * len(indices))(*indices)
-            if not native.hamun_renderer_mesh_preview(
-                w, h, pixels, ctypes.sizeof(pixels),
-                vertex_data, len(positions) // 3, index_data, len(indices)):
-                return
-            # GPUTexture expects a 2D RGBA buffer, not a flat byte buffer.
-            # Use FLOAT upload for Blender's GPU Python bindings.
-            normalized = [value / 255.0 for value in pixels]
-            buffer = gpu.types.Buffer("FLOAT", (h, w, 4), normalized)
-            image = gpu.types.GPUTexture((w, h), format="RGBA32F", data=buffer)
-            shader = gpu.shader.from_builtin("IMAGE")
-            batch = batch_for_shader(shader, "TRI_FAN", {
-                "pos": ((0, 0), (w, 0), (w, h), (0, h)),
-                "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1)),
-            })
-            gpu.state.blend_set("ALPHA")
-            shader.bind()
-            shader.uniform_sampler("image", image)
-            batch.draw(shader)
-            gpu.state.blend_set("NONE")
-        except Exception as exc:
-            # Errors are diagnostic; never disrupt core editing operations.
-            if getattr(self, "_hamun_signature", None) != str(exc):
-                print("HAMUN Viewport:", exc)
-                self._hamun_signature = str(exc)
-
+        # No false Vulkan overlay: Python GPUTexture uploads and fixed-camera
+        # software rasterization were not a working interactive engine.
+        # Keep scene interaction controlled by the Editor until native
+        # graphics integration supplies camera-synchronized draw calls.
+        pass
 
     def render(self, depsgraph):
         # First genuine in-process Vulkan -> RGBA -> Blender Render Result path.
