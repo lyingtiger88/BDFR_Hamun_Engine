@@ -904,8 +904,11 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 w, h, pixels, ctypes.sizeof(pixels),
                 vertex_data, len(positions) // 3, index_data, len(indices)):
                 return
-            buffer = gpu.types.Buffer("UBYTE", w * h * 4, bytes(pixels))
-            image = gpu.types.GPUTexture((w, h), format="RGBA8", data=buffer)
+            # GPUTexture expects a 2D RGBA buffer, not a flat byte buffer.
+            # Use FLOAT upload for Blender's GPU Python bindings.
+            normalized = [value / 255.0 for value in pixels]
+            buffer = gpu.types.Buffer("FLOAT", (h, w, 4), normalized)
+            image = gpu.types.GPUTexture((w, h), format="RGBA32F", data=buffer)
             shader = gpu.shader.from_builtin("IMAGE")
             batch = batch_for_shader(shader, "TRI_FAN", {
                 "pos": ((0, 0), (w, 0), (w, h), (0, h)),
@@ -918,7 +921,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             gpu.state.blend_set("NONE")
         except Exception as exc:
             # Errors are diagnostic; never disrupt core editing operations.
-            if self._hamun_signature != str(exc):
+            if getattr(self, "_hamun_signature", None) != str(exc):
                 print("HAMUN Viewport:", exc)
                 self._hamun_signature = str(exc)
 
