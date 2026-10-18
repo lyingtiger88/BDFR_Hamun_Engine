@@ -166,7 +166,7 @@ extern "C" int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uin
 static int hamun_mesh_render_impl(
     uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count,
-    const float* mvp){
+    const float* mvp,const float* lights,uint32_t lightCount){
     lastError.clear();
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
@@ -218,8 +218,39 @@ static int hamun_mesh_render_impl(
             float vx=xyz[ic*3]-xyz[ia*3],vy=xyz[ic*3+1]-xyz[ia*3+1],vz=xyz[ic*3+2]-xyz[ia*3+2];
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
             float nlen=std::sqrt(nx*nx+ny*ny+nz*nz)+1e-8f;
-            float diffuse=std::abs((nx*.35f+ny*.4f+nz*.85f)/nlen);
-            float intensity=.23f+.75f*diffuse;
+            nx/=nlen; ny/=nlen; nz/=nlen;
+            float red=0.12f,green=0.13f,blue=0.15f;
+            if(lights&&lightCount){
+                float mx=(xyz[ia*3]+xyz[ib*3]+xyz[ic*3])/3.0f;
+                float my=(xyz[ia*3+1]+xyz[ib*3+1]+xyz[ic*3+1])/3.0f;
+                float mz=(xyz[ia*3+2]+xyz[ib*3+2]+xyz[ic*3+2])/3.0f;
+                for(uint32_t li=0;li<std::min(lightCount,32u);++li){
+                    const float* light=lights+12*li;
+                    float lx,ly,lz,attenuation=1.0f;
+                    if(light[0]<0.5f){
+                        lx=-light[4];ly=-light[5];lz=-light[6];
+                    }else{
+                        lx=light[1]-mx;ly=light[2]-my;lz=light[3]-mz;
+                        float d2=std::max(0.05f,lx*lx+ly*ly+lz*lz);
+                        attenuation=1.0f/(1.0f+d2*0.15f);
+                        if(light[0]>1.5f&&light[0]<2.5f){
+                            float inv=1.0f/std::sqrt(d2);
+                            float aligned=-(lx*light[4]+ly*light[5]+lz*light[6])*inv;
+                            attenuation*=std::max(0.0f,std::min(1.0f,(aligned-0.65f)/0.2f));
+                        }
+                    }
+                    float len=std::sqrt(lx*lx+ly*ly+lz*lz)+1e-8f;
+                    float diffuse=std::max(0.0f,(nx*lx+ny*ly+nz*lz)/len);
+                    float strength=std::max(0.0f,light[10])*0.002f*attenuation*diffuse;
+                    red+=light[7]*strength;green+=light[8]*strength;blue+=light[9]*strength;
+                }
+            }else{
+                float diffuse=std::max(0.0f,nx*.35f+ny*.4f+nz*.85f);
+                red+=diffuse*.70f;green+=diffuse*.70f;blue+=diffuse*.70f;
+            }
+            red=std::clamp(red,0.0f,1.0f);
+            green=std::clamp(green,0.0f,1.0f);
+            blue=std::clamp(blue,0.0f,1.0f);
             for(int y=y0;y<=y1;++y)for(int x=x0;x<=x1;++x){
                 float px=x+.5f,py=y+.5f;
                 float wa=edge(B,C,px,py)/area,wb=edge(C,A,px,py)/area,wc=1-wa-wb;
@@ -229,9 +260,9 @@ static int hamun_mesh_render_impl(
                 if(depth<=zbuf[offset])continue;
                 zbuf[offset]=depth;
                 uint8_t* pixel=rgba+offset*4;
-                pixel[0]=uint8_t(195*intensity);
-                pixel[1]=uint8_t(215*intensity);
-                pixel[2]=uint8_t(232*intensity);
+                pixel[0]=uint8_t(195*red);
+                pixel[1]=uint8_t(215*green);
+                pixel[2]=uint8_t(232*blue);
                 pixel[3]=255;
             }
         }
@@ -242,11 +273,19 @@ static int hamun_mesh_render_impl(
 extern "C" int hamun_renderer_mesh_preview(
     uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
     uint32_t nv,const uint32_t* idx,uint32_t ni){
-    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,nullptr);
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,nullptr,nullptr,0);
 }
 extern "C" int hamun_renderer_mesh_camera(
     uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
     uint32_t nv,const uint32_t* idx,uint32_t ni,const float* mvp){
     if(!mvp){lastError="Missing camera matrix";return 0;}
-    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp);
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,nullptr,0);
+}
+
+extern "C" int hamun_renderer_mesh_lit(uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,
+    const float* xyz,uint32_t nv,const uint32_t* idx,uint32_t ni,
+    const float* mvp,const float* lights,uint32_t lightCount) {
+    if(!mvp){lastError="Missing camera matrix";return 0;}
+    if(lightCount>32|| (lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount);
 }
