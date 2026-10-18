@@ -874,7 +874,7 @@ def _hamun_diagnostic_log(message):
     from pathlib import Path
     path = Path(tempfile.gettempdir()) / "hamun_viewport_diagnostics.log"
     with path.open("a", encoding="utf-8") as stream:
-        stream.write(datetime.datetime.now().isoformat(timespec="seconds") + " " + str(message) + "\\n")
+        stream.write(datetime.datetime.now().isoformat(timespec="seconds") + " " + str(message) + "\n")
     return path
 
 
