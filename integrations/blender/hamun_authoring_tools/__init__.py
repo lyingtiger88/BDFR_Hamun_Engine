@@ -942,10 +942,33 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 native.hamun_renderer_mesh_preview.restype = ctypes.c_int
                 position_buffer = (ctypes.c_float * len(positions))(*positions)
                 index_buffer = (ctypes.c_uint32 * len(faces))(*faces)
-                ok = native.hamun_renderer_mesh_preview(
-                    width, height, pixels, ctypes.sizeof(pixels),
-                    position_buffer, len(positions) // 3,
-                    index_buffer, len(faces))
+                if scene.camera is not None:
+                    camera = scene.camera.evaluated_get(depsgraph)
+                    projection = camera.calc_matrix_camera(
+                        depsgraph, x=width, y=height,
+                        scale_x=scene.render.pixel_aspect_x,
+                        scale_y=scene.render.pixel_aspect_y)
+                    view = camera.matrix_world.inverted_safe()
+                    vp = projection @ view
+                    camera_data = (ctypes.c_float * 16)(
+                        *(vp[row][column] for column in range(4) for row in range(4)))
+                    native.hamun_renderer_mesh_camera.argtypes = [
+                        ctypes.c_uint32, ctypes.c_uint32,
+                        ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                        ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                        ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                        ctypes.POINTER(ctypes.c_float),
+                    ]
+                    native.hamun_renderer_mesh_camera.restype = ctypes.c_int
+                    ok = native.hamun_renderer_mesh_camera(
+                        width, height, pixels, ctypes.sizeof(pixels),
+                        position_buffer, len(positions) // 3,
+                        index_buffer, len(faces), camera_data)
+                else:
+                    ok = native.hamun_renderer_mesh_preview(
+                        width, height, pixels, ctypes.sizeof(pixels),
+                        position_buffer, len(positions) // 3,
+                        index_buffer, len(faces))
             else:
                 ok = native.hamun_renderer_offscreen_clear(
                     width, height, pixels, ctypes.sizeof(pixels))
