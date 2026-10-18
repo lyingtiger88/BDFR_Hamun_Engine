@@ -1020,8 +1020,13 @@ def _hamun_draw_metrics(width, height, cpu_ms=0.0):
             ("GPU timestamps: not instrumented", (0.8, 0.8, 0.8, 1.0)),
             ("Pipeline: Vulkan clear + CPU mesh", (0.8, 0.8, 0.8, 1.0)),
         ]
+    # Right-align the HUD inside the 3D region, away from the left toolbar.
+    # Width is measured per line so Basic and Advanced layouts both fit.
+    right_margin = 68  # leave room for right-side viewport navigation gizmos
     for i, (line, color) in enumerate(lines):
-        blf.position(font, 16, height - 25 - 17 * i, 0)
+        text_width, _ = blf.dimensions(font, line)
+        x = max(76, int(width - right_margin - text_width))
+        blf.position(font, x, height - 45 - 17 * i, 0)
         blf.color(font, *color)
         blf.draw(font, line)
     blf.disable(font, blf.SHADOW)
