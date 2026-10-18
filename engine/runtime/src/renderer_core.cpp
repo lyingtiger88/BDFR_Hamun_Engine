@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <cstring>
 #include <string>
+#include <vector>
 static thread_local std::string lastError;
 extern "C" int hamun_renderer_probe(HamunRendererInfo* out) {
     lastError.clear();
@@ -24,14 +25,14 @@ extern "C" int hamun_renderer_probe(HamunRendererInfo* out) {
         lastError="No Vulkan physical device detected";
         vkDestroyInstance(instance,nullptr);return 0;
     }
-    VkPhysicalDevice gpu=VK_NULL_HANDLE;
-    result=vkEnumeratePhysicalDevices(instance,&count,&gpu);
+    std::vector<VkPhysicalDevice> devices(count);
+    result=vkEnumeratePhysicalDevices(instance,&count,devices.data());
     if(result!=VK_SUCCESS){
         lastError="Failed to enumerate GPU";
         vkDestroyInstance(instance,nullptr);return 0;
     }
     VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(gpu,&properties);
+    vkGetPhysicalDeviceProperties(devices[0],&properties);
     out->gpuVendor=properties.vendorID;
     out->vulkanVersion=properties.apiVersion;
     std::memcpy(out->deviceName,properties.deviceName,sizeof(out->deviceName));
