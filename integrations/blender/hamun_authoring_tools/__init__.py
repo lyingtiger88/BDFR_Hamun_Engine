@@ -838,6 +838,36 @@ class HAMUN_OT_play_runtime(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _hamun_renderer_dll(scene=None):
+    """Resolve shared Vulkan renderer without an EXE picker."""
+    # Prefer a DLL shipped beside the running Hamun Editor.
+    import sys
+    roots = [Path(sys.executable).resolve().parent]
+    root = Path(__file__).resolve()
+    # Development checkout: D:/HamunDev/Hamun/integrations/blender/...
+    for parent in root.parents:
+        if (parent / "engine" / "runtime" / "CMakeLists.txt").is_file():
+            roots.append(parent / "build" / "hamun-runtime" / "Release")
+            break
+    # Portable editor typically lives in D:/HamunDev/HamunPackages.
+    for parent in root.parents:
+        candidate = parent / "HamunRenderer.dll"
+        if candidate.is_file():
+            return candidate
+    # Respect prior configured path silently as a migration fallback.
+    if scene is not None:
+        legacy = getattr(scene, "hamun_vulkan_executable", "")
+        if legacy:
+            roots.append(Path(bpy.path.abspath(legacy)).resolve().parent)
+    # Local development sibling under D:/HamunDev.
+    roots.append(Path("D:/HamunDev/Hamun/build/hamun-runtime/Release"))
+    for directory in roots:
+        dll = directory / "HamunRenderer.dll"
+        if dll.is_file():
+            return dll
+    return None
+
+
 class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     """Hamun Vulkan runtime integration placeholder (not an in-editor renderer yet)."""
     bl_idname = "HAMUN_VULKAN"
@@ -861,9 +891,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         if not region or region.width < 1 or region.height < 1:
             return
         scene = depsgraph.scene
-        exe_path = getattr(scene, "hamun_vulkan_executable", "")
-        exe = Path(bpy.path.abspath(exe_path)).resolve() if exe_path else None
-        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        dll = _hamun_renderer_dll(scene)
         if not dll or not dll.is_file():
             return
         w, h = min(region.width, 2048), min(region.height, 2048)
@@ -931,11 +959,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         # This stage renders a diagnostic GPU clear, NOT scene geometry.
         import ctypes
         scene = depsgraph.scene
-        exe_path = scene.hamun_vulkan_executable
-        exe = Path(bpy.path.abspath(exe_path)).resolve() if exe_path else None
-        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        dll = _hamun_renderer_dll(scene)
         if not dll or not dll.is_file():
-            self.report({"ERROR"}, "Select an executable beside HamunRenderer.dll")
+            self.report({"ERROR"}, "HamunRenderer.dll not found beside Editor or in development build")
             return
         scale = scene.render.resolution_percentage / 100.0
         width = max(1, int(scene.render.resolution_x * scale))
@@ -1016,11 +1042,9 @@ class HAMUN_OT_probe_renderer(bpy.types.Operator):
 
     def execute(self, context):
         import ctypes
-        exe_value = context.scene.hamun_vulkan_executable
-        exe = Path(bpy.path.abspath(exe_value)).resolve() if exe_value else None
-        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        dll = _hamun_renderer_dll(context.scene)
         if not dll or not dll.is_file():
-            self.report({"ERROR"}, "Choose Runtime Executable next to HamunRenderer.dll")
+            self.report({"ERROR"}, "HamunRenderer.dll not found in build or Editor directory")
             return {"CANCELLED"}
 
         class RendererInfo(ctypes.Structure):
@@ -1063,8 +1087,9 @@ class HAMUN_PT_vulkan_settings(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         layout.label(text="External Vulkan runtime preview", icon="INFO")
-        layout.label(text="F12 / Render Result not yet integrated")
-        layout.prop(scene, "hamun_vulkan_executable")
+        layout.label(text="F12: in-editor render preview enabled")
+        dll = _hamun_renderer_dll(scene)
+        layout.label(text="Renderer: " + ("DLL found" if dll else "DLL missing"), icon="CHECKMARK" if dll else "ERROR")
         layout.prop(scene, "hamun_vulkan_fps_cap")
         layout.operator("hamun.probe_renderer", text="Check Integrated Vulkan", icon="SHADING_RENDERED")
         if scene.get("hamun_renderer_gpu"):
