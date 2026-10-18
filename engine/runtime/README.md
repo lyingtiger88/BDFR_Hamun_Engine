@@ -1,3 +1,14 @@
+# F12 in-editor Vulkan offscreen bridge — initial integration
+
+Added `HamunRenderer.dll` API `hamun_renderer_offscreen_clear`: runs GPU Vulkan
+clear to a host-visible RGBA image and returns its pixels to Blender's Render
+Result via the `HAMUN_VULKAN` RenderEngine Python class. This provides an
+in-process end-to-end integration for F12, **not yet rendering the scene**.
+To test, rebuild the CMake target, repackage Editor, select Hamun Vulkan,
+configure the runtime executable beside the DLL, and press F12. Expect a solid
+blue-grey GPU-generated image. The earlier stand-alone Runtime remains the
+scene renderer until meshes/shaders/camera are migrated to the shared DLL.
+
 # Hamun Runtime — GLB Geometry Pipeline (first integration milestone)
 
 This is the first path from a real GLB asset to independent Vulkan rendering.
