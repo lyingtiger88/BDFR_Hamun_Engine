@@ -916,10 +916,86 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             self._hamun_update_logged = True
 
     def view_draw(self, context, depsgraph):
-        if not getattr(self, "_hamun_draw_logged", False):
-            _hamun_diagnostic_log("RenderEngine.view_draw CALLED")
-            self._hamun_draw_logged = True
-        # Real-time Vulkan drawing is not yet implemented.
+        """Experimental live image bridge; scene drawing still CPU rasterized."""
+        import ctypes
+        import traceback
+        import gpu
+        from gpu_extras.batch import batch_for_shader
+        try:
+            if not getattr(self, "_hamun_draw_logged", False):
+                _hamun_diagnostic_log("RenderEngine.view_draw CALLED")
+                self._hamun_draw_logged = True
+            region = context.region
+            if region is None:
+                return
+            width = max(1, min(int(region.width), 1600))
+            height = max(1, min(int(region.height), 1600))
+            dll = _hamun_renderer_dll(depsgraph.scene)
+            if dll is None:
+                raise RuntimeError("HamunRenderer.dll missing")
+            native = ctypes.WinDLL(str(dll))
+            native.hamun_renderer_mesh_camera.argtypes = [
+                ctypes.c_uint32, ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_float),
+            ]
+            native.hamun_renderer_mesh_camera.restype = ctypes.c_int
+            native.hamun_renderer_last_error.restype = ctypes.c_char_p
+            verts, indices = [], []
+            for obj in depsgraph.objects:
+                if obj.type != "MESH" or obj.hide_render:
+                    continue
+                evaluated = obj.evaluated_get(depsgraph)
+                mesh = evaluated.to_mesh()
+                try:
+                    if mesh is None:
+                        continue
+                    mesh.calc_loop_triangles()
+                    base = len(verts) // 3
+                    for vertex in mesh.vertices:
+                        pt = evaluated.matrix_world @ vertex.co
+                        verts.extend((pt.x, pt.y, pt.z))
+                    for tri in mesh.loop_triangles:
+                        indices.extend(base + int(j) for j in tri.vertices)
+                finally:
+                    evaluated.to_mesh_clear()
+            if not verts or not indices:
+                return
+            rv3d = context.space_data.region_3d
+            vp = rv3d.perspective_matrix
+            matrix = (ctypes.c_float * 16)(
+                *(vp[row][column] for column in range(4) for row in range(4)))
+            rgba = (ctypes.c_uint8 * (width * height * 4))()
+            positions = (ctypes.c_float * len(verts))(*verts)
+            faces = (ctypes.c_uint32 * len(indices))(*indices)
+            if not native.hamun_renderer_mesh_camera(
+                    width, height, rgba, ctypes.sizeof(rgba),
+                    positions, len(verts) // 3, faces, len(indices), matrix):
+                error = native.hamun_renderer_last_error()
+                raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
+            # Blender GPU expects a shaped buffer for texture upload.
+            floats = [value / 255.0 for value in rgba]
+            buffer = gpu.types.Buffer("FLOAT", (height, width, 4), floats)
+            texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
+            shader = gpu.shader.from_builtin("IMAGE")
+            batch = batch_for_shader(shader, "TRI_FAN", {
+                "pos": ((0, 0), (width, 0), (width, height), (0, height)),
+                "texCoord": ((0, 1), (1, 1), (1, 0), (0, 0)),
+            })
+            gpu.state.blend_set("NONE")
+            shader.bind()
+            shader.uniform_sampler("image", texture)
+            batch.draw(shader)
+            if not getattr(self, "_hamun_success_logged", False):
+                _hamun_diagnostic_log("Viewport image drawn " + str((width, height)))
+                self._hamun_success_logged = True
+        except Exception:
+            message = traceback.format_exc()
+            if getattr(self, "_hamun_last_error", None) != message:
+                _hamun_diagnostic_log(message)
+                self._hamun_last_error = message
 
     def render(self, depsgraph):
         # First genuine in-process Vulkan -> RGBA -> Blender Render Result path.
