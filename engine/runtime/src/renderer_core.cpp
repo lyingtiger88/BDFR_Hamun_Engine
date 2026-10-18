@@ -241,7 +241,12 @@ static int hamun_mesh_render_impl(
                     }
                     float len=std::sqrt(lx*lx+ly*ly+lz*lz)+1e-8f;
                     float diffuse=std::max(0.0f,(nx*lx+ny*ly+nz*lz)/len);
-                    float strength=std::max(0.0f,light[10])*0.002f*attenuation*diffuse;
+                    // Blender Sun energy is usually around 1-5, unlike point
+                    // lights often measured in hundreds of watts. Do not apply
+                    // the same conversion factor to both.
+                    float energy=std::max(0.0f,light[10]);
+                    float gain=(light[0]<0.5f)?0.9f:0.012f;
+                    float strength=std::min(8.0f,energy*gain*attenuation*diffuse);
                     red+=light[7]*strength;green+=light[8]*strength;blue+=light[9]*strength;
                 }
             }else{
