@@ -83,6 +83,12 @@ if (-not (Test-Path -LiteralPath $converterSource)) { throw "Missing runtime con
 Copy-Item -LiteralPath $converterSource -Destination (Join-Path $addonTarget 'glb_to_hmesh.py') -Force
 $startupTarget = Join-Path $staging '5.4\scripts\startup\hamun_startup.py'
 Copy-Item -LiteralPath $startupSource -Destination $startupTarget -Force
+if (-not (Select-String -LiteralPath $startupTarget -Pattern 'addon_utils.check\("hamun_authoring_tools"\)' -Quiet)) {
+    throw "Missing startup Vulkan registration fix in: $startupTarget"
+}
+if (-not (Select-String -LiteralPath $addonInit -Pattern 'class HAMUN_RENDER_VULKAN' -Quiet)) {
+    throw "Missing Vulkan RenderEngine class in: $addonInit"
+}
 # Remove obsolete experimental bootstrap if it existed in the source Release.
 $legacyBootstrap = Join-Path $staging '5.4\scripts\startup\hamun_bootstrap.py'
 if (Test-Path -LiteralPath $legacyBootstrap) {
