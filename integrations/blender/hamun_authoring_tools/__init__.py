@@ -976,7 +976,11 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 error = native.hamun_renderer_last_error()
                 raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
             # Blender GPU expects a shaped buffer for texture upload.
-            floats = [value / 255.0 for value in rgba]
+            import numpy as np
+            pixels_array = np.ctypeslib.as_array(rgba)
+            floats = np.ascontiguousarray(
+                pixels_array.reshape((height, width, 4)), dtype=np.float32)
+            floats *= (1.0 / 255.0)
             buffer = gpu.types.Buffer("FLOAT", (height, width, 4), floats)
             texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
             shader = gpu.shader.from_builtin("IMAGE")
