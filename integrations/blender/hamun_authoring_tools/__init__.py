@@ -834,6 +834,22 @@ class HAMUN_OT_play_runtime(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
+    """Hamun Vulkan runtime integration placeholder (not an in-editor renderer yet)."""
+    bl_idname = "HAMUN_VULKAN"
+    bl_label = "Hamun Vulkan (Preview)"
+    bl_use_preview = False
+    bl_use_eevee_viewport = False
+
+    def render(self, depsgraph):
+        # Do not pretend the independent Vulkan runtime renders into Blender's
+        # Render Result. That path needs an offscreen API and shared image format.
+        self.report({"ERROR"},
+                    "Hamun Vulkan Render Result is not integrated yet. "
+                    "Use Hamun > Play in Hamun Runtime.")
+        raise RuntimeError("Hamun Vulkan: Render Result integration unavailable")
+
+
 class HAMUN_PT_authoring(bpy.types.Panel):
     bl_label = "Hamun Engine"
     bl_idname = "HAMUN_PT_authoring"
@@ -900,6 +916,7 @@ classes = (
     HAMUN_OT_setup_workspace,
     HAMUN_OT_export_scene,
     HAMUN_OT_play_runtime,
+    HAMUN_RENDER_VULKAN,
     HAMUN_OT_link_glb,
     HAMUN_OT_export_hscene,
     HAMUN_OT_import_hscene,
