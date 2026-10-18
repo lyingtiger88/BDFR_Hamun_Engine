@@ -13,5 +13,11 @@ HAMUN_API int hamun_renderer_probe(HamunRendererInfo* info);
 HAMUN_API int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount);
 HAMUN_API int hamun_renderer_mesh_preview(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount);
 HAMUN_API int hamun_renderer_mesh_camera(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,const float* viewProjection16);
+// Light layout: 12 floats per light: type(0 sun,1 point,2 spot,3 area),
+// position xyz, direction xyz, color rgb, energy, range.
+// Initial CPU lighting bridge; shader-side Vulkan PBR is still pending.
+HAMUN_API int hamun_renderer_mesh_lit(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* viewProjection16,const float* lights12,uint32_t lightCount);
 HAMUN_API const char* hamun_renderer_last_error();
 }
