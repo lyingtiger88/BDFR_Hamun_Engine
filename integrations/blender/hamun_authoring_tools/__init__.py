@@ -846,12 +846,48 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_use_eevee_viewport = False
 
     def render(self, depsgraph):
-        # Do not pretend the independent Vulkan runtime renders into Blender's
-        # Render Result. That path needs an offscreen API and shared image format.
-        self.report({"ERROR"},
-                    "Hamun Vulkan Render Result is not integrated yet. "
-                    "Use Hamun > Play in Hamun Runtime.")
-        raise RuntimeError("Hamun Vulkan: Render Result integration unavailable")
+        # First genuine in-process Vulkan -> RGBA -> Blender Render Result path.
+        # This stage renders a diagnostic GPU clear, NOT scene geometry.
+        import ctypes
+        scene = depsgraph.scene
+        exe_path = scene.hamun_vulkan_executable
+        exe = Path(bpy.path.abspath(exe_path)).resolve() if exe_path else None
+        dll = exe.with_name("HamunRenderer.dll") if exe else None
+        if not dll or not dll.is_file():
+            self.report({"ERROR"}, "Select an executable beside HamunRenderer.dll")
+            return
+        scale = scene.render.resolution_percentage / 100.0
+        width = max(1, int(scene.render.resolution_x * scale))
+        height = max(1, int(scene.render.resolution_y * scale))
+        if width > 4096 or height > 4096:
+            self.report({"ERROR"}, "Hamun Vulkan preview supports up to 4096 x 4096")
+            return
+        try:
+            native = ctypes.WinDLL(str(dll))
+            native.hamun_renderer_offscreen_clear.argtypes = [
+                ctypes.c_uint32, ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+            ]
+            native.hamun_renderer_offscreen_clear.restype = ctypes.c_int
+            native.hamun_renderer_last_error.restype = ctypes.c_char_p
+            pixels = (ctypes.c_uint8 * (width * height * 4))()
+            if not native.hamun_renderer_offscreen_clear(
+                    width, height, pixels, ctypes.sizeof(pixels)):
+                message = native.hamun_renderer_last_error()
+                raise RuntimeError(message.decode("utf-8", "replace") if message else "Vulkan offscreen failed")
+            # Blender Render Result expects bottom-to-top float RGBA per pixel.
+            rgba = [channel / 255.0 for channel in pixels]
+            result = self.begin_result(0, 0, width, height)
+            if not result:
+                raise RuntimeError("Cannot create Blender Render Result")
+            try:
+                combined = result.layers[0].passes["Combined"]
+                combined.rect.foreach_set(rgba)
+            finally:
+                self.end_result(result)
+            self.report({"INFO"}, "Vulkan offscreen image transferred to Render Result")
+        except Exception as exc:
+            self.report({"ERROR"}, "Hamun Vulkan F12: " + str(exc))
 
 
 class HAMUN_OT_probe_renderer(bpy.types.Operator):
