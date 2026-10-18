@@ -871,10 +871,47 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             native.hamun_renderer_offscreen_clear.restype = ctypes.c_int
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
             pixels = (ctypes.c_uint8 * (width * height * 4))()
-            if not native.hamun_renderer_offscreen_clear(
-                    width, height, pixels, ctypes.sizeof(pixels)):
+            # Extract evaluated mesh triangles in world coordinates.
+            positions = []
+            faces = []
+            for obj in depsgraph.objects:
+                if obj.type != "MESH":
+                    continue
+                evaluated = obj.evaluated_get(depsgraph)
+                mesh = evaluated.to_mesh()
+                try:
+                    if mesh is None:
+                        continue
+                    mesh.calc_loop_triangles()
+                    base = len(positions) // 3
+                    transform = evaluated.matrix_world
+                    for vertex in mesh.vertices:
+                        coordinate = transform @ vertex.co
+                        positions.extend((float(coordinate.x), float(coordinate.y), float(coordinate.z)))
+                    for triangle in mesh.loop_triangles:
+                        faces.extend(base + int(index) for index in triangle.vertices)
+                finally:
+                    evaluated.to_mesh_clear()
+            if positions and faces:
+                native.hamun_renderer_mesh_preview.argtypes = [
+                    ctypes.c_uint32, ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                    ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                ]
+                native.hamun_renderer_mesh_preview.restype = ctypes.c_int
+                position_buffer = (ctypes.c_float * len(positions))(*positions)
+                index_buffer = (ctypes.c_uint32 * len(faces))(*faces)
+                ok = native.hamun_renderer_mesh_preview(
+                    width, height, pixels, ctypes.sizeof(pixels),
+                    position_buffer, len(positions) // 3,
+                    index_buffer, len(faces))
+            else:
+                ok = native.hamun_renderer_offscreen_clear(
+                    width, height, pixels, ctypes.sizeof(pixels))
+            if not ok:
                 message = native.hamun_renderer_last_error()
-                raise RuntimeError(message.decode("utf-8", "replace") if message else "Vulkan offscreen failed")
+                raise RuntimeError(message.decode("utf-8", "replace") if message else "Renderer preview failed")
             # Blender Render Result expects bottom-to-top float RGBA per pixel.
             rgba = [channel / 255.0 for channel in pixels]
             result = self.begin_result(0, 0, width, height)
