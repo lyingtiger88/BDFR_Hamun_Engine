@@ -4,6 +4,8 @@
 #include <cstring>
 #include <string>
 #include <stdexcept>
+#include <cmath>
+#include <algorithm>
 #include <vector>
 static thread_local std::string lastError;
 extern "C" int hamun_renderer_probe(HamunRendererInfo* out) {
@@ -159,4 +161,69 @@ extern "C" int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uin
         vkUnmapMemory(device,memory);
         cleanup();return 1;
     }catch(const std::exception& ex){lastError=ex.what();cleanup();return 0;}
+}
+
+extern "C" int hamun_renderer_mesh_preview(
+    uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
+    const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count){
+    lastError.clear();
+    if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
+        lastError="Invalid mesh buffer";return 0;
+    }
+    if(!hamun_renderer_offscreen_clear(width,height,rgba,byteCount))return 0;
+    try {
+        // Transitional mesh compositing: real scene triangles, software depth
+        // on Vulkan-generated background. Next stage migrates rasterization
+        // into Vulkan vertex/index buffers and graphics pipeline.
+        struct P {float x,y,z;};
+        const float a=0.45f,b=0.32f;
+        const float cy=std::cos(a),sy=std::sin(a),cp=std::cos(b),sp=std::sin(b);
+        std::vector<P> projected(vertices);
+        float radius=0.01f;
+        for(uint32_t i=0;i<vertices;++i)
+            for(int c=0;c<3;++c) radius=std::max(radius,std::abs(xyz[i*3+c]));
+        const float scale=float(std::min(width,height))*.35f/radius;
+        for(uint32_t i=0;i<vertices;++i){
+            float x=xyz[i*3],y=xyz[i*3+1],z=xyz[i*3+2];
+            float rx=cy*x+sy*y,ry=-sy*x+cy*y;
+            float rz=cp*z-sp*ry,depth=sp*z+cp*ry;
+            projected[i]={width*.5f+rx*scale,height*.52f-rz*scale,depth};
+        }
+        std::vector<float> zbuf(size_t(width)*height,-1e30f);
+        auto edge=[](const P& a,const P& b,float x,float y){
+            return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
+        };
+        for(uint32_t i=0;i<count;i+=3){
+            uint32_t ia=indices[i],ib=indices[i+1],ic=indices[i+2];
+            if(ia>=vertices||ib>=vertices||ic>=vertices)continue;
+            const P A=projected[ia],B=projected[ib],C=projected[ic];
+            float area=edge(A,B,C.x,C.y);
+            if(std::abs(area)<1e-5f)continue;
+            int x0=std::max(0,int(std::floor(std::min({A.x,B.x,C.x}))));
+            int x1=std::min(int(width)-1,int(std::ceil(std::max({A.x,B.x,C.x}))));
+            int y0=std::max(0,int(std::floor(std::min({A.y,B.y,C.y}))));
+            int y1=std::min(int(height)-1,int(std::ceil(std::max({A.y,B.y,C.y}))));
+            float ux=xyz[ib*3]-xyz[ia*3],uy=xyz[ib*3+1]-xyz[ia*3+1],uz=xyz[ib*3+2]-xyz[ia*3+2];
+            float vx=xyz[ic*3]-xyz[ia*3],vy=xyz[ic*3+1]-xyz[ia*3+1],vz=xyz[ic*3+2]-xyz[ia*3+2];
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+            float nlen=std::sqrt(nx*nx+ny*ny+nz*nz)+1e-8f;
+            float diffuse=std::abs((nx*.35f+ny*.4f+nz*.85f)/nlen);
+            float intensity=.23f+.75f*diffuse;
+            for(int y=y0;y<=y1;++y)for(int x=x0;x<=x1;++x){
+                float px=x+.5f,py=y+.5f;
+                float wa=edge(B,C,px,py)/area,wb=edge(C,A,px,py)/area,wc=1-wa-wb;
+                if(wa<0||wb<0||wc<0)continue;
+                float depth=wa*A.z+wb*B.z+wc*C.z;
+                size_t offset=size_t(y)*width+x;
+                if(depth<=zbuf[offset])continue;
+                zbuf[offset]=depth;
+                uint8_t* pixel=rgba+offset*4;
+                pixel[0]=uint8_t(195*intensity);
+                pixel[1]=uint8_t(215*intensity);
+                pixel[2]=uint8_t(232*intensity);
+                pixel[3]=255;
+            }
+        }
+        return 1;
+    }catch(const std::exception& ex){lastError=ex.what();return 0;}
 }
