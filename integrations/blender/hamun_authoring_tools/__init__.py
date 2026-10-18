@@ -1003,6 +1003,7 @@ def _hamun_draw_metrics(width, height, cpu_ms=0.0):
         ("GPU Time: n/a", (0.8, 0.8, 0.8, 1.0)),
         ("Draws: %s" % _hamun_metrics.get("draws", "n/a"), (1.0, 1.0, 1.0, 1.0)),
         ("Prims: %s" % _hamun_metrics.get("prims", "n/a"), (1.0, 1.0, 1.0, 1.0)),
+        ("Lights: %s" % _hamun_metrics.get("lights", "n/a"), (1.0, 1.0, 1.0, 1.0)),
     ]
     lines = basic
     if _hamun_metrics["mode"] == "ADVANCED":
@@ -1103,9 +1104,41 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             faces = (ctypes.c_uint32 * len(indices))(*indices)
             _hamun_metrics["draws"] = 1
             _hamun_metrics["prims"] = len(indices) // 3
-            if not native.hamun_renderer_mesh_camera(
-                    width, height, rgba, ctypes.sizeof(rgba),
-                    positions, len(verts) // 3, faces, len(indices), matrix):
+            # Collect evaluated Blender lights every frame so transforms and
+            # color/energy changes are reflected without restarting the editor.
+            lights = []
+            for obj in depsgraph.objects:
+                if obj.type != "LIGHT" or obj.hide_render:
+                    continue
+                evaluated = obj.evaluated_get(depsgraph)
+                data = evaluated.data
+                light_type = {"SUN": 0, "POINT": 1, "SPOT": 2, "AREA": 3}.get(data.type)
+                if light_type is None or len(lights) >= 32:
+                    continue
+                transform = evaluated.matrix_world
+                pos = transform.translation
+                direction = transform.to_quaternion() @ __import__("mathutils").Vector((0, 0, -1))
+                color = data.color
+                lights.append((float(light_type), pos.x, pos.y, pos.z,
+                               direction.x, direction.y, direction.z,
+                               color.r, color.g, color.b, data.energy, 0.0))
+            light_data = [float(value) for light in lights for value in light]
+            light_array = (ctypes.c_float * len(light_data))(*light_data) if light_data else None
+            native.hamun_renderer_mesh_lit.argtypes = [
+                ctypes.c_uint32, ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                ctypes.c_uint32,
+            ]
+            native.hamun_renderer_mesh_lit.restype = ctypes.c_int
+            ok = native.hamun_renderer_mesh_lit(
+                width, height, rgba, ctypes.sizeof(rgba),
+                positions, len(verts) // 3, faces, len(indices),
+                matrix, light_array, len(lights))
+            _hamun_metrics["lights"] = len(lights)
+            if not ok:
                 error = native.hamun_renderer_last_error()
                 raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
             # Blender GPU expects a shaped buffer for texture upload.
