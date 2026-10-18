@@ -825,7 +825,11 @@ class HAMUN_OT_play_runtime(bpy.types.Operator):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             module.convert(glb, hmesh)
-            subprocess.Popen([str(exe), "--scene", str(hmesh)], cwd=str(exe.parent))
+            cap = int(getattr(context.scene, "hamun_vulkan_fps_cap", "0"))
+            subprocess.Popen(
+                [str(exe), "--scene", str(hmesh), "--fps", str(cap)],
+                cwd=str(exe.parent),
+            )
             context.scene["hamun_runtime_exe"] = str(exe)
         except Exception as exc:
             self.report({"ERROR"}, "Play failed: " + str(exc))
