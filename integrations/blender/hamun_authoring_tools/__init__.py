@@ -1166,9 +1166,13 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 pos = transform.translation
                 direction = transform.to_quaternion() @ __import__("mathutils").Vector((0, 0, -1))
                 color = data.color
+                # ABI slot 11: 1 = cast shadows, -1 = disabled.
+                # Zero remains legacy-enabled for older test clients.
+                shadow_enabled = bool(getattr(data, "use_shadow", True))
+                shadow_flag = 1.0 if shadow_enabled else -1.0
                 lights.append((float(light_type), pos.x, pos.y, pos.z,
                                direction.x, direction.y, direction.z,
-                               color.r, color.g, color.b, data.energy, 0.0))
+                               color.r, color.g, color.b, data.energy, shadow_flag))
             light_data = [float(value) for light in lights for value in light]
             light_array = (ctypes.c_float * len(light_data))(*light_data) if light_data else None
             native.hamun_renderer_mesh_lit.argtypes = [
