@@ -436,7 +436,6 @@ static int hamun_mesh_render_impl(
                         const float bias=std::max(0.002f,sm.step*2.f);
                         // Restored stable 2x2 directional shadow PCF.
                         float visibility=0.f;
-                        const float bias=std::max(0.002f,sm.step*2.f);
                         for(int oy=0;oy<2;++oy)for(int ox=0;ox<2;++ox)
                             visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
                         if(visibility>=1.f)continue;
