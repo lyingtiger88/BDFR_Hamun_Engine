@@ -434,35 +434,11 @@ static int hamun_mesh_render_impl(
                         if(ix<1||iy<1||ix>=shadowSize-1||iy>=shadowSize-1)continue;
                         float d=-(wx*sm.dx+wy*sm.dy+wz*sm.dz);
                         const float bias=std::max(0.002f,sm.step*2.f);
-                        // Approximate Eevee/Cycles Sun angular softness using
-                        // blocker-receiver separation: larger angular diameter
-                        // increases the penumbra, zero angle stays sharp.
-                        const float angle=std::clamp(lights[li*12+1],0.f,1.5707963f);
-                        float blockerGap=0.f;
-                        for(int by=-3;by<=3;++by)for(int bx=-3;bx<=3;++bx){
-                            const int bxIndex=std::clamp(ix+bx,0,shadowSize-1);
-                            const int byIndex=std::clamp(iy+by,0,shadowSize-1);
-                            const float z=sm.depth[size_t(byIndex)*shadowSize+bxIndex];
-                            if(z>d+bias)blockerGap=std::max(blockerGap,z-d);
-                        }
-                        const float penumbra=std::min(10.f,std::tan(angle*.5f)*blockerGap/sm.step);
+                        // Restored stable 2x2 directional shadow PCF.
                         float visibility=0.f;
-                        if(penumbra<=0.1f){
-                            // Retain the previously working 2x2 PCF for hard
-                            // shadows. A zero-radius kernel must not collapse
-                            // all four taps onto the same depth texel.
-                            for(int oy=0;oy<2;++oy)for(int ox=0;ox<2;++ox)
-                                visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
-                        }else{
-                            constexpr int taps=5;
-                            for(int oy=0;oy<taps;++oy)for(int ox=0;ox<taps;++ox){
-                                const float offsetX=(ox+.5f)/taps-.5f;
-                                const float offsetY=(oy+.5f)/taps-.5f;
-                                const int px=std::clamp(int(std::floor(sx+offsetX*2.f*penumbra)),0,shadowSize-1);
-                                const int py=std::clamp(int(std::floor(sy+offsetY*2.f*penumbra)),0,shadowSize-1);
-                                visibility+=(d+bias>=sm.depth[size_t(py)*shadowSize+px])?1.f/float(taps*taps):0.f;
-                            }
-                        }
+                        const float bias=std::max(0.002f,sm.step*2.f);
+                        for(int oy=0;oy<2;++oy)for(int ox=0;ox<2;++ox)
+                            visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
                         if(visibility>=1.f)continue;
                         const float* light=lights+12*li;
                         // Only occlude this Sun's own direct contribution;
