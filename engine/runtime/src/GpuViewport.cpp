@@ -59,6 +59,27 @@ extern "C" int hamun_gpu_viewport_render(
        indexCount==0||indexCount%3||vertexCount>1000000||indexCount>3000000||
        capacity<uint64_t(w)*h*4||(lightCount&&!lights)||lightCount>32)
         return fail("Invalid Vulkan viewport parameters");
+    // Skip full Vulkan setup for identical redraws. The bridge invokes this
+    // function continuously even if neither mesh, camera nor light changed.
+    static thread_local uint64_t cachedKey=0;
+    static thread_local uint32_t cachedW=0,cachedH=0;
+    static thread_local std::vector<uint8_t> cachedImage;
+    uint64_t key=14695981039346656037ull;
+    auto mix=[&](const void* ptr,size_t n){
+        const auto* b=static_cast<const unsigned char*>(ptr);
+        for(size_t i=0;i<n;++i){key^=b[i];key*=1099511628211ull;}
+    };
+    mix(&w,sizeof(w));mix(&h,sizeof(h));
+    mix(&vertexCount,sizeof(vertexCount));mix(&indexCount,sizeof(indexCount));
+    mix(positions,size_t(vertexCount)*3*sizeof(float));
+    mix(indices,size_t(indexCount)*sizeof(uint32_t));
+    mix(faceNormals,size_t(indexCount)*sizeof(float));
+    mix(mvp,16*sizeof(float));mix(&lightCount,sizeof(lightCount));
+    if(lightCount)mix(lights,size_t(lightCount)*12*sizeof(float));
+    if(key==cachedKey&&cachedW==w&&cachedH==h&&cachedImage.size()==size_t(w)*h*4){
+        std::memcpy(pixels,cachedImage.data(),cachedImage.size());
+        return 1;
+    }
     VkInstance instance=VK_NULL_HANDLE;
     VkDevice device=VK_NULL_HANDLE;
     VkCommandPool pool=VK_NULL_HANDLE;
@@ -308,6 +329,8 @@ extern "C" int hamun_gpu_viewport_render(
         require(vkMapMemory(device,readbackMemory,0,VK_WHOLE_SIZE,0,&mapped),"Map GPU readback failed");
         std::memcpy(pixels,mapped,size_t(w)*h*4);
         vkUnmapMemory(device,readbackMemory);
+        cachedImage.assign(pixels,pixels+size_t(w)*h*4);
+        cachedKey=key;cachedW=w;cachedH=h;
         cleanup();return 1;
     }catch(const std::exception& ex){std::string msg=ex.what();cleanup();return fail(msg.c_str());}
 }
