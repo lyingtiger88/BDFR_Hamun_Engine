@@ -1199,6 +1199,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         self._hamun_gpu_error_logged = True
                 else:
                     self._hamun_gpu_error_logged = False
+                    if not getattr(self, "_hamun_gpu_success_logged", False):
+                        _hamun_diagnostic_log("VULKAN_GPU_VIEWPORT ACTIVE: hardware rasterization + depth test")
+                        self._hamun_gpu_success_logged = True
             else:
                 ok = 0
             lit_with_normals = getattr(native, "hamun_renderer_mesh_lit_normals", None)
