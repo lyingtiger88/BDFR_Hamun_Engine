@@ -1173,6 +1173,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 lights.append((float(light_type), pos.x, pos.y, pos.z,
                                direction.x, direction.y, direction.z,
                                color.r, color.g, color.b, data.energy, shadow_flag))
+            # Record only meaningful light-state changes: this exposes whether
+            # the Blender UI actually changes the evaluated Sun parameters.
+            sun_state = tuple(
+                (tuple(round(v, 4) for v in light[4:7]), round(light[10], 3), light[11])
+                for light in lights if light[0] < 0.5
+            )
+            if getattr(self, "_hamun_last_sun_state", None) != sun_state:
+                _hamun_diagnostic_log("SUN_INPUT direction_energy_shadow=" + repr(sun_state))
+                self._hamun_last_sun_state = sun_state
             light_data = [float(value) for light in lights for value in light]
             light_array = (ctypes.c_float * len(light_data))(*light_data) if light_data else None
             native.hamun_renderer_mesh_lit.argtypes = [
@@ -1192,7 +1201,11 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # a shadowless scene. Keep GPU active for unshadowed previews.
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
             if has_sun:
-                gpu_viewport = None
+                gpu_viewport = None  # CPU shadow fallback; Vulkan has no shadow sampler.
+            route = "CPU_SUN_SHADOW_FALLBACK" if has_sun else ("VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")
+            if getattr(self, "_hamun_last_render_route", None) != route:
+                _hamun_diagnostic_log("RENDER_ROUTE=" + route)
+                self._hamun_last_render_route = route
             if gpu_viewport is not None:
                 gpu_viewport.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
