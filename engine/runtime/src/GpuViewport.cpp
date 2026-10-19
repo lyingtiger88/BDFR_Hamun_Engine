@@ -1,3 +1,5 @@
+#define HAMUN_RENDERER_BUILD
+#include "renderer_core.hpp"
 #include <vulkan/vulkan.h>
 #include <windows.h>
 #include <vector>
