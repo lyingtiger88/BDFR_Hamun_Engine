@@ -14,7 +14,7 @@ target_compile_features(HamunRuntime PRIVATE cxx_std_17)
 target_compile_definitions(HamunRuntime PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX VK_USE_PLATFORM_WIN32_KHR)
 target_link_libraries(HamunRuntime PRIVATE Vulkan::Vulkan user32 gdi32 psapi shell32)
 set(SHADER_OUTPUTS)
-foreach(name triangle.vert triangle.frag)
+foreach(name triangle.vert triangle.frag viewport.vert viewport.frag viewport_shadow.vert)
   set(out "${CMAKE_CURRENT_BINARY_DIR}/shaders/${name}.spv")
   add_custom_command(OUTPUT "${out}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
@@ -26,3 +26,10 @@ add_custom_target(HamunShaders DEPENDS ${SHADER_OUTPUTS})
 add_dependencies(HamunRuntime HamunShaders)
 add_custom_command(TARGET HamunRuntime POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:HamunRuntime>/shaders")
+
+# GPU viewport shaders are compiled with the runtime and staged next to the DLL.
+# The Blender bridge still uses the transitional CPU path until the offscreen
+# Vulkan graphics pipeline and readback are connected.
+add_dependencies(HamunRenderer HamunShaders)
+add_custom_command(TARGET HamunRenderer POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:HamunRenderer>/shaders")
