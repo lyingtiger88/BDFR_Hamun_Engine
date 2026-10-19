@@ -916,6 +916,30 @@ _hamun_metrics = {"mode": "BASIC", "last": None, "frame_ms": 0.0, "fps": 0.0,
                   "cpu_ms": 0.0, "sample_frames": 0, "sample_start": None}
 
 
+def _hamun_metrics_refresh_timer():
+    """Refresh visible Hamun rendered viewports without mouse movement.
+
+    Only request redraws here; RenderEngine.view_draw still owns all GPU work.
+    A conservative 4 Hz interval avoids continuously invoking the expensive
+    experimental CPU rasterizer when the editor is idle.
+    """
+    try:
+        if _hamun_metrics["mode"] != "OFF":
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type != "VIEW_3D":
+                        continue
+                    space = area.spaces.active
+                    if (space and space.type == "VIEW_3D"
+                            and space.shading.type == "RENDERED"
+                            and window.view_layer
+                            and window.view_layer.scene.render.engine == "HAMUN_VULKAN"):
+                        area.tag_redraw()
+    except (ReferenceError, AttributeError, RuntimeError):
+        pass
+    return 0.25
+
+
 class HAMUN_OT_toggle_metrics(bpy.types.Operator):
     bl_idname = "hamun.toggle_metrics"
     bl_label = "Toggle Hamun Performance HUD"
@@ -1432,9 +1456,13 @@ def register():
     bpy.types.VIEW3D_MT_editor_menus.append(draw_hamun_menu)
     bpy.types.TOPBAR_MT_file.prepend(draw_hamun_file_menu)
     _register_hamun_shortcuts()
+    if not bpy.app.timers.is_registered(_hamun_metrics_refresh_timer):
+        bpy.app.timers.register(_hamun_metrics_refresh_timer, first_interval=0.25)
 
 
 def unregister():
+    if bpy.app.timers.is_registered(_hamun_metrics_refresh_timer):
+        bpy.app.timers.unregister(_hamun_metrics_refresh_timer)
     _unregister_hamun_shortcuts()
     bpy.types.TOPBAR_MT_file.remove(draw_hamun_file_menu)
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
