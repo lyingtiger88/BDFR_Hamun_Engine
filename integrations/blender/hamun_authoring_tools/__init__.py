@@ -1171,10 +1171,38 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 ctypes.c_uint32,
             ]
             native.hamun_renderer_mesh_lit.restype = ctypes.c_int
-            # Prefer the new ABI with evaluated world-space polygon normals;
-            # keep the old DLL entry point usable for existing installations.
+            # Prefer Vulkan offscreen rasterization when the updated DLL is installed.
+            # Preserve a fallback for systems without a Vulkan-capable GPU.
+            gpu_viewport = getattr(native, "hamun_gpu_viewport_render", None)
+            if gpu_viewport is not None:
+                gpu_viewport.argtypes = [
+                    ctypes.c_uint32, ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                    ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
+                    ctypes.POINTER(ctypes.c_char), ctypes.c_uint32,
+                ]
+                gpu_viewport.restype = ctypes.c_int
+                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
+                gpu_error = ctypes.create_string_buffer(512)
+                ok = gpu_viewport(
+                    width, height, rgba, ctypes.sizeof(rgba),
+                    positions, len(verts) // 3, faces, len(indices),
+                    matrix, light_array, len(lights), normal_array,
+                    gpu_error, len(gpu_error))
+                if not ok:
+                    message = gpu_error.value.decode("utf-8", errors="replace")
+                    if not getattr(self, "_hamun_gpu_error_logged", False):
+                        _hamun_diagnostic_log("Vulkan viewport failed, falling back: " + message)
+                        self._hamun_gpu_error_logged = True
+                else:
+                    self._hamun_gpu_error_logged = False
+            else:
+                ok = 0
             lit_with_normals = getattr(native, "hamun_renderer_mesh_lit_normals", None)
-            if lit_with_normals is not None:
+            if not ok and lit_with_normals is not None:
                 lit_with_normals.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
                     ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
@@ -1189,7 +1217,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
                     matrix, light_array, len(lights), normal_array)
-            else:
+            elif not ok:
                 ok = native.hamun_renderer_mesh_lit(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
