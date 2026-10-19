@@ -1174,6 +1174,12 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # Prefer Vulkan offscreen rasterization when the updated DLL is installed.
             # Preserve a fallback for systems without a Vulkan-capable GPU.
             gpu_viewport = getattr(native, "hamun_gpu_viewport_render", None)
+            # GPU direct-light pipeline currently has no shadow attachment.
+            # Prefer the implemented CPU Sun shadow map over silently showing
+            # a shadowless scene. Keep GPU active for unshadowed previews.
+            has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
+            if has_sun:
+                gpu_viewport = None
             if gpu_viewport is not None:
                 gpu_viewport.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
