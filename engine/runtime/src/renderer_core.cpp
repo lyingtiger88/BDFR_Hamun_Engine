@@ -166,7 +166,8 @@ extern "C" int hamun_renderer_offscreen_clear(uint32_t width,uint32_t height,uin
 static int hamun_mesh_render_impl(
     uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count,
-    const float* mvp,const float* lights,uint32_t lightCount){
+    const float* mvp,const float* lights,uint32_t lightCount,
+    const float* faceNormals){
     lastError.clear();
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
@@ -208,6 +209,11 @@ static int hamun_mesh_render_impl(
             uint32_t ia=indices[i],ib=indices[i+1],ic=indices[i+2];
             if(ia>=vertices||ib>=vertices||ic>=vertices)continue;
             const P A=projected[ia],B=projected[ib],C=projected[ic];
+            // Reject invalid / behind-camera triangles before computing bounds.
+            if(!std::isfinite(A.x)||!std::isfinite(A.y)||!std::isfinite(A.z)||
+               !std::isfinite(B.x)||!std::isfinite(B.y)||!std::isfinite(B.z)||
+               !std::isfinite(C.x)||!std::isfinite(C.y)||!std::isfinite(C.z)||
+               A.x < -1e7f || B.x < -1e7f || C.x < -1e7f) continue;
             float area=edge(A,B,C.x,C.y);
             if(std::abs(area)<1e-5f)continue;
             int x0=std::max(0,int(std::floor(std::min({A.x,B.x,C.x}))));
@@ -217,7 +223,13 @@ static int hamun_mesh_render_impl(
             float ux=xyz[ib*3]-xyz[ia*3],uy=xyz[ib*3+1]-xyz[ia*3+1],uz=xyz[ib*3+2]-xyz[ia*3+2];
             float vx=xyz[ic*3]-xyz[ia*3],vy=xyz[ic*3+1]-xyz[ia*3+1],vz=xyz[ic*3+2]-xyz[ia*3+2];
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
-            float nlen=std::sqrt(nx*nx+ny*ny+nz*nz)+1e-8f;
+            // Blender supplies inverse-transpose transformed polygon normals.
+            // The cross product is retained for legacy callers only.
+            if(faceNormals){
+                nx=faceNormals[i];ny=faceNormals[i+1];nz=faceNormals[i+2];
+            }
+            const float nlen=std::sqrt(nx*nx+ny*ny+nz*nz);
+            if(!(nlen>1e-8f)||!std::isfinite(nlen))continue;
             nx/=nlen; ny/=nlen; nz/=nlen;
             // Hemisphere environment fill: the unlit side faces must remain
             // discernible. This is a cheap ambient approximation, not GI.
@@ -250,9 +262,8 @@ static int hamun_mesh_render_impl(
                     // The current preview has no bounce lighting. A small
                     // wrapped diffuse term keeps side faces visible when the
                     // Sun is almost perpendicular, without lighting rear faces.
-                    const float diffuse=sun
-                        ? std::clamp((ndotl+0.25f)/1.25f,0.0f,1.0f)
-                        : std::max(0.0f,ndotl);
+                    // True Lambert cosine: no artificial light on backfaces.
+                    const float diffuse=std::max(0.0f,ndotl);
                     const float energy=std::max(0.0f,light[10]);
                     // Keep Sun 1, 5, 100 and 1000 visually distinguishable.
                     // Energy/exposure are display-mapped in this preview;
@@ -294,13 +305,13 @@ static int hamun_mesh_render_impl(
 extern "C" int hamun_renderer_mesh_preview(
     uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
     uint32_t nv,const uint32_t* idx,uint32_t ni){
-    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,nullptr,nullptr,0);
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,nullptr,nullptr,0,nullptr);
 }
 extern "C" int hamun_renderer_mesh_camera(
     uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,const float* xyz,
     uint32_t nv,const uint32_t* idx,uint32_t ni,const float* mvp){
     if(!mvp){lastError="Missing camera matrix";return 0;}
-    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,nullptr,0);
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,nullptr,0,nullptr);
 }
 
 extern "C" int hamun_renderer_mesh_lit(uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,
@@ -308,5 +319,17 @@ extern "C" int hamun_renderer_mesh_lit(uint32_t w,uint32_t h,uint8_t* rgba,uint6
     const float* mvp,const float* lights,uint32_t lightCount) {
     if(!mvp){lastError="Missing camera matrix";return 0;}
     if(lightCount>32|| (lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
-    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount);
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,nullptr);
+}
+
+// Optional explicit world-space normal for each indexed triangle (3 floats).
+// This entry point preserves the original ABI while fixing mirrored transforms
+// and Blender's evaluated mesh orientation in the live viewport.
+extern "C" int hamun_renderer_mesh_lit_normals(uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,
+    const float* xyz,uint32_t nv,const uint32_t* idx,uint32_t ni,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* normals) {
+    if(!mvp){lastError="Missing camera matrix";return 0;}
+    if(lightCount>32||(lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
+    if(!normals){lastError="Missing world-space face normals";return 0;}
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,normals);
 }
