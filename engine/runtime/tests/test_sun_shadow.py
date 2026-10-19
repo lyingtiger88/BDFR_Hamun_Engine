@@ -34,10 +34,10 @@ matrix=(F*16)(1,0,0,0, 0,1,0,0, 0,0,-1,0, 0,0,0,1)
 width=256
 height=256
 
-def render(dx):
+def render(dx, cast_shadows=True):
     pixels=(B*(width*height*4))()
     # Direction vector points from light towards the scene.
-    light=(F*12)(0,0,0,0, dx,0,-0.7, 1,1,1, 5,0)
+    light=(F*12)(0,0,0,0, dx,0,-0.7, 1,1,1, 5,1 if cast_shadows else -1)
     success=fn(width,height,pixels,len(pixels),positions,8,indices,12,matrix,light,1,normals)
     if not success:
         err=dll.hamun_renderer_last_error
@@ -58,6 +58,11 @@ negative_x_in_left=sample(left,70,128)
 negative_x_in_right=sample(right,70,128)
 positive_x_in_left=sample(left,186,128)
 positive_x_in_right=sample(right,186,128)
+left_no_shadow=render(-0.7, cast_shadows=False)
+assert sum(sample(left,70,128)) < sum(sample(left_no_shadow,70,128)), (
+    "Disabling Sun cast shadows did not brighten the shadowed receiver")
+assert sample(left_no_shadow,70,128) == sample(right,70,128), (
+    "Disabled Sun shadow should match the unobstructed receiver")
 assert left != right, "Sun rotation produced identical images"
 assert sum(negative_x_in_left)<sum(negative_x_in_right), (
     f"Expected darker left receiver for -X Sun: {negative_x_in_left} vs {negative_x_in_right}")
