@@ -1,0 +1,53 @@
+name: Hamun Vulkan DLL Build Validation
+on:
+  push:
+    branches: [feature/blender-source-integration]
+    paths:
+      - "engine/runtime/**"
+      - "integrations/blender/hamun_authoring_tools/**"
+      - ".github/workflows/hamun-vulkan-viewport.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  viewport:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --yes --no-progress
+          $sdk = Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "Vulkan SDK not installed" }
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          "$($sdk.FullName)\Bin" >> $env:GITHUB_PATH
+      - name: Verify Blender integration syntax
+        shell: pwsh
+        run: python -m py_compile integrations/blender/hamun_authoring_tools/__init__.py
+      - name: Configure renderer
+        shell: pwsh
+        run: cmake -S engine/runtime -B build/viewport -G "Visual Studio 17 2022" -A x64
+      - name: Compile Vulkan renderer and shaders
+        shell: pwsh
+        run: cmake --build build/viewport --config Release --target HamunRenderer --parallel 4
+      - name: Validate DLL exports and SPIR-V
+        shell: pwsh
+        run: |
+          $dll = "build/viewport/Release/HamunRenderer.dll"
+          if (-not (Test-Path $dll)) { throw "Missing renderer DLL" }
+          $exports = & dumpbin.exe /EXPORTS $dll
+          foreach ($name in @("hamun_gpu_viewport_render", "hamun_renderer_mesh_lit_normals")) {
+            if (-not ($exports | Select-String -SimpleMatch $name)) { throw "Missing export: $name" }
+          }
+          foreach ($name in @("viewport_direct.vert.spv", "viewport_direct.frag.spv")) {
+            if (-not (Test-Path "build/viewport/Release/shaders/$name")) { throw "Missing compiled shader: $name" }
+          }
+      - name: Package tested renderer
+        uses: actions/upload-artifact@v4
+        with:
+          name: HamunRenderer-Vulkan-Windows-x64
+          path: |
+            build/viewport/Release/HamunRenderer.dll
+            build/viewport/Release/shaders/*.spv
+          if-no-files-found: error
