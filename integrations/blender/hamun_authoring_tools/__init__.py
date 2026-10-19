@@ -1175,6 +1175,29 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             if not ok:
                 error = native.hamun_renderer_last_error()
                 raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
+            # Log a compact, reproducible lighting trace only when light state
+            # changes; this distinguishes DLL shading from viewport display.
+            light_signature = tuple(round(value, 3) for value in light_data)
+            light_changed = light_signature != getattr(self, "_hamun_logged_lights", None)
+            if light_changed:
+                import hashlib
+                import os
+                sample_step = max(4, (len(rgba) // 8192 // 4) * 4)
+                pixel_sample = bytes(rgba[::sample_step])
+                digest = hashlib.sha256(pixel_sample).hexdigest()[:16]
+                first_lights = [
+                    {"type": int(v[0]), "position": tuple(round(x, 2) for x in v[1:4]),
+                     "direction": tuple(round(x, 2) for x in v[4:7]),
+                     "color": tuple(round(x, 3) for x in v[7:10]),
+                     "energy": round(v[10], 3)} for v in lights[:4]
+                ]
+                _hamun_diagnostic_log(
+                    "LIGHT_TRACE dll=%s bytes=%d lights=%s output_sha=%s "
+                    "center_rgba=%s" % (
+                        str(dll), os.path.getsize(dll), first_lights, digest,
+                        tuple(rgba[(height // 2 * width + width // 2) * 4:
+                                   (height // 2 * width + width // 2) * 4 + 4])))
+                self._hamun_logged_lights = light_signature
             # Blender GPU expects a shaped buffer for texture upload.
             import numpy as np
             pixels_array = np.ctypeslib.as_array(rgba)
