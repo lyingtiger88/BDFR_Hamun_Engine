@@ -52,12 +52,15 @@ right=render(0.7)
 def sample(img,x,y):
     off=4*(y*width+x)
     return img[off:off+3]
-# Top square covers x 111..145; sample receiver pixels on both sides.
-left_receiver=sample(left,96,128)
-right_receiver=sample(right,160,128)
-left_opposite=sample(left,160,128)
-right_opposite=sample(right,96,128)
-assert left != right, "Rotating the Sun produced identical images: shadows missing"
-assert left_receiver != right_opposite or left_opposite != right_receiver, (
-    "No directional cast-shadow difference at floor sample points")
-print("PASS: Sun rotation changes rendered ground occlusion")
+# Direction -X casts shadow near x=-0.45 (pixel 70); +X near 0.45 (pixel 186).
+# These samples are outside the caster's on-screen top face.
+negative_x_in_left=sample(left,70,128)
+negative_x_in_right=sample(right,70,128)
+positive_x_in_left=sample(left,186,128)
+positive_x_in_right=sample(right,186,128)
+assert left != right, "Sun rotation produced identical images"
+assert sum(negative_x_in_left)<sum(negative_x_in_right), (
+    f"Expected darker left receiver for -X Sun: {negative_x_in_left} vs {negative_x_in_right}")
+assert sum(positive_x_in_right)<sum(positive_x_in_left), (
+    f"Expected darker right receiver for +X Sun: {positive_x_in_right} vs {positive_x_in_left}")
+print("PASS: directional shadow moves across the floor as the Sun rotates")
