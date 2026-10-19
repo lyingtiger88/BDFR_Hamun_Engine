@@ -172,7 +172,14 @@ static int hamun_mesh_render_impl(
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
     }
-    if(!hamun_renderer_offscreen_clear(width,height,rgba,byteCount))return 0;
+    // CPU transitional rasterizer: do not create/destroy a Vulkan device and
+    // synchronously read back a clear image every frame. That was the main
+    // per-frame stall; the real GPU path must own its color attachment.
+    if(!rgba||width==0||height==0||width>4096||height>4096||
+       byteCount<uint64_t(width)*height*4){lastError="Invalid output image";return 0;}
+    for(size_t i=0,n=size_t(width)*height;i<n;++i){
+        rgba[4*i]=9;rgba[4*i+1]=26;rgba[4*i+2]=43;rgba[4*i+3]=255;
+    }
     try {
         // Transitional mesh compositing: real scene triangles, software depth
         // on Vulkan-generated background. Next stage migrates rasterization
