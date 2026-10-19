@@ -1108,7 +1108,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             ]
             native.hamun_renderer_mesh_camera.restype = ctypes.c_int
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
-            verts, indices = [], []
+            verts, indices, face_normals = [], [], []
             for obj in depsgraph.objects:
                 if obj.type != "MESH" or obj.hide_render:
                     continue
@@ -1119,11 +1119,16 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         continue
                     mesh.calc_loop_triangles()
                     base = len(verts) // 3
+                    world = evaluated.matrix_world
+                    # Inverse transpose is essential for nonuniform or mirrored scales.
+                    normal_matrix = world.to_3x3().inverted_safe().transposed()
                     for vertex in mesh.vertices:
-                        pt = evaluated.matrix_world @ vertex.co
+                        pt = world @ vertex.co
                         verts.extend((pt.x, pt.y, pt.z))
                     for tri in mesh.loop_triangles:
                         indices.extend(base + int(j) for j in tri.vertices)
+                        normal = (normal_matrix @ tri.normal).normalized()
+                        face_normals.extend((normal.x, normal.y, normal.z))
                 finally:
                     evaluated.to_mesh_clear()
             if not verts or not indices:
@@ -1166,10 +1171,29 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 ctypes.c_uint32,
             ]
             native.hamun_renderer_mesh_lit.restype = ctypes.c_int
-            ok = native.hamun_renderer_mesh_lit(
-                width, height, rgba, ctypes.sizeof(rgba),
-                positions, len(verts) // 3, faces, len(indices),
-                matrix, light_array, len(lights))
+            # Prefer the new ABI with evaluated world-space polygon normals;
+            # keep the old DLL entry point usable for existing installations.
+            lit_with_normals = getattr(native, "hamun_renderer_mesh_lit_normals", None)
+            if lit_with_normals is not None:
+                lit_with_normals.argtypes = [
+                    ctypes.c_uint32, ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                    ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
+                ]
+                lit_with_normals.restype = ctypes.c_int
+                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
+                ok = lit_with_normals(
+                    width, height, rgba, ctypes.sizeof(rgba),
+                    positions, len(verts) // 3, faces, len(indices),
+                    matrix, light_array, len(lights), normal_array)
+            else:
+                ok = native.hamun_renderer_mesh_lit(
+                    width, height, rgba, ctypes.sizeof(rgba),
+                    positions, len(verts) // 3, faces, len(indices),
+                    matrix, light_array, len(lights))
             _hamun_metrics["lights"] = len(lights)
             _hamun_metrics["light_energy"] = round(sum(item[10] for item in lights), 2)
             if not ok:
