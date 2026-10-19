@@ -235,8 +235,10 @@ static int hamun_mesh_render_impl(
         if(lights){
             for(uint32_t li=0;li<lightCount;++li){
                 hashBytes(lights+li*12,sizeof(float));
-                if(lights[li*12]<0.5f)
+                if(lights[li*12]<0.5f){
                     hashBytes(lights+li*12+4,3*sizeof(float));
+                    hashBytes(lights+li*12+10,2*sizeof(float)); // energy + cast-shadow flag
+                }
             }
         }
         bool rebuild=hash!=cachedHash||cachedShadows.size()!=lightCount;
@@ -245,7 +247,7 @@ static int hamun_mesh_render_impl(
         else shadows.resize(lightCount);
         if(rebuild)for(uint32_t li=0;li<lightCount;++li){
             const float* l=lights+12*li;
-            if(l[0]>=0.5f)continue; // Sun only
+            if(l[0]>=0.5f || l[11]<0.f || l[10]<=0.f)continue; // Sun with shadows enabled
             auto& sm=shadows[li];
             float dx=l[4],dy=l[5],dz=l[6];
             float mag=std::sqrt(dx*dx+dy*dy+dz*dz);
