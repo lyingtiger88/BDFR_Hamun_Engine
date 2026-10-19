@@ -343,6 +343,9 @@ static int hamun_mesh_render_impl(
             float red=0.17f+0.12f*sky;
             float green=0.19f+0.13f*sky;
             float blue=0.22f+0.14f*sky;
+            // Retain each Sun contribution in linear space. Shadowing must
+            // attenuate exactly the same energy that illuminates the face.
+            float sunRed[32]={},sunGreen[32]={},sunBlue[32]={};
             if(lights&&lightCount){
                 float mx=(xyz[ia*3]+xyz[ib*3]+xyz[ic*3])/3.0f;
                 float my=(xyz[ia*3+1]+xyz[ib*3+1]+xyz[ic*3+1])/3.0f;
@@ -378,6 +381,7 @@ static int hamun_mesh_render_impl(
                         ? 0.8f*std::log1p(energy)
                         : 0.012f*energy)*attenuation*diffuse;
                     red+=light[7]*strength;green+=light[8]*strength;blue+=light[9]*strength;
+                    if(sun){sunRed[li]=light[7]*strength;sunGreen[li]=light[8]*strength;sunBlue[li]=light[9]*strength;}
                 }
             }else{
                 float diffuse=std::max(0.0f,nx*.35f+ny*.4f+nz*.85f);
@@ -432,11 +436,11 @@ static int hamun_mesh_render_impl(
                             visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
                         if(visibility>=1.f)continue;
                         const float* light=lights+12*li;
-                        float diffuse=std::max(0.f,-(nx*sm.dx+ny*sm.dy+nz*sm.dz));
-                        float strength=0.8f*std::log1p(std::max(0.f,light[10]))*diffuse*(1.f-visibility);
-                        litR=std::max(0.f,litR-light[7]*strength);
-                        litG=std::max(0.f,litG-light[8]*strength);
-                        litB=std::max(0.f,litB-light[9]*strength);
+                        // Only occlude this Sun's own direct contribution;
+                        // preserve ambient and other lights in the shadow.
+                        litR=std::max(0.f,litR-sunRed[li]*(1.f-visibility));
+                        litG=std::max(0.f,litG-sunGreen[li]*(1.f-visibility));
+                        litB=std::max(0.f,litB-sunBlue[li]*(1.f-visibility));
                     }
                     shadeR=litR/(1.f+litR);shadeG=litG/(1.f+litG);shadeB=litB/(1.f+litB);
                 }
