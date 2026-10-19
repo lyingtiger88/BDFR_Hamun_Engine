@@ -848,8 +848,12 @@ class HAMUN_OT_play_runtime(bpy.types.Operator):
 
 def _hamun_renderer_dll(scene=None):
     """Resolve shared Vulkan renderer without an EXE picker."""
-    # Prefer a DLL shipped beside the running Hamun Editor.
+    # During development prioritize the freshly built DLL, not a stale
+    # portable-editor copy of the same library.
     import sys
+    dev_dll = Path("D:/HamunDev/Hamun/build/hamun-runtime/Release/HamunRenderer.dll")
+    if dev_dll.is_file():
+        return dev_dll
     roots = [Path(sys.executable).resolve().parent]
     root = Path(__file__).resolve()
     # Development checkout: D:/HamunDev/Hamun/integrations/blender/...
@@ -917,26 +921,25 @@ _hamun_metrics = {"mode": "BASIC", "last": None, "frame_ms": 0.0, "fps": 0.0,
 
 
 def _hamun_metrics_refresh_timer():
-    """Refresh visible Hamun rendered viewports without mouse movement.
-
-    Only request redraws here; RenderEngine.view_draw still owns all GPU work.
-    A conservative 4 Hz interval avoids continuously invoking the expensive
-    experimental CPU rasterizer when the editor is idle.
-    """
+    """Ask Hamun RenderEngine to redraw even when mouse is motionless."""
     try:
         if _hamun_metrics["mode"] != "OFF":
             for window in bpy.context.window_manager.windows:
+                scene = window.scene  # ViewLayer has no scene attribute.
+                if scene is None or scene.render.engine != "HAMUN_VULKAN":
+                    continue
                 for area in window.screen.areas:
-                    if area.type != "VIEW_3D":
-                        continue
-                    space = area.spaces.active
-                    if (space and space.type == "VIEW_3D"
-                            and space.shading.type == "RENDERED"
-                            and window.view_layer
-                            and window.view_layer.scene.render.engine == "HAMUN_VULKAN"):
+                    if area.type == "VIEW_3D" and area.spaces.active.shading.type == "RENDERED":
                         area.tag_redraw()
-    except (ReferenceError, AttributeError, RuntimeError):
-        pass
+            # Blender may cache a RenderEngine viewport image after area redraw.
+            # Engine.tag_redraw() invalidates that cache explicitly.
+            for engine in tuple(_hamun_metrics.get("active_engines", ())):
+                try:
+                    engine.tag_redraw()
+                except ReferenceError:
+                    _hamun_metrics["active_engines"].remove(engine)
+    except Exception as exc:
+        _hamun_metrics["timer_error"] = str(exc)
     return 0.25
 
 
@@ -1025,6 +1028,7 @@ def _hamun_draw_metrics(width, height, cpu_ms=0.0):
         ("Game: n/a", (0.8, 0.8, 0.8, 1.0)),
         ("RHI Thread: n/a", (0.8, 0.8, 0.8, 1.0)),
         ("GPU Time: n/a", (0.8, 0.8, 0.8, 1.0)),
+        ("Refresh: %s" % _hamun_metrics.get("timer_error", "active"), (0.8, 0.8, 0.8, 1.0)),
         ("Draws: %s" % _hamun_metrics.get("draws", "n/a"), (1.0, 1.0, 1.0, 1.0)),
         ("Prims: %s" % _hamun_metrics.get("prims", "n/a"), (1.0, 1.0, 1.0, 1.0)),
         ("Lights: %s" % _hamun_metrics.get("lights", "n/a"), (1.0, 1.0, 1.0, 1.0)),
@@ -1065,6 +1069,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_use_eevee_viewport = True
 
     def view_update(self, context, depsgraph):
+        engines = _hamun_metrics.setdefault("active_engines", [])
+        if not any(engine is self for engine in engines):
+            engines.append(self)
         if not getattr(self, "_hamun_update_logged", False):
             _hamun_diagnostic_log("RenderEngine.view_update CALLED")
             self._hamun_update_logged = True
@@ -1461,6 +1468,7 @@ def register():
 
 
 def unregister():
+    _hamun_metrics.pop("active_engines", None)
     if bpy.app.timers.is_registered(_hamun_metrics_refresh_timer):
         bpy.app.timers.unregister(_hamun_metrics_refresh_timer)
     _unregister_hamun_shortcuts()
