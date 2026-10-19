@@ -19,5 +19,10 @@ HAMUN_API int hamun_renderer_mesh_camera(uint32_t width,uint32_t height,uint8_t*
 HAMUN_API int hamun_renderer_mesh_lit(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* viewProjection16,const float* lights12,uint32_t lightCount);
+// Optional 3-float world-space normal per triangle, indexed by triangle order.
+// Existing hamun_renderer_mesh_lit ABI is unchanged.
+HAMUN_API int hamun_renderer_mesh_lit_normals(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* viewProjection16,const float* lights12,uint32_t lightCount,const float* faceNormals3);
 HAMUN_API const char* hamun_renderer_last_error();
 }
