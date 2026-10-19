@@ -201,6 +201,79 @@ static int hamun_mesh_render_impl(
                 else projected[i]={-1e8f,-1e8f,-1e8f};
             }else projected[i]={width*.5f+rx*scale,height*.52f-rz*scale,depth};
         }
+        // CPU directional shadow map (temporary until Vulkan depth passes).
+        // Scene geometry is in world space; the same positions are used by
+        // lighting and occlusion, avoiding camera/world-space mismatches.
+        struct ShadowMap {
+            float ux,uy,uz,vx,vy,vz,dx,dy,dz;
+            float minU,minV,step;
+            std::vector<float> depth;
+        };
+        constexpr int shadowSize=512;
+        std::vector<ShadowMap> shadows(lightCount);
+        for(uint32_t li=0;li<lightCount;++li){
+            const float* l=lights+12*li;
+            if(l[0]>=0.5f)continue; // Sun only
+            auto& sm=shadows[li];
+            float dx=l[4],dy=l[5],dz=l[6];
+            float mag=std::sqrt(dx*dx+dy*dy+dz*dz);
+            if(mag<1e-6f)continue;
+            sm.dx=dx/mag;sm.dy=dy/mag;sm.dz=dz/mag;
+            float ax=std::abs(sm.dz)<0.9f?0.f:0.f;
+            float ay=std::abs(sm.dz)<0.9f?0.f:1.f;
+            float az=std::abs(sm.dz)<0.9f?1.f:0.f;
+            sm.ux=ay*sm.dz-az*sm.dy;
+            sm.uy=az*sm.dx-ax*sm.dz;
+            sm.uz=ax*sm.dy-ay*sm.dx;
+            mag=std::sqrt(sm.ux*sm.ux+sm.uy*sm.uy+sm.uz*sm.uz);
+            sm.ux/=mag;sm.uy/=mag;sm.uz/=mag;
+            sm.vx=sm.dy*sm.uz-sm.dz*sm.uy;
+            sm.vy=sm.dz*sm.ux-sm.dx*sm.uz;
+            sm.vz=sm.dx*sm.uy-sm.dy*sm.ux;
+            float minU=1e30f,maxU=-1e30f,minV=1e30f,maxV=-1e30f;
+            for(uint32_t vi=0;vi<vertices;++vi){
+                float x=xyz[3*vi],y=xyz[3*vi+1],z=xyz[3*vi+2];
+                float u=x*sm.ux+y*sm.uy+z*sm.uz;
+                float v=x*sm.vx+y*sm.vy+z*sm.vz;
+                minU=std::min(minU,u);maxU=std::max(maxU,u);
+                minV=std::min(minV,v);maxV=std::max(maxV,v);
+            }
+            float extent=std::max({maxU-minU,maxV-minV,0.01f})*1.02f;
+            sm.step=extent/float(shadowSize-1);
+            sm.minU=(minU+maxU-extent)*.5f;
+            sm.minV=(minV+maxV-extent)*.5f;
+            sm.depth.assign(shadowSize*shadowSize,-1e30f);
+            struct S {float x,y,z;};
+            auto edgeS=[](const S&a,const S&b,float x,float y){
+                return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
+            };
+            auto project=[&](uint32_t vi){
+                float x=xyz[3*vi],y=xyz[3*vi+1],z=xyz[3*vi+2];
+                return S{(x*sm.ux+y*sm.uy+z*sm.uz-sm.minU)/sm.step,
+                    (x*sm.vx+y*sm.vy+z*sm.vz-sm.minV)/sm.step,
+                    -(x*sm.dx+y*sm.dy+z*sm.dz)};
+            };
+            for(uint32_t ti=0;ti<count;ti+=3){
+                uint32_t ia=indices[ti],ib=indices[ti+1],ic=indices[ti+2];
+                if(ia>=vertices||ib>=vertices||ic>=vertices)continue;
+                S a=project(ia),b=project(ib),c=project(ic);
+                float area=edgeS(a,b,c.x,c.y);
+                if(std::abs(area)<1e-7f)continue;
+                int x0=std::max(0,int(std::floor(std::min({a.x,b.x,c.x}))));
+                int x1=std::min(shadowSize-1,int(std::ceil(std::max({a.x,b.x,c.x}))));
+                int y0=std::max(0,int(std::floor(std::min({a.y,b.y,c.y}))));
+                int y1=std::min(shadowSize-1,int(std::ceil(std::max({a.y,b.y,c.y}))));
+                for(int y=y0;y<=y1;++y)for(int x=x0;x<=x1;++x){
+                    float wa=edgeS(b,c,x+.5f,y+.5f)/area;
+                    float wb=edgeS(c,a,x+.5f,y+.5f)/area;
+                    float wc=1-wa-wb;
+                    if(wa<0||wb<0||wc<0)continue;
+                    float d=wa*a.z+wb*b.z+wc*c.z;
+                    float& pixel=sm.depth[size_t(y)*shadowSize+x];
+                    pixel=std::max(pixel,d);
+                }
+            }
+        }
         std::vector<float> zbuf(size_t(width)*height,-1e30f);
         auto edge=[](const P& a,const P& b,float x,float y){
             return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
@@ -291,10 +364,53 @@ static int hamun_mesh_render_impl(
                 size_t offset=size_t(y)*width+x;
                 if(depth<=zbuf[offset])continue;
                 zbuf[offset]=depth;
+                float shadeR=red,shadeG=green,shadeB=blue;
+                // Perspective-correct reconstruction of world position.
+                // Shadow filtering is applied before tone mapping.
+                if(lights && lightCount){
+                    float qa=wa,qb=wb,qc=wc;
+                    if(mvp){
+                        auto clipW=[&](uint32_t vi){
+                            const float* p=xyz+3*vi;
+                            return mvp[3]*p[0]+mvp[7]*p[1]+mvp[11]*p[2]+mvp[15];
+                        };
+                        float aw=clipW(ia),bw=clipW(ib),cw=clipW(ic);
+                        if(aw>1e-5f&&bw>1e-5f&&cw>1e-5f){
+                            qa/=aw;qb/=bw;qc/=cw;
+                            float total=qa+qb+qc;
+                            qa/=total;qb/=total;qc/=total;
+                        }
+                    }
+                    float wx=qa*xyz[3*ia]+qb*xyz[3*ib]+qc*xyz[3*ic];
+                    float wy=qa*xyz[3*ia+1]+qb*xyz[3*ib+1]+qc*xyz[3*ic+1];
+                    float wz=qa*xyz[3*ia+2]+qb*xyz[3*ib+2]+qc*xyz[3*ic+2];
+                    float litR=red/(1.f-red),litG=green/(1.f-green),litB=blue/(1.f-blue);
+                    for(uint32_t li=0;li<lightCount;++li){
+                        const auto& sm=shadows[li];
+                        if(sm.depth.empty())continue;
+                        float sx=(wx*sm.ux+wy*sm.uy+wz*sm.uz-sm.minU)/sm.step;
+                        float sy=(wx*sm.vx+wy*sm.vy+wz*sm.vz-sm.minV)/sm.step;
+                        int ix=int(std::floor(sx)),iy=int(std::floor(sy));
+                        if(ix<1||iy<1||ix>=shadowSize-1||iy>=shadowSize-1)continue;
+                        float d=-(wx*sm.dx+wy*sm.dy+wz*sm.dz);
+                        float visibility=0.f;
+                        const float bias=std::max(0.002f,sm.step*2.f);
+                        for(int oy=0;oy<2;++oy)for(int ox=0;ox<2;++ox)
+                            visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
+                        if(visibility>=1.f)continue;
+                        const float* light=lights+12*li;
+                        float diffuse=std::max(0.f,-(nx*sm.dx+ny*sm.dy+nz*sm.dz));
+                        float strength=0.8f*std::log1p(std::max(0.f,light[10]))*diffuse*(1.f-visibility);
+                        litR=std::max(0.f,litR-light[7]*strength);
+                        litG=std::max(0.f,litG-light[8]*strength);
+                        litB=std::max(0.f,litB-light[9]*strength);
+                    }
+                    shadeR=litR/(1.f+litR);shadeG=litG/(1.f+litG);shadeB=litB/(1.f+litB);
+                }
                 uint8_t* pixel=rgba+offset*4;
-                pixel[0]=uint8_t(195*red);
-                pixel[1]=uint8_t(215*green);
-                pixel[2]=uint8_t(232*blue);
+                pixel[0]=uint8_t(195*shadeR);
+                pixel[1]=uint8_t(215*shadeG);
+                pixel[2]=uint8_t(232*shadeB);
                 pixel[3]=255;
             }
         }
