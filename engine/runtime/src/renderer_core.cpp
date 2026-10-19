@@ -219,7 +219,12 @@ static int hamun_mesh_render_impl(
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
             float nlen=std::sqrt(nx*nx+ny*ny+nz*nz)+1e-8f;
             nx/=nlen; ny/=nlen; nz/=nlen;
-            float red=0.12f,green=0.13f,blue=0.15f;
+            // Hemisphere environment fill: the unlit side faces must remain
+            // discernible. This is a cheap ambient approximation, not GI.
+            const float sky=std::clamp(0.5f+0.5f*nz,0.0f,1.0f);
+            float red=0.17f+0.12f*sky;
+            float green=0.19f+0.13f*sky;
+            float blue=0.22f+0.14f*sky;
             if(lights&&lightCount){
                 float mx=(xyz[ia*3]+xyz[ib*3]+xyz[ic*3])/3.0f;
                 float my=(xyz[ia*3+1]+xyz[ib*3+1]+xyz[ic*3+1])/3.0f;
