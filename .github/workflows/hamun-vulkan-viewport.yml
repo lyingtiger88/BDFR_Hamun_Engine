@@ -48,6 +48,13 @@ jobs:
         env:
           HAMUN_RENDERER_DLL: build/viewport/Release/HamunRenderer.dll
         run: python engine/runtime/tests/test_sun_shadow.py
+      - name: Upload Sun shadow screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamun-Sun-Shadow-Visual-Test
+          path: build/viewport/shadow-test/*.png
+          if-no-files-found: warn
       - name: Package tested renderer
         uses: actions/upload-artifact@v4
         with:
