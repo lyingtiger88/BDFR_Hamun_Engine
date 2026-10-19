@@ -24,5 +24,11 @@ HAMUN_API int hamun_renderer_mesh_lit(uint32_t width,uint32_t height,uint8_t* rg
 HAMUN_API int hamun_renderer_mesh_lit_normals(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* viewProjection16,const float* lights12,uint32_t lightCount,const float* faceNormals3);
+// GPU rasterized scene with depth testing, direct Sun lighting and RGBA readback.
+// Error buffer receives a diagnostic when Vulkan cannot initialize.
+HAMUN_API int hamun_gpu_viewport_render(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* viewProjection16,const float* lights12,uint32_t lightCount,const float* faceNormals3,
+    char* error,uint32_t errorCapacity);
 HAMUN_API const char* hamun_renderer_last_error();
 }
