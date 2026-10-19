@@ -63,4 +63,19 @@ assert sum(negative_x_in_left)<sum(negative_x_in_right), (
     f"Expected darker left receiver for -X Sun: {negative_x_in_left} vs {negative_x_in_right}")
 assert sum(positive_x_in_right)<sum(positive_x_in_left), (
     f"Expected darker right receiver for +X Sun: {positive_x_in_right} vs {positive_x_in_left}")
+# Produce actual reference screenshots for CI review, without third-party packages.
+import struct
+import zlib
+def save_png(path,rgba):
+    def chunk(kind,data):
+        return struct.pack(">I",len(data))+kind+data+struct.pack(">I",zlib.crc32(kind+data)&0xffffffff)
+    rows=b"".join(b"\\x00"+rgba[y*width*4:(y+1)*width*4] for y in range(height))
+    payload=(b"\\x89PNG\\r\\n\\x1a\\n"
+       +chunk(b"IHDR",struct.pack(">IIBBBBB",width,height,8,6,0,0,0))
+       +chunk(b"IDAT",zlib.compress(rows,6))+chunk(b"IEND",b""))
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_bytes(payload)
+out=Path(os.environ.get("HAMUN_TEST_OUTPUT","build/viewport/shadow-test"))
+save_png(out/"sun-left.png",left)
+save_png(out/"sun-right.png",right)
 print("PASS: directional shadow moves across the floor as the Sun rotates")
