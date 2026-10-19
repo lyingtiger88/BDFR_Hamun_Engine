@@ -887,37 +887,136 @@ def _hamun_renderer_dll(scene=None):
 
 
 def _hamun_diagnostic_log(message):
+    """Append diagnostics to a stable temp-file path; never hide logger failures."""
     import datetime
     import tempfile
-    from pathlib import Path
     path = Path(tempfile.gettempdir()) / "hamun_viewport_diagnostics.log"
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(datetime.datetime.now().isoformat(timespec="seconds") + " " + str(message) + "\n")
+    line = datetime.datetime.now().astimezone().isoformat(timespec="milliseconds") + " " + str(message)
+    with path.open("a", encoding="utf-8", errors="replace") as stream:
+        stream.write(line + "\\n")
+        stream.flush()
     return path
+
+
+def _hamun_diagnostic_snapshot(context):
+    """Collect a point-in-time report from Blender and the loaded add-on."""
+    import os
+    import platform
+    import sys
+    import traceback
+    from datetime import datetime
+    lines = [
+        "========== HAMUN DIAGNOSTIC SNAPSHOT BEGIN ==========",
+        "timestamp=" + datetime.now().astimezone().isoformat(timespec="seconds"),
+        "blender_version=" + str(getattr(bpy.app, "version_string", "unknown")),
+        "python_version=" + sys.version.replace("\\n", " "),
+        "platform=" + platform.platform(),
+        "python_executable=" + str(sys.executable),
+        "addon_file=" + str(Path(__file__).resolve()),
+        "scene_name=" + str(getattr(context.scene, "name", "<none>")),
+        "scene_render_engine=" + str(getattr(context.scene.render, "engine", "<none>")),
+    ]
+    try:
+        engine_cls = bpy.types.RenderEngine.bl_rna_get_subclass_py("HAMUN_VULKAN")
+        lines.append("hamun_engine_registered=" + str(engine_cls is not None))
+        lines.append("hamun_engine_has_view_draw=" + str(bool(engine_cls and hasattr(engine_cls, "view_draw"))))
+    except Exception:
+        lines.append("engine_registration_error=" + traceback.format_exc().replace("\\n", " | "))
+    try:
+        lines.append("renderer_dll_selected=" + str(_hamun_renderer_dll(context.scene)))
+        candidates = []
+        for parent in Path(__file__).resolve().parents:
+            if (parent / "engine" / "runtime" / "CMakeLists.txt").is_file():
+                candidates.extend([parent / "build" / "viewport" / "Release" / "HamunRenderer.dll",
+                                   parent / "build" / "hamun-runtime" / "Release" / "HamunRenderer.dll"])
+                break
+        candidates.extend([
+            Path("D:/HamunDev/Hamun/build/viewport/Release/HamunRenderer.dll"),
+            Path("D:/HamunDev/Hamun/build/hamun-runtime/Release/HamunRenderer.dll"),
+            Path(sys.executable).resolve().parent / "HamunRenderer.dll",
+        ])
+        seen = set()
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            if candidate.is_file():
+                stat = candidate.stat()
+                lines.append("renderer_dll_candidate=%s size=%d modified=%s" % (
+                    candidate, stat.st_size, datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds")))
+            else:
+                lines.append("renderer_dll_candidate_missing=" + key)
+    except Exception:
+        lines.append("dll_resolution_error=" + traceback.format_exc().replace("\\n", " | "))
+    try:
+        depsgraph = context.evaluated_depsgraph_get()
+        mesh_count = 0
+        mesh_vertices = 0
+        mesh_triangles = 0
+        light_count = 0
+        for obj in depsgraph.objects:
+            if obj.type == "MESH" and not obj.hide_render:
+                mesh_count += 1
+                evaluated = obj.evaluated_get(depsgraph)
+                mesh = evaluated.to_mesh()
+                try:
+                    if mesh is not None:
+                        mesh.calc_loop_triangles()
+                        mesh_vertices += len(mesh.vertices)
+                        mesh_triangles += len(mesh.loop_triangles)
+                finally:
+                    evaluated.to_mesh_clear()
+            elif obj.type == "LIGHT" and not obj.hide_render:
+                light_count += 1
+                evaluated = obj.evaluated_get(depsgraph)
+                data = evaluated.data
+                transform = evaluated.matrix_world
+                direction = transform.to_quaternion() @ __import__("mathutils").Vector((0, 0, -1))
+                lines.append(
+                    "LIGHT name=%r type=%s hide_render=%s energy=%s color=%s angle=%s use_shadow=%s "
+                    "direction=(%.6f,%.6f,%.6f) position=(%.6f,%.6f,%.6f)" % (
+                        obj.name, getattr(data, "type", "<none>"), obj.hide_render,
+                        getattr(data, "energy", "<none>"), tuple(getattr(data, "color", ())),
+                        getattr(data, "angle", "<not-applicable>"),
+                        getattr(data, "use_shadow", "<property-unavailable>"),
+                        direction.x, direction.y, direction.z,
+                        transform.translation.x, transform.translation.y, transform.translation.z))
+        lines.append("SCENE_GEOMETRY mesh_objects=%d vertices=%d triangles=%d visible_lights=%d" % (
+            mesh_count, mesh_vertices, mesh_triangles, light_count))
+    except Exception:
+        lines.append("depsgraph_snapshot_error=" + traceback.format_exc().replace("\\n", " | "))
+    try:
+        area_info = []
+        screen = getattr(context, "screen", None)
+        for area in getattr(screen, "areas", ()) if screen else ():
+            if area.type == "VIEW_3D":
+                area_info.append("VIEW_3D shading=%s width=%s height=%s" % (
+                    area.spaces.active.shading.type, area.width, area.height))
+        lines.extend(area_info or ["VIEW_3D_area=not-found"])
+    except Exception:
+        lines.append("viewport_snapshot_error=" + traceback.format_exc().replace("\\n", " | "))
+    lines.append("========== HAMUN DIAGNOSTIC SNAPSHOT END ==========")
+    return "\\n".join(lines)
 
 
 class HAMUN_OT_diagnose_viewport(bpy.types.Operator):
     bl_idname = "hamun.diagnose_viewport"
     bl_label = "Write Vulkan Diagnostic Log"
+    bl_description = "Append Blender, scene, Sun, renderer DLL and viewport diagnostics to a text log"
 
     def execute(self, context):
         import traceback
         try:
-            engine_cls = bpy.types.RenderEngine.bl_rna_get_subclass_py("HAMUN_VULKAN")
-            space = next((area.spaces.active for area in context.screen.areas
-                          if area.type == "VIEW_3D"), None)
-            shading = space.shading.type if space else "NO_VIEW3D"
-            dll = _hamun_renderer_dll(context.scene)
-            info = ("manual diagnostic: engine_registered=" + str(engine_cls is not None)
-                    + " scene_engine=" + str(context.scene.render.engine)
-                    + " shading=" + shading
-                    + " dll=" + str(dll)
-                    + " callbacks=" + str(bool(engine_cls and hasattr(engine_cls, "view_draw"))))
-            path = _hamun_diagnostic_log(info)
-            self.report({"INFO"}, "Log: " + str(path))
+            path = _hamun_diagnostic_log(_hamun_diagnostic_snapshot(context))
+            self.report({"INFO"}, "Diagnostic snapshot written: " + str(path))
         except Exception:
-            path = _hamun_diagnostic_log(traceback.format_exc())
-            self.report({"ERROR"}, "See " + str(path))
+            try:
+                path = _hamun_diagnostic_log("DIAGNOSTIC_SNAPSHOT_FAILED\\n" + traceback.format_exc())
+                self.report({"ERROR"}, "Diagnostic failed; details: " + str(path))
+            except Exception:
+                self.report({"ERROR"}, "Could not write Hamun diagnostic log. Check Windows TEMP folder permissions.")
+                return {"CANCELLED"}
         return {"FINISHED"}
 
 
@@ -1262,9 +1361,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     matrix, light_array, len(lights))
             _hamun_metrics["lights"] = len(lights)
             _hamun_metrics["light_energy"] = round(sum(item[10] for item in lights), 2)
+            _hamun_diagnostic_log(
+                "RENDER_CALL_RESULT ok=%s route=%s vertices=%d triangles=%d lights=%d "
+                "dll=%s" % (bool(ok), route, len(verts) // 3, len(indices) // 3,
+                            len(lights), str(dll)))
             if not ok:
                 error = native.hamun_renderer_last_error()
-                raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
+                message = error.decode(errors="replace") if error else "DLL draw failed"
+                _hamun_diagnostic_log("RENDER_CALL_ERROR " + str(message))
+                raise RuntimeError(message)
             # Log a compact, reproducible lighting trace only when light state
             # changes; this distinguishes DLL shading from viewport display.
             light_signature = tuple(round(value, 3) for value in light_data)
