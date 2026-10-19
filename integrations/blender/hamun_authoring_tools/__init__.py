@@ -1448,7 +1448,20 @@ classes = (
 )
 
 
+def _hamun_light_panel_compat(enable):
+    """Expose Blender's native light properties for our custom render engine."""
+    from bl_ui import properties_data_light
+    for panel in properties_data_light.classes:
+        compatible = getattr(panel, "COMPAT_ENGINES", None)
+        if compatible is not None:
+            if enable:
+                compatible.add("HAMUN_VULKAN")
+            else:
+                compatible.discard("HAMUN_VULKAN")
+
+
 def register():
+    _hamun_light_panel_compat(True)
     bpy.types.Scene.hamun_vulkan_executable = bpy.props.StringProperty(
         name="Runtime Executable", subtype="FILE_PATH",
         description="Path to HamunRuntime.exe"
@@ -1468,6 +1481,7 @@ def register():
 
 
 def unregister():
+    _hamun_light_panel_compat(False)
     _hamun_metrics.pop("active_engines", None)
     if bpy.app.timers.is_registered(_hamun_metrics_refresh_timer):
         bpy.app.timers.unregister(_hamun_metrics_refresh_timer)
