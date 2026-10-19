@@ -245,17 +245,22 @@ static int hamun_mesh_render_impl(
                     // lights often measured in hundreds of watts. Do not apply
                     // the same conversion factor to both.
                     float energy=std::max(0.0f,light[10]);
-                    float gain=(light[0]<0.5f)?0.9f:0.012f;
-                    float strength=std::min(8.0f,energy*gain*attenuation*diffuse);
+                    // Apply a lower linear-light gain; display tonemapping
+                    // happens below, so Sun energy 1 and 5 remain distinct.
+                    float gain=(light[0]<0.5f)?0.45f:0.012f;
+                    float strength=energy*gain*attenuation*diffuse;
                     red+=light[7]*strength;green+=light[8]*strength;blue+=light[9]*strength;
                 }
             }else{
                 float diffuse=std::max(0.0f,nx*.35f+ny*.4f+nz*.85f);
                 red+=diffuse*.70f;green+=diffuse*.70f;blue+=diffuse*.70f;
             }
-            red=std::clamp(red,0.0f,1.0f);
-            green=std::clamp(green,0.0f,1.0f);
-            blue=std::clamp(blue,0.0f,1.0f);
+            // Reinhard tonemapping instead of clipping at 1.0: high
+            // energy stays distinguishable rather than saturating to one
+            // identical pixel value for all intensities >= 1.
+            red=red/(1.0f+red);
+            green=green/(1.0f+green);
+            blue=blue/(1.0f+blue);
             for(int y=y0;y<=y1;++y)for(int x=x0;x<=x1;++x){
                 float px=x+.5f,py=y+.5f;
                 float wa=edge(B,C,px,py)/area,wb=edge(C,A,px,py)/area,wc=1-wa-wb;
