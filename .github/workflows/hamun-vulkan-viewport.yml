@@ -36,50 +36,21 @@ jobs:
         run: |
           $dll = "build/viewport/Release/HamunRenderer.dll"
           if (-not (Test-Path $dll)) { throw "Missing renderer DLL" }
-          # CMake already selected the VS toolchain; locate dumpbin in its
-          # installed MSVC tools rather than assuming it is in PATH.
-          $vswhere = "${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-          if (-not (Test-Path $vswhere)) { throw "Visual Studio locator (vswhere) not found" }
-          $vsRoot = (& $vswhere -latest -products * -property installationPath).Trim()
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "Visual Studio locator not found" }
+          $vsRoot = (& $vswhere -latest -products * -property installationPath)
           if (-not $vsRoot) { throw "Visual Studio installation not found" }
-          $dumpbin = Get-ChildItem (Join-Path $vsRoot "VC\\Tools\\MSVC") -Filter dumpbin.exe -Recurse -File |
-            Where-Object { $_.FullName -match 'Hostx64\\\\x64\\\\dumpbin\\.exe
-          foreach ($name in @("hamun_gpu_viewport_render", "hamun_renderer_mesh_lit_normals")) {
-            if (-not ($exports | Select-String -SimpleMatch $name)) { throw "Missing export: $name" }
-          }
-          foreach ($name in @("viewport_direct.vert.spv", "viewport_direct.frag.spv")) {
-            if (-not (Test-Path "build/viewport/Release/shaders/$name")) { throw "Missing compiled shader: $name" }
-          }
-      - name: Verify Sun shadow movement via renderer DLL
-        shell: pwsh
-        env:
-          HAMUN_RENDERER_DLL: build/viewport/Release/HamunRenderer.dll
-        run: python engine/runtime/tests/test_sun_shadow.py
-      - name: Upload Sun shadow screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hamun-Sun-Shadow-Visual-Test
-          path: build/viewport/shadow-test/*.png
-          if-no-files-found: warn
-      - name: Package tested renderer
-        uses: actions/upload-artifact@v4
-        with:
-          name: HamunRenderer-Vulkan-Windows-x64
-          path: |
-            build/viewport/Release/HamunRenderer.dll
-            build/viewport/Release/shaders/*.spv
-          if-no-files-found: error
- } |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $dumpbin) { throw "dumpbin.exe not found in Visual Studio MSVC tools" }
+          $dumpbin = Get-ChildItem (Join-Path $vsRoot "VC\Tools\MSVC") -Filter dumpbin.exe -Recurse -File |
+            Where-Object { $_.FullName -like "*Hostx64\x64\dumpbin.exe" } |
+            Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found" }
           $exports = & $dumpbin.FullName /EXPORTS $dll
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed" }
           foreach ($name in @("hamun_gpu_viewport_render", "hamun_renderer_mesh_lit_normals")) {
             if (-not ($exports | Select-String -SimpleMatch $name)) { throw "Missing export: $name" }
           }
           foreach ($name in @("viewport_direct.vert.spv", "viewport_direct.frag.spv")) {
-            if (-not (Test-Path "build/viewport/Release/shaders/$name")) { throw "Missing compiled shader: $name" }
+            if (-not (Test-Path "build/viewport/Release/shaders/$name")) { throw "Missing shader: $name" }
           }
       - name: Verify Sun shadow movement via renderer DLL
         shell: pwsh
