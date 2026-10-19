@@ -851,21 +851,27 @@ def _hamun_renderer_dll(scene=None):
     # During development prioritize the freshly built DLL, not a stale
     # portable-editor copy of the same library.
     import sys
-    dev_dll = Path("D:/HamunDev/Hamun/build/hamun-runtime/Release/HamunRenderer.dll")
-    if dev_dll.is_file():
-        return dev_dll
-    roots = [Path(sys.executable).resolve().parent]
+    roots = []
+    # Select the latest viewport-build DLL before any older runtime package.
+    # Both the source checkout and the conventional development directory work.
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "engine" / "runtime" / "CMakeLists.txt").is_file():
+            roots.extend([
+                parent / "build" / "viewport" / "Release",
+                parent / "build" / "hamun-runtime" / "Release",
+            ])
+            break
+    roots.extend([
+        Path("D:/HamunDev/Hamun/build/viewport/Release"),
+        Path("D:/HamunDev/Hamun/build/hamun-runtime/Release"),
+        Path(sys.executable).resolve().parent,
+    ])
     root = Path(__file__).resolve()
     # Development checkout: D:/HamunDev/Hamun/integrations/blender/...
+
+    # Portable editor is a fallback, never override a freshly compiled DLL.
     for parent in root.parents:
-        if (parent / "engine" / "runtime" / "CMakeLists.txt").is_file():
-            roots.append(parent / "build" / "hamun-runtime" / "Release")
-            break
-    # Portable editor typically lives in D:/HamunDev/HamunPackages.
-    for parent in root.parents:
-        candidate = parent / "HamunRenderer.dll"
-        if candidate.is_file():
-            return candidate
+        roots.append(parent)
     # Respect prior configured path silently as a migration fallback.
     if scene is not None:
         legacy = getattr(scene, "hamun_vulkan_executable", "")
@@ -1099,6 +1105,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             if dll is None:
                 raise RuntimeError("HamunRenderer.dll missing")
             native = ctypes.WinDLL(str(dll))
+            if getattr(self, "_hamun_loaded_dll", None) != str(dll):
+                _hamun_diagnostic_log("ACTIVE_RENDERER_DLL=" + str(dll))
+                self._hamun_loaded_dll = str(dll)
             native.hamun_renderer_mesh_camera.argtypes = [
                 ctypes.c_uint32, ctypes.c_uint32,
                 ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
