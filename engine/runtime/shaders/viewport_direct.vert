@@ -8,6 +8,11 @@ layout(push_constant) uniform Params {
     vec4 sunColorEnergy;
 } p;
 void main() {
-    gl_Position=p.viewProjection*vec4(position,1.0);
+    // Blender's viewProjection uses OpenGL clip depth [-w,+w] and Y-up.
+    // Vulkan needs depth [0,w]; render-target raster coordinates are Y-down.
+    vec4 clip=p.viewProjection*vec4(position,1.0);
+    clip.y=-clip.y;
+    clip.z=(clip.z+clip.w)*0.5;
+    gl_Position=clip;
     vNormal=normal;
 }
