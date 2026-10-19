@@ -440,7 +440,9 @@ static int hamun_mesh_render_impl(
                         const float angle=std::clamp(lights[li*12+1],0.f,1.5707963f);
                         float blockerGap=0.f;
                         for(int by=-3;by<=3;++by)for(int bx=-3;bx<=3;++bx){
-                            const float z=sm.depth[size_t(iy+by)*shadowSize+ix+bx];
+                            const int bxIndex=std::clamp(ix+bx,0,shadowSize-1);
+                            const int byIndex=std::clamp(iy+by,0,shadowSize-1);
+                            const float z=sm.depth[size_t(byIndex)*shadowSize+bxIndex];
                             if(z>d+bias)blockerGap=std::max(blockerGap,z-d);
                         }
                         const float penumbra=std::min(10.f,std::tan(angle*.5f)*blockerGap/sm.step);
