@@ -216,9 +216,34 @@ static int hamun_mesh_render_impl(
             float minU,minV,step;
             std::vector<float> depth;
         };
-        constexpr int shadowSize=512;
-        std::vector<ShadowMap> shadows(lightCount);
-        for(uint32_t li=0;li<lightCount;++li){
+        constexpr int shadowSize=256;
+        // Reuse the sun shadow atlas when geometry and sun orientation match.
+        // Blender redraws unchanged frames frequently; rebuilding the atlas
+        // for each such frame is wasteful.
+        static thread_local uint64_t cachedHash=0;
+        static thread_local std::vector<ShadowMap> cachedShadows;
+        uint64_t hash=14695981039346656037ull;
+        auto hashBytes=[&](const void* p,size_t size){
+            const auto* bytes=static_cast<const unsigned char*>(p);
+            for(size_t k=0;k<size;++k){hash^=bytes[k];hash*=1099511628211ull;}
+        };
+        hashBytes(&vertices,sizeof(vertices));
+        hashBytes(&count,sizeof(count));
+        hashBytes(xyz,size_t(vertices)*3*sizeof(float));
+        hashBytes(indices,size_t(count)*sizeof(uint32_t));
+        hashBytes(&lightCount,sizeof(lightCount));
+        if(lights){
+            for(uint32_t li=0;li<lightCount;++li){
+                hashBytes(lights+li*12,sizeof(float));
+                if(lights[li*12]<0.5f)
+                    hashBytes(lights+li*12+4,3*sizeof(float));
+            }
+        }
+        bool rebuild=hash!=cachedHash||cachedShadows.size()!=lightCount;
+        std::vector<ShadowMap> shadows;
+        if(!rebuild)shadows=cachedShadows;
+        else shadows.resize(lightCount);
+        if(rebuild)for(uint32_t li=0;li<lightCount;++li){
             const float* l=lights+12*li;
             if(l[0]>=0.5f)continue; // Sun only
             auto& sm=shadows[li];
@@ -281,6 +306,7 @@ static int hamun_mesh_render_impl(
                 }
             }
         }
+        if(rebuild){cachedShadows=shadows;cachedHash=hash;}
         std::vector<float> zbuf(size_t(width)*height,-1e30f);
         auto edge=[](const P& a,const P& b,float x,float y){
             return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
