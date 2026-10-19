@@ -245,15 +245,21 @@ static int hamun_mesh_render_impl(
                         }
                     }
                     float len=std::sqrt(lx*lx+ly*ly+lz*lz)+1e-8f;
-                    float diffuse=std::max(0.0f,(nx*lx+ny*ly+nz*lz)/len);
-                    // Blender Sun energy is usually around 1-5, unlike point
-                    // lights often measured in hundreds of watts. Do not apply
-                    // the same conversion factor to both.
-                    float energy=std::max(0.0f,light[10]);
-                    // Apply a lower linear-light gain; display tonemapping
-                    // happens below, so Sun energy 1 and 5 remain distinct.
-                    float gain=(light[0]<0.5f)?0.45f:0.012f;
-                    float strength=energy*gain*attenuation*diffuse;
+                    const float ndotl=(nx*lx+ny*ly+nz*lz)/len;
+                    const bool sun=light[0]<0.5f;
+                    // The current preview has no bounce lighting. A small
+                    // wrapped diffuse term keeps side faces visible when the
+                    // Sun is almost perpendicular, without lighting rear faces.
+                    const float diffuse=sun
+                        ? std::clamp((ndotl+0.25f)/1.25f,0.0f,1.0f)
+                        : std::max(0.0f,ndotl);
+                    const float energy=std::max(0.0f,light[10]);
+                    // Keep Sun 1, 5, 100 and 1000 visually distinguishable.
+                    // Energy/exposure are display-mapped in this preview;
+                    // physically based exposure is a later pipeline stage.
+                    const float strength=(sun
+                        ? 0.8f*std::log1p(energy)
+                        : 0.012f*energy)*attenuation*diffuse;
                     red+=light[7]*strength;green+=light[8]*strength;blue+=light[9]*strength;
                 }
             }else{
