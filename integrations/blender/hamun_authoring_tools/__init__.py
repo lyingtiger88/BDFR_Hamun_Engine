@@ -1031,7 +1031,7 @@ def _hamun_draw_metrics(width, height, cpu_ms=0.0):
         ("Refresh: %s" % _hamun_metrics.get("timer_error", "active"), (0.8, 0.8, 0.8, 1.0)),
         ("Draws: %s" % _hamun_metrics.get("draws", "n/a"), (1.0, 1.0, 1.0, 1.0)),
         ("Prims: %s" % _hamun_metrics.get("prims", "n/a"), (1.0, 1.0, 1.0, 1.0)),
-        ("Lights: %s" % _hamun_metrics.get("lights", "n/a"), (1.0, 1.0, 1.0, 1.0)),
+        ("Lights: %s | Energy: %s" % (_hamun_metrics.get("lights", "n/a"), _hamun_metrics.get("light_energy", "n/a")), (1.0, 1.0, 1.0, 1.0)),
     ]
     lines = basic
     if _hamun_metrics["mode"] == "ADVANCED":
@@ -1066,7 +1066,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     bl_idname = "HAMUN_VULKAN"
     bl_label = "Hamun Vulkan (Preview)"
     bl_use_preview = False
-    bl_use_eevee_viewport = True
+    # Never substitute Eevee's viewport: it masks the result of our custom
+    # RenderEngine.view_draw, so scene lights appear to have no effect.
+    bl_use_eevee_viewport = False
 
     def view_update(self, context, depsgraph):
         engines = _hamun_metrics.setdefault("active_engines", [])
@@ -1169,6 +1171,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 positions, len(verts) // 3, faces, len(indices),
                 matrix, light_array, len(lights))
             _hamun_metrics["lights"] = len(lights)
+            _hamun_metrics["light_energy"] = round(sum(item[10] for item in lights), 2)
             if not ok:
                 error = native.hamun_renderer_last_error()
                 raise RuntimeError(error.decode(errors="replace") if error else "DLL draw failed")
