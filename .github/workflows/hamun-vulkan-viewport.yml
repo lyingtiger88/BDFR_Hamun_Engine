@@ -43,6 +43,11 @@ jobs:
           foreach ($name in @("viewport_direct.vert.spv", "viewport_direct.frag.spv")) {
             if (-not (Test-Path "build/viewport/Release/shaders/$name")) { throw "Missing compiled shader: $name" }
           }
+      - name: Verify Sun shadow movement via renderer DLL
+        shell: pwsh
+        env:
+          HAMUN_RENDERER_DLL: build/viewport/Release/HamunRenderer.dll
+        run: python engine/runtime/tests/test_sun_shadow.py
       - name: Package tested renderer
         uses: actions/upload-artifact@v4
         with:
