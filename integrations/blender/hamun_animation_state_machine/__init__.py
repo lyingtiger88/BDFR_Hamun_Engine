@@ -12,6 +12,7 @@ import bpy
 import json
 from pathlib import Path
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty, StringProperty
+from .runtime_reference import StateMachine
 
 
 class HAMUN_ASM_Socket(bpy.types.NodeSocket):
@@ -36,6 +37,8 @@ class HAMUN_ASM_Entry(bpy.types.Node):
     bl_label = "Entry"
 
     def init(self, context):
+        self.use_custom_color = True
+        self.color = (0.10, 0.40, 0.24)
         self.outputs.new("HAMUN_ASM_Socket", "Start")
         self.width = 140
 
@@ -49,6 +52,8 @@ class HAMUN_ASM_State(bpy.types.Node):
     playback_speed: FloatProperty(name="Speed", default=1.0, min=0.01, max=10.0)
 
     def init(self, context):
+        self.use_custom_color = True
+        self.color = (0.13, 0.29, 0.49)
         self.inputs.new("HAMUN_ASM_Socket", "In")
         self.outputs.new("HAMUN_ASM_Socket", "Out")
         self.width = 190
@@ -73,6 +78,8 @@ class HAMUN_ASM_Transition(bpy.types.Node):
     priority: FloatProperty(name="Priority", default=0.0)
 
     def init(self, context):
+        self.use_custom_color = True
+        self.color = (0.42, 0.28, 0.12)
         self.inputs.new("HAMUN_ASM_Socket", "From")
         self.outputs.new("HAMUN_ASM_Socket", "To")
         self.width = 175
@@ -84,10 +91,6 @@ class HAMUN_ASM_Transition(bpy.types.Node):
         row.prop(self, "threshold", text="")
         layout.prop(self, "blend_seconds")
         layout.prop(self, "priority")
-
-
-class HAMUN_ASM_Category(bpy.types.NodeCategory if hasattr(bpy.types, "NodeCategory") else object):
-    pass
 
 
 def machine_to_dict(tree):
@@ -204,6 +207,62 @@ class HAMUN_ASM_OT_Export(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
 
+
+class HAMUN_ASM_OT_Preview(bpy.types.Operator):
+    bl_idname = "hamun_asm.preview"
+    bl_label = "Evaluate Preview"
+    bl_description = "Evaluate one transition and show the selected Action on the active armature"
+
+    def execute(self, context):
+        scene = context.scene
+        obj = context.object
+        if scene.hamun_asm_graph is None or obj is None or obj.type != "ARMATURE":
+            self.report({"ERROR"}, "Select a graph and an armature")
+            return {"CANCELLED"}
+        try:
+            graph = machine_to_dict(scene.hamun_asm_graph)
+            machine = StateMachine(graph)
+            if scene.hamun_asm_preview_state in machine.states:
+                machine.current = scene.hamun_asm_preview_state
+            state = machine.update({"Speed": scene.hamun_asm_speed})
+            scene.hamun_asm_preview_state = machine.current
+            action = bpy.data.actions.get(state["action"])
+            if action is None:
+                self.report({"WARNING"}, "Assign an Action to the active state")
+            else:
+                obj.animation_data_create()
+                obj.animation_data.action = action
+                self.report({"INFO"}, "Preview state: " + state["name"])
+        except (ValueError, KeyError, TypeError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+class HAMUN_ASM_OT_ResetPreview(bpy.types.Operator):
+    bl_idname = "hamun_asm.reset_preview"
+    bl_label = "Reset Preview"
+
+    def execute(self, context):
+        context.scene.hamun_asm_preview_state = ""
+        return {"FINISHED"}
+
+
+def hamun_asm_node_add_menu(self, context):
+    if context.space_data.tree_type != HAMUN_ASM_Tree.bl_idname:
+        return
+    self.layout.separator()
+    self.layout.label(text="Hamun Animation", icon="ARMATURE")
+    for kind, label in (
+        (HAMUN_ASM_Entry.bl_idname, "Entry"),
+        (HAMUN_ASM_State.bl_idname, "Animation State"),
+        (HAMUN_ASM_Transition.bl_idname, "Transition"),
+    ):
+        operator = self.layout.operator("node.add_node", text=label)
+        operator.type = kind
+        operator.use_transform = True
+
+
 class HAMUN_ASM_PT_Panel(bpy.types.Panel):
     bl_label = "Hamun Animation State Machine"
     bl_idname = "HAMUN_ASM_PT_panel"
@@ -220,13 +279,22 @@ class HAMUN_ASM_PT_Panel(bpy.types.Panel):
         col.prop(context.scene, "hamun_asm_graph", text="Graph")
         col.operator("hamun_asm.sample", icon="ADD")
         col.operator("hamun_asm.export", icon="EXPORT")
-        col.label(text="Add nodes: Shift+A > Search")
+        col.separator()
+        col.label(text="Preview", icon="PLAY")
+        col.prop(context.scene, "hamun_asm_speed")
+        col.prop(context.scene, "hamun_asm_preview_state")
+        row = col.row(align=True)
+        row.operator("hamun_asm.preview", icon="PLAY")
+        row.operator("hamun_asm.reset_preview", text="", icon="LOOP_BACK")
+        col.label(text="Select an armature for Action preview")
+        col.label(text="Add nodes: Shift+A > Hamun")
 
 
 classes = (
     HAMUN_ASM_Socket, HAMUN_ASM_Tree, HAMUN_ASM_Entry,
     HAMUN_ASM_State, HAMUN_ASM_Transition,
-    HAMUN_ASM_OT_Sample, HAMUN_ASM_OT_Export, HAMUN_ASM_PT_Panel,
+    HAMUN_ASM_OT_Sample, HAMUN_ASM_OT_Export,
+    HAMUN_ASM_OT_Preview, HAMUN_ASM_OT_ResetPreview, HAMUN_ASM_PT_Panel,
 )
 
 
@@ -234,9 +302,15 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.hamun_asm_graph = PointerProperty(type=HAMUN_ASM_Tree)
+    bpy.types.Scene.hamun_asm_speed = FloatProperty(name="Speed", default=0.0)
+    bpy.types.Scene.hamun_asm_preview_state = StringProperty(name="Current State")
+    bpy.types.NODE_MT_add.append(hamun_asm_node_add_menu)
 
 
 def unregister():
+    bpy.types.NODE_MT_add.remove(hamun_asm_node_add_menu)
+    del bpy.types.Scene.hamun_asm_preview_state
+    del bpy.types.Scene.hamun_asm_speed
     del bpy.types.Scene.hamun_asm_graph
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
