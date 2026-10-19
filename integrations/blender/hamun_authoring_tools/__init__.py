@@ -1170,17 +1170,20 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 # Zero remains legacy-enabled for older test clients.
                 shadow_enabled = bool(getattr(data, "use_shadow", True))
                 shadow_flag = 1.0 if shadow_enabled else -1.0
-                lights.append((float(light_type), pos.x, pos.y, pos.z,
+                # Sun has no meaningful position: ABI slot 1 carries its
+                # angular diameter (radians) without changing the 12-float ABI.
+                sun_angle = float(getattr(data, "angle", 0.0)) if data.type == "SUN" else 0.0
+                lights.append((float(light_type), sun_angle if data.type == "SUN" else pos.x, pos.y, pos.z,
                                direction.x, direction.y, direction.z,
                                color.r, color.g, color.b, data.energy, shadow_flag))
             # Record only meaningful light-state changes: this exposes whether
             # the Blender UI actually changes the evaluated Sun parameters.
             sun_state = tuple(
-                (tuple(round(v, 4) for v in light[4:7]), round(light[10], 3), light[11])
+                (tuple(round(v, 4) for v in light[4:7]), round(light[1], 5), round(light[10], 3), light[11])
                 for light in lights if light[0] < 0.5
             )
             if getattr(self, "_hamun_last_sun_state", None) != sun_state:
-                _hamun_diagnostic_log("SUN_INPUT direction_energy_shadow=" + repr(sun_state))
+                _hamun_diagnostic_log("SUN_INPUT direction_angle_energy_shadow=" + repr(sun_state))
                 self._hamun_last_sun_state = sun_state
             light_data = [float(value) for light in lights for value in light]
             light_array = (ctypes.c_float * len(light_data))(*light_data) if light_data else None
