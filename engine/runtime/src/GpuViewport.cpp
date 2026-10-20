@@ -285,14 +285,28 @@ static int gpuViewportImpl(
         createImage(VK_FORMAT_D32_SFLOAT,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
             shadowImage,shadowMemory,shadowView,VK_IMAGE_ASPECT_DEPTH_BIT,shadowSize,shadowSize);
-        bool hasShadowSun=false;
+        // One shadow map: prefer enabled Sun, otherwise use an enabled Area.
+        // Area uses an orthographic approximation along its emission direction.
+        // A future implementation will use sampled emitters for true penumbrae.
+        int shadowLightIndex=-1;
         float sunDir[3]={0.f,0.f,-1.f};
-        if(lights)for(uint32_t li=0;li<lightCount;++li){
-            const float* l=lights+12*li;
-            if(l[0]<0.5f&&l[10]>0.f){
-                hasShadowSun=l[11]>=0.f;
-                std::memcpy(sunDir,l+4,sizeof(sunDir));break;
+        if(lights){
+            for(uint32_t li=0;li<lightCount;++li){
+                const float* l=lights+12*li;
+                if(l[0]<0.5f && l[10]>0.f && l[11]>=0.f){
+                    shadowLightIndex=static_cast<int>(li);
+                    break;
+                }
             }
+            if(shadowLightIndex<0)for(uint32_t li=0;li<lightCount;++li){
+                const float* l=lights+12*li;
+                if(l[0]>=2.5f && l[0]<3.5f && l[10]>0.f && l[11]>=0.f){
+                    shadowLightIndex=static_cast<int>(li);
+                    break;
+                }
+            }
+            if(shadowLightIndex>=0)
+                std::memcpy(sunDir,lights+12*shadowLightIndex+4,sizeof(sunDir));
         }
         auto normalize=[](std::array<float,3> a){
             const float len=std::sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
@@ -333,7 +347,8 @@ static int gpuViewportImpl(
         lightMatrix[15]=1.f;
         struct ShadowUniform { float matrix[16]; float settings[4]; } shadowData{};
         std::memcpy(shadowData.matrix,lightMatrix,sizeof(lightMatrix));
-        shadowData.settings[0]=hasShadowSun?1.f:0.f;
+        shadowData.settings[0]=shadowLightIndex>=0?1.f:0.f;
+        shadowData.settings[3]=static_cast<float>(shadowLightIndex+1);
         shadowData.settings[1]=std::max(0.00001f,shadowBias*0.0005f);
         shadowData.settings[2]=std::max(0.f,shadowSoftness);
         createBuffer(sizeof(shadowData),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
