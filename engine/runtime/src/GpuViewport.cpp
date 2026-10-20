@@ -277,14 +277,31 @@ static int gpuViewportImpl(
             color,colorMemory,colorView,VK_IMAGE_ASPECT_COLOR_BIT,w,h);
         createImage(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             depth,depthMemory,depthView,VK_IMAGE_ASPECT_DEPTH_BIT,w,h);
-        const uint32_t shadowSize=std::clamp(requestedShadowSize,64u,4096u);
+        // For a Point source render six 90-degree faces into one 3x2 atlas.
+        int pointCandidate=-1;
+        bool anySunShadow=false,anySpotShadow=false,anyAreaShadow=false;
+        for(uint32_t li=0;li<lightCount;++li){
+            const float* l=lights+12*li;
+            if(l[10]<=0.f || l[11]<0.f)continue;
+            int kind=static_cast<int>(l[0]+0.5f);
+            if(kind==0)anySunShadow=true;
+            if(kind==2)anySpotShadow=true;
+            if(kind==3)anyAreaShadow=true;
+            if(kind==1 && pointCandidate<0)pointCandidate=static_cast<int>(li);
+        }
+        const bool usePointAtlas=pointCandidate>=0 &&
+            !anySunShadow && !anySpotShadow && !anyAreaShadow;
+        const uint32_t shadowSize=std::clamp(requestedShadowSize,64u,
+                                            usePointAtlas?1024u:4096u);
+        const uint32_t shadowWidth=usePointAtlas?shadowSize*3:shadowSize;
+        const uint32_t shadowHeight=usePointAtlas?shadowSize*2:shadowSize;
         VkFormatProperties shadowFormat{};
         vkGetPhysicalDeviceFormatProperties(gpu,VK_FORMAT_D32_SFLOAT,&shadowFormat);
         if(!(shadowFormat.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))
             throw std::runtime_error("D32 shadow sampling unsupported");
         createImage(VK_FORMAT_D32_SFLOAT,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
-            shadowImage,shadowMemory,shadowView,VK_IMAGE_ASPECT_DEPTH_BIT,shadowSize,shadowSize);
+            shadowImage,shadowMemory,shadowView,VK_IMAGE_ASPECT_DEPTH_BIT,shadowWidth,shadowHeight);
         // One shadow map: prefer enabled Sun, otherwise use an enabled Area.
         // Area uses an orthographic approximation along its emission direction.
         // A future implementation will use sampled emitters for true penumbrae.
@@ -408,7 +425,53 @@ static int gpuViewportImpl(
             }
             lightMatrix[15]=1.f;
         }
-        struct ShadowUniform { float matrix[16]; float settings[4]; } shadowData{};
+        struct ShadowUniform {
+            float matrix[16];
+            float settings[4];
+            float faces[6][16];
+            float pointPosition[4];
+        } shadowData{};
+        if(usePointAtlas && shadowLightIndex>=0){
+            const float* l=lights+12*shadowLightIndex;
+            const std::array<float,3> emitter{l[1],l[2],l[3]};
+            shadowData.pointPosition[0]=l[1];
+            shadowData.pointPosition[1]=l[2];
+            shadowData.pointPosition[2]=l[3];
+            shadowData.pointPosition[3]=1.f;
+            const std::array<std::array<float,3>,6> directions{{
+                {{1.f,0.f,0.f}},{{-1.f,0.f,0.f}},
+                {{0.f,1.f,0.f}},{{0.f,-1.f,0.f}},
+                {{0.f,0.f,1.f}},{{0.f,0.f,-1.f}}
+            }};
+            float farPlane=0.1f;
+            for(uint32_t i=0;i<vertexCount;++i){
+                const float dx=positions[3*i]-l[1],dy=positions[3*i+1]-l[2],
+                            dz=positions[3*i+2]-l[3];
+                farPlane=std::max(farPlane,std::sqrt(dx*dx+dy*dy+dz*dz));
+            }
+            farPlane=farPlane*1.10f+0.01f;
+            const float nearPlane=std::min(0.05f,farPlane*0.01f);
+            const float zScale=farPlane/(farPlane-nearPlane);
+            for(int face=0;face<6;++face){
+                const auto fd=directions[face];
+                const auto refUp=std::fabs(fd[2])>0.95f
+                    ? std::array<float,3>{0.f,1.f,0.f}
+                    : std::array<float,3>{0.f,0.f,1.f};
+                const auto fu=normalize(cross(refUp,fd));
+                const auto fv=cross(fd,fu);
+                float* m=shadowData.faces[face];
+                for(int j=0;j<3;++j){
+                    m[j*4]=fu[j];
+                    m[j*4+1]=fv[j];
+                    m[j*4+2]=fd[j]*zScale;
+                    m[j*4+3]=fd[j];
+                }
+                m[12]=-dot(fu,emitter);
+                m[13]=-dot(fv,emitter);
+                m[14]=-dot(fd,emitter)*zScale-nearPlane*zScale;
+                m[15]=-dot(fd,emitter);
+            }
+        }
         std::memcpy(shadowData.matrix,lightMatrix,sizeof(lightMatrix));
         shadowData.settings[0]=shadowLightIndex>=0?1.f:0.f;
         shadowData.settings[3]=static_cast<float>(shadowLightIndex+1);
@@ -479,8 +542,8 @@ static int gpuViewportImpl(
         shadowPass=persistent.depthPass;
         VkFramebufferCreateInfo shadowFb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         shadowFb.renderPass=shadowPass;shadowFb.attachmentCount=1;
-        shadowFb.pAttachments=&shadowView;shadowFb.width=shadowSize;
-        shadowFb.height=shadowSize;shadowFb.layers=1;
+        shadowFb.pAttachments=&shadowView;shadowFb.width=shadowWidth;
+        shadowFb.height=shadowHeight;shadowFb.layers=1;
         require(vkCreateFramebuffer(device,&shadowFb,nullptr,&shadowFramebuffer),"Create Sun depth framebuffer failed");
         VkSamplerCreateInfo shadowSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         shadowSamplerInfo.magFilter=VK_FILTER_NEAREST;
@@ -651,7 +714,11 @@ static int gpuViewportImpl(
         shadowVp.viewportCount=1;shadowVp.pViewports=&shadowViewport;
         shadowVp.scissorCount=1;shadowVp.pScissors=&shadowScissor;
         VkPipelineColorBlendStateCreateInfo shadowBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        VkDynamicState shadowStates[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo shadowDynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+        shadowDynamic.dynamicStateCount=2;shadowDynamic.pDynamicStates=shadowStates;
         VkGraphicsPipelineCreateInfo depthPipe=pipe;
+        depthPipe.pDynamicState=&shadowDynamic;
         depthPipe.stageCount=1;depthPipe.pStages=&depthStage;
         depthPipe.pViewportState=&shadowVp;depthPipe.pColorBlendState=&shadowBlend;
         depthPipe.layout=shadowLayout;depthPipe.renderPass=shadowPass;
@@ -659,7 +726,8 @@ static int gpuViewportImpl(
             require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&depthPipe,nullptr,
                                               &persistent.sunPipeline),"Create Sun depth graphics pipeline failed");
         shadowPipeline=persistent.sunPipeline;
-        persistent.pipelineW=w; persistent.pipelineH=h; persistent.pipelineShadowSize=shadowSize;
+        persistent.pipelineW=w; persistent.pipelineH=h;
+        persistent.pipelineShadowSize=shadowSize;
         VkImageView attachmentViews[2]={colorView,depthView};
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         fi.renderPass=pass;fi.attachmentCount=2;fi.pAttachments=attachmentViews;
@@ -683,14 +751,33 @@ static int gpuViewportImpl(
         shadowClear.depthStencil={1.f,0};
         VkRenderPassBeginInfo shadowBegin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         shadowBegin.renderPass=shadowPass;shadowBegin.framebuffer=shadowFramebuffer;
-        shadowBegin.renderArea.extent={shadowSize,shadowSize};
+        shadowBegin.renderArea.extent={shadowWidth,shadowHeight};
         shadowBegin.clearValueCount=1;shadowBegin.pClearValues=&shadowClear;
         vkCmdBeginRenderPass(cmd,&shadowBegin,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,shadowPipeline);
         vkCmdBindVertexBuffers(cmd,0,1,&vertices,&offset);
-        vkCmdPushConstants(cmd,shadowLayout,VK_SHADER_STAGE_VERTEX_BIT,0,
-                           sizeof(lightMatrix),lightMatrix);
-        vkCmdDraw(cmd,indexCount,1,0,0);
+        if(usePointAtlas){
+            for(int face=0;face<6;++face){
+                VkViewport tile{float((face%3)*shadowSize),
+                                float((face/3)*shadowSize),
+                                float(shadowSize),float(shadowSize),0.f,1.f};
+                VkRect2D tileScissor{{int32_t((face%3)*shadowSize),
+                                      int32_t((face/3)*shadowSize)},{shadowSize,shadowSize}};
+                vkCmdSetViewport(cmd,0,1,&tile);
+                vkCmdSetScissor(cmd,0,1,&tileScissor);
+                vkCmdPushConstants(cmd,shadowLayout,VK_SHADER_STAGE_VERTEX_BIT,0,
+                                   sizeof(lightMatrix),shadowData.faces[face]);
+                vkCmdDraw(cmd,indexCount,1,0,0);
+            }
+        }else{
+            VkViewport tile{0.f,0.f,float(shadowSize),float(shadowSize),0.f,1.f};
+            VkRect2D tileScissor{{0,0},{shadowSize,shadowSize}};
+            vkCmdSetViewport(cmd,0,1,&tile);
+            vkCmdSetScissor(cmd,0,1,&tileScissor);
+            vkCmdPushConstants(cmd,shadowLayout,VK_SHADER_STAGE_VERTEX_BIT,0,
+                               sizeof(lightMatrix),lightMatrix);
+            vkCmdDraw(cmd,indexCount,1,0,0);
+        }
         vkCmdEndRenderPass(cmd);
         vkCmdBeginRenderPass(cmd,&rb,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
