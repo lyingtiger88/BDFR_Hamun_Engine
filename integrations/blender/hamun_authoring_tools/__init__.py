@@ -1324,21 +1324,26 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             native.hamun_renderer_mesh_lit.restype = ctypes.c_int
             # Prefer Vulkan offscreen rasterization when the updated DLL is installed.
             # Preserve a fallback for systems without a Vulkan-capable GPU.
-            gpu_viewport = getattr(native, "hamun_gpu_viewport_render", None)
-            # GPU direct-light pipeline currently has no shadow attachment.
-            # Prefer the implemented CPU Sun shadow map over silently showing
-            # a shadowless scene. Keep GPU active for unshadowed previews.
+            gpu_direct_fn = getattr(native, "hamun_gpu_viewport_render", None)
+            gpu_shadow_fn = getattr(native, "hamun_gpu_viewport_render_shadow", None)
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
             shadowed_sun = any(item[0] < 0.5 and item[10] > 0.0 and item[11] >= 0.0 for item in lights)
-            if shadowed_sun:
-                gpu_viewport = None  # Keep correct shadows until Vulkan shadow sampling is ready.
-            route = ("CPU_SUN_SHADOW_FALLBACK" if shadowed_sun else
-                     ("VULKAN_DIRECT_SUN_NO_SHADOW" if gpu_viewport is not None and has_sun else
-                      ("VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")))
+            # Use a GPU shadow pass for Sun when supported by the installed DLL;
+            # keep the CPU renderer as a fallback for unsupported GPUs/errors.
+            gpu_viewport = gpu_shadow_fn if gpu_shadow_fn is not None else (
+                None if shadowed_sun else gpu_direct_fn)
+            use_gpu_shadow_api = gpu_viewport is not None and gpu_viewport is gpu_shadow_fn
+            route = ("VULKAN_GPU_SUN_SHADOW" if use_gpu_shadow_api and shadowed_sun else
+                     "CPU_SUN_SHADOW_FALLBACK" if shadowed_sun else
+                     "VULKAN_DIRECT_SUN_NO_SHADOW" if gpu_viewport is not None and has_sun else
+                     "VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")
             if getattr(self, "_hamun_last_render_route", None) != route:
                 _hamun_diagnostic_log("RENDER_ROUTE=" + route)
                 self._hamun_last_render_route = route
-            # Include Vulkan execution and CPU fallback in the native profiling window.
+            requested_shadow_size = int(depsgraph.scene.hamun_shadow_map_resolution)
+            shadow_softness = float(depsgraph.scene.hamun_shadow_softness)
+            shadow_bias = float(depsgraph.scene.hamun_shadow_bias)
+            profile_native_start = time.perf_counter()
             if gpu_viewport is not None:
                 gpu_viewport.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
@@ -1349,13 +1354,20 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
                     ctypes.POINTER(ctypes.c_char), ctypes.c_uint32,
                 ]
+                if use_gpu_shadow_api:
+                    gpu_viewport.argtypes += [
+                        ctypes.c_uint32, ctypes.c_float, ctypes.c_float,
+                    ]
                 gpu_viewport.restype = ctypes.c_int
                 gpu_error = ctypes.create_string_buffer(512)
-                ok = gpu_viewport(
+                gpu_args = (
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
                     matrix, light_array, len(lights), normal_array,
                     gpu_error, len(gpu_error))
+                if use_gpu_shadow_api:
+                    gpu_args += (requested_shadow_size, shadow_softness, shadow_bias)
+                ok = gpu_viewport(*gpu_args)
                 if not ok:
                     message = gpu_error.value.decode("utf-8", errors="replace")
                     if not getattr(self, "_hamun_gpu_error_logged", False):
@@ -1368,14 +1380,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         self._hamun_gpu_success_logged = True
             else:
                 ok = 0
-            profile_native_start = time.perf_counter()
+            if not ok and gpu_viewport is not None:
+                route = "CPU_FALLBACK_AFTER_GPU_ERROR"
+                if getattr(self, "_hamun_last_render_route", None) != route:
+                    _hamun_diagnostic_log("RENDER_ROUTE=" + route)
+                    self._hamun_last_render_route = route
             shadow_settings_fn = getattr(native, "hamun_renderer_mesh_lit_normals_settings", None)
             shadow_quality_fn = getattr(native, "hamun_renderer_mesh_lit_normals_quality", None)
-            requested_shadow_size = int(depsgraph.scene.hamun_shadow_map_resolution)
             quality_route = ("CPU_SHADOW_SETTINGS" if shadow_settings_fn is not None else
                              "CPU_SHADOW_QUALITY" if shadow_quality_fn is not None else "LEGACY_CPU_SHADOW")
-            shadow_softness = float(depsgraph.scene.hamun_shadow_softness)
-            shadow_bias = float(depsgraph.scene.hamun_shadow_bias)
             quality_state = (requested_shadow_size, shadow_softness, shadow_bias, quality_route)
             if getattr(self, "_hamun_last_quality_state", None) != quality_state:
                 _hamun_diagnostic_log(
