@@ -42,6 +42,61 @@ std::vector<char> binary(const wchar_t* filename){
     if(!f)throw std::runtime_error("Unable to read SPIR-V");
     return bytes;
 }
+struct PersistentVkContext {
+    VkInstance instance=VK_NULL_HANDLE;
+    VkPhysicalDevice gpu=VK_NULL_HANDLE;
+    VkDevice device=VK_NULL_HANDLE;
+    VkQueue queue=VK_NULL_HANDLE;
+    uint32_t family=UINT32_MAX;
+    PersistentVkContext(){
+        try{
+        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+        app.apiVersion=VK_API_VERSION_1_1;app.pApplicationName="Hamun GPU Viewport";
+        VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+        ici.pApplicationInfo=&app;
+        require(vkCreateInstance(&ici,nullptr,&instance),"Create instance failed");
+        uint32_t gpuCount=0;
+        require(vkEnumeratePhysicalDevices(instance,&gpuCount,nullptr),"Enumerate GPUs failed");
+        if(!gpuCount)throw std::runtime_error("No Vulkan GPU");
+        std::vector<VkPhysicalDevice> gpus(gpuCount);
+        require(vkEnumeratePhysicalDevices(instance,&gpuCount,gpus.data()),"Enumerate GPU list failed");
+        VkPhysicalDevice gpu=VK_NULL_HANDLE;uint32_t family=UINT32_MAX;
+        for(auto candidate:gpus){
+            uint32_t count=0;vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,nullptr);
+            std::vector<VkQueueFamilyProperties> props(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,props.data());
+            VkFormatProperties cf{},df{};
+            vkGetPhysicalDeviceFormatProperties(candidate,VK_FORMAT_R8G8B8A8_UNORM,&cf);
+            vkGetPhysicalDeviceFormatProperties(candidate,VK_FORMAT_D32_SFLOAT,&df);
+            if(!(cf.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)||
+               !(df.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))continue;
+            for(uint32_t q=0;q<count;++q)if(props[q].queueFlags&VK_QUEUE_GRAPHICS_BIT){
+                gpu=candidate;family=q;break;
+            }
+            if(gpu)break;
+        }
+        if(!gpu)throw std::runtime_error("No compatible Vulkan graphics queue");
+        float priority=1.f;
+        VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        qi.queueFamilyIndex=family;qi.queueCount=1;qi.pQueuePriorities=&priority;
+        VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+        dci.queueCreateInfoCount=1;dci.pQueueCreateInfos=&qi;
+        require(vkCreateDevice(gpu,&dci,nullptr,&device),"Create GPU device failed");
+        vkGetDeviceQueue(device,family,0,&queue);
+
+        }catch(...){
+            if(device)vkDestroyDevice(device,nullptr);
+            if(instance)vkDestroyInstance(instance,nullptr);
+            throw;
+        }
+    }
+    ~PersistentVkContext(){
+        if(device){vkDeviceWaitIdle(device);vkDestroyDevice(device,nullptr);}
+        if(instance)vkDestroyInstance(instance,nullptr);
+    }
+    PersistentVkContext(const PersistentVkContext&)=delete;
+    PersistentVkContext& operator=(const PersistentVkContext&)=delete;
+};
 }
 static int gpuViewportImpl(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
@@ -83,8 +138,6 @@ static int gpuViewportImpl(
         std::memcpy(pixels,cachedImage.data(),cachedImage.size());
         return 1;
     }
-    VkInstance instance=VK_NULL_HANDLE;
-    VkDevice device=VK_NULL_HANDLE;
     VkCommandPool pool=VK_NULL_HANDLE;
     VkRenderPass pass=VK_NULL_HANDLE,shadowPass=VK_NULL_HANDLE;
     VkPipelineLayout layout=VK_NULL_HANDLE,shadowLayout=VK_NULL_HANDLE;
@@ -134,44 +187,15 @@ static int gpuViewportImpl(
             if(vertexMemory)vkFreeMemory(device,vertexMemory,nullptr);
             if(readbackMemory)vkFreeMemory(device,readbackMemory,nullptr);
             if(pool)vkDestroyCommandPool(device,pool,nullptr);
-            vkDestroyDevice(device,nullptr);
         }
-        if(instance)vkDestroyInstance(instance,nullptr);
     };
     try {
-        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app.apiVersion=VK_API_VERSION_1_1;app.pApplicationName="Hamun GPU Viewport";
-        VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-        ici.pApplicationInfo=&app;
-        require(vkCreateInstance(&ici,nullptr,&instance),"Create instance failed");
-        uint32_t gpuCount=0;
-        require(vkEnumeratePhysicalDevices(instance,&gpuCount,nullptr),"Enumerate GPUs failed");
-        if(!gpuCount)throw std::runtime_error("No Vulkan GPU");
-        std::vector<VkPhysicalDevice> gpus(gpuCount);
-        require(vkEnumeratePhysicalDevices(instance,&gpuCount,gpus.data()),"Enumerate GPU list failed");
-        VkPhysicalDevice gpu=VK_NULL_HANDLE;uint32_t family=UINT32_MAX;
-        for(auto candidate:gpus){
-            uint32_t count=0;vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,nullptr);
-            std::vector<VkQueueFamilyProperties> props(count);
-            vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,props.data());
-            VkFormatProperties cf{},df{};
-            vkGetPhysicalDeviceFormatProperties(candidate,VK_FORMAT_R8G8B8A8_UNORM,&cf);
-            vkGetPhysicalDeviceFormatProperties(candidate,VK_FORMAT_D32_SFLOAT,&df);
-            if(!(cf.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)||
-               !(df.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))continue;
-            for(uint32_t q=0;q<count;++q)if(props[q].queueFlags&VK_QUEUE_GRAPHICS_BIT){
-                gpu=candidate;family=q;break;
-            }
-            if(gpu)break;
-        }
-        if(!gpu)throw std::runtime_error("No compatible Vulkan graphics queue");
-        float priority=1.f;
-        VkDeviceQueueCreateInfo qi{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        qi.queueFamilyIndex=family;qi.queueCount=1;qi.pQueuePriorities=&priority;
-        VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-        dci.queueCreateInfoCount=1;dci.pQueueCreateInfos=&qi;
-        require(vkCreateDevice(gpu,&dci,nullptr,&device),"Create GPU device failed");
-        VkQueue queue{};vkGetDeviceQueue(device,family,0,&queue);
+        static thread_local PersistentVkContext persistent;
+        VkInstance instance=persistent.instance;
+        VkDevice device=persistent.device;
+        VkPhysicalDevice gpu=persistent.gpu;
+        VkQueue queue=persistent.queue;
+        uint32_t family=persistent.family;
         auto createBuffer=[&](VkDeviceSize size,VkBufferUsageFlags usage,VkBuffer& handle,VkDeviceMemory& memory){
             VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             bi.size=size;bi.usage=usage;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
