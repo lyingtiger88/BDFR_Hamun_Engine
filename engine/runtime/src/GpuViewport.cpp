@@ -12,6 +12,7 @@
 #include <string>
 #include <filesystem>
 #include <cstddef>
+#include <array>
 
 namespace {
 struct Vertex {float p[3],n[3];};
@@ -206,6 +207,72 @@ static int gpuViewportImpl(
             color,colorMemory,colorView,VK_IMAGE_ASPECT_COLOR_BIT,w,h);
         createImage(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             depth,depthMemory,depthView,VK_IMAGE_ASPECT_DEPTH_BIT,w,h);
+        const uint32_t shadowSize=std::clamp(requestedShadowSize,64u,4096u);
+        VkFormatProperties shadowFormat{};
+        vkGetPhysicalDeviceFormatProperties(gpu,VK_FORMAT_D32_SFLOAT,&shadowFormat);
+        if(!(shadowFormat.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT))
+            throw std::runtime_error("D32 shadow sampling unsupported");
+        createImage(VK_FORMAT_D32_SFLOAT,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+            shadowImage,shadowMemory,shadowView,VK_IMAGE_ASPECT_DEPTH_BIT,shadowSize,shadowSize);
+        bool hasShadowSun=false;
+        float sunDir[3]={0.f,0.f,-1.f};
+        if(lights)for(uint32_t li=0;li<lightCount;++li){
+            const float* l=lights+12*li;
+            if(l[0]<0.5f&&l[10]>0.f){
+                hasShadowSun=l[11]>=0.f;
+                std::memcpy(sunDir,l+4,3*sizeof(sunDir));break;
+            }
+        }
+        auto normalize=[](std::array<float,3> a){
+            const float len=std::sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
+            if(len<1e-6f)return std::array<float,3>{0.f,0.f,-1.f};
+            for(auto& v:a)v/=len;return a;
+        };
+        auto cross=[](const std::array<float,3>& a,const std::array<float,3>& b){
+            return std::array<float,3>{a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+        };
+        auto dot=[](const std::array<float,3>& a,const std::array<float,3>& b){
+            return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+        };
+        auto d=normalize(std::array<float,3>{sunDir[0],sunDir[1],sunDir[2]});
+        auto up=std::fabs(d[2])>0.95f
+            ? std::array<float,3>{0.f,1.f,0.f}
+            : std::array<float,3>{0.f,0.f,1.f};
+        auto u=normalize(cross(up,d));
+        auto v=cross(d,u);
+        float minima[3]={1e30f,1e30f,1e30f},maxima[3]={-1e30f,-1e30f,-1e30f};
+        for(uint32_t i=0;i<vertexCount;++i){
+            std::array<float,3> p{positions[3*i],positions[3*i+1],positions[3*i+2]};
+            float coords[3]={dot(u,p),dot(v,p),dot(d,p)};
+            for(int j=0;j<3;++j){
+                minima[j]=std::min(minima[j],coords[j]);
+                maxima[j]=std::max(maxima[j],coords[j]);
+            }
+        }
+        float lightMatrix[16]={};
+        const std::array<float,3> axes[3]={u,v,d};
+        for(int row=0;row<3;++row){
+            const float range=std::max(maxima[row]-minima[row],0.1f)*1.06f;
+            const float scale=row==2?1.f/range:2.f/range;
+            for(int col=0;col<3;++col)lightMatrix[col*4+row]=axes[row][col]*scale;
+            lightMatrix[12+row]=row==2
+                ? -(minima[row]-0.03f*range)*scale
+                : -(minima[row]+maxima[row])*0.5f*scale;
+        }
+        lightMatrix[15]=1.f;
+        struct ShadowUniform { float matrix[16]; float settings[4]; } shadowData{};
+        std::memcpy(shadowData.matrix,lightMatrix,sizeof(lightMatrix));
+        shadowData.settings[0]=hasShadowSun?1.f:0.f;
+        shadowData.settings[1]=std::max(0.00001f,shadowBias*0.0005f);
+        shadowData.settings[2]=std::max(0.f,shadowSoftness);
+        createBuffer(sizeof(shadowData),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     shadowUniform,shadowUniformMemory);
+        void* shadowMapped=nullptr;
+        require(vkMapMemory(device,shadowUniformMemory,0,sizeof(shadowData),0,&shadowMapped),
+                "Map shadow uniforms failed");
+        std::memcpy(shadowMapped,&shadowData,sizeof(shadowData));
+        vkUnmapMemory(device,shadowUniformMemory);
         std::vector<Vertex> mesh;
         mesh.reserve(indexCount);
         for(uint32_t i=0;i<indexCount;i+=3){
