@@ -1179,6 +1179,13 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
         engines = _hamun_metrics.setdefault("active_engines", [])
         if not any(engine is self for engine in engines):
             engines.append(self)
+        # Keep mesh buffers across camera redraws; invalidate on scene edits.
+        try:
+            if any(u.id.bl_rna.identifier in {"Object", "Mesh", "Collection", "Scene"}
+                   for u in depsgraph.updates):
+                self._hamun_geometry_dirty = True
+        except (AttributeError, ReferenceError, RuntimeError):
+            self._hamun_geometry_dirty = True
         if not getattr(self, "_hamun_update_logged", False):
             _hamun_diagnostic_log("RenderEngine.view_update CALLED")
             self._hamun_update_logged = True
@@ -1217,29 +1224,39 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             native.hamun_renderer_mesh_camera.restype = ctypes.c_int
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
             profile_geometry_start = time.perf_counter()
-            verts, indices, face_normals = [], [], []
-            for obj in depsgraph.objects:
-                if obj.type != "MESH" or obj.hide_render:
-                    continue
-                evaluated = obj.evaluated_get(depsgraph)
-                mesh = evaluated.to_mesh()
-                try:
-                    if mesh is None:
+            if getattr(self, "_hamun_geometry_dirty", True) or not hasattr(self, "_hamun_geometry_cache"):
+                verts, indices, face_normals = [], [], []
+                for obj in depsgraph.objects:
+                    if obj.type != "MESH" or obj.hide_render:
                         continue
-                    mesh.calc_loop_triangles()
-                    base = len(verts) // 3
-                    world = evaluated.matrix_world
-                    # Inverse transpose is essential for nonuniform or mirrored scales.
-                    normal_matrix = world.to_3x3().inverted_safe().transposed()
-                    for vertex in mesh.vertices:
-                        pt = world @ vertex.co
-                        verts.extend((pt.x, pt.y, pt.z))
-                    for tri in mesh.loop_triangles:
-                        indices.extend(base + int(j) for j in tri.vertices)
-                        normal = (normal_matrix @ tri.normal).normalized()
-                        face_normals.extend((normal.x, normal.y, normal.z))
-                finally:
-                    evaluated.to_mesh_clear()
+                    evaluated = obj.evaluated_get(depsgraph)
+                    mesh = evaluated.to_mesh()
+                    try:
+                        if mesh is None:
+                            continue
+                        mesh.calc_loop_triangles()
+                        base = len(verts) // 3
+                        world = evaluated.matrix_world
+                        # Inverse transpose is essential for nonuniform or mirrored scales.
+                        normal_matrix = world.to_3x3().inverted_safe().transposed()
+                        for vertex in mesh.vertices:
+                            pt = world @ vertex.co
+                            verts.extend((pt.x, pt.y, pt.z))
+                        for tri in mesh.loop_triangles:
+                            indices.extend(base + int(j) for j in tri.vertices)
+                            normal = (normal_matrix @ tri.normal).normalized()
+                            face_normals.extend((normal.x, normal.y, normal.z))
+                    finally:
+                        evaluated.to_mesh_clear()
+    
+                self._hamun_geometry_cache = (
+                    (ctypes.c_float * len(verts))(*verts),
+                    (ctypes.c_uint32 * len(indices))(*indices),
+                    (ctypes.c_float * len(face_normals))(*face_normals),
+                )
+                self._hamun_geometry_dirty = False
+            positions, faces, normal_array = self._hamun_geometry_cache
+            verts, indices, face_normals = positions, faces, normal_array
             profile_geometry_ms = (time.perf_counter() - profile_geometry_start) * 1000.0
             if not verts or not indices:
                 return
@@ -1248,8 +1265,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             matrix = (ctypes.c_float * 16)(
                 *(vp[row][column] for column in range(4) for row in range(4)))
             rgba = (ctypes.c_uint8 * (width * height * 4))()
-            positions = (ctypes.c_float * len(verts))(*verts)
-            faces = (ctypes.c_uint32 * len(indices))(*indices)
+            # Mesh ctypes buffers are reused until depsgraph geometry changes.
             _hamun_metrics["draws"] = 1
             _hamun_metrics["prims"] = len(indices) // 3
             # Collect evaluated Blender lights every frame so transforms and
@@ -1321,7 +1337,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.POINTER(ctypes.c_char), ctypes.c_uint32,
                 ]
                 gpu_viewport.restype = ctypes.c_int
-                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
                 gpu_error = ctypes.create_string_buffer(512)
                 ok = gpu_viewport(
                     width, height, rgba, ctypes.sizeof(rgba),
@@ -1366,7 +1381,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.c_float, ctypes.c_float,
                 ]
                 shadow_settings_fn.restype = ctypes.c_int
-                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
                 ok = shadow_settings_fn(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
@@ -1382,7 +1396,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
                 ]
                 shadow_quality_fn.restype = ctypes.c_int
-                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
                 ok = shadow_quality_fn(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
@@ -1398,7 +1411,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
                 ]
                 lit_with_normals.restype = ctypes.c_int
-                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
                 ok = lit_with_normals(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
