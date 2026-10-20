@@ -405,6 +405,20 @@ static int hamun_mesh_render_impl(
                 float diffuse=std::max(0.0f,nx*.35f+ny*.4f+nz*.85f);
                 red+=diffuse*.70f;green+=diffuse*.70f;blue+=diffuse*.70f;
             }
+            // Per-triangle camera-space homogeneous W is invariant per pixel.
+            float invAw=1.f,invBw=1.f,invCw=1.f;
+            bool perspectiveShadow=false;
+            if(anyShadow && mvp){
+                auto clipW=[&](uint32_t vi){
+                    const float* p=xyz+3*vi;
+                    return mvp[3]*p[0]+mvp[7]*p[1]+mvp[11]*p[2]+mvp[15];
+                };
+                const float aw=clipW(ia),bw=clipW(ib),cw=clipW(ic);
+                if(aw>1e-5f&&bw>1e-5f&&cw>1e-5f){
+                    invAw=1.f/aw;invBw=1.f/bw;invCw=1.f/cw;
+                    perspectiveShadow=true;
+                }
+            }
             // Reinhard tonemapping instead of clipping at 1.0: high
             // energy stays distinguishable rather than saturating to one
             // identical pixel value for all intensities >= 1.
@@ -424,17 +438,10 @@ static int hamun_mesh_render_impl(
                 // Shadow filtering is applied before tone mapping.
                 if(anyShadow){
                     float qa=wa,qb=wb,qc=wc;
-                    if(mvp){
-                        auto clipW=[&](uint32_t vi){
-                            const float* p=xyz+3*vi;
-                            return mvp[3]*p[0]+mvp[7]*p[1]+mvp[11]*p[2]+mvp[15];
-                        };
-                        float aw=clipW(ia),bw=clipW(ib),cw=clipW(ic);
-                        if(aw>1e-5f&&bw>1e-5f&&cw>1e-5f){
-                            qa/=aw;qb/=bw;qc/=cw;
-                            float total=qa+qb+qc;
-                            qa/=total;qb/=total;qc/=total;
-                        }
+                    if(perspectiveShadow){
+                        qa*=invAw;qb*=invBw;qc*=invCw;
+                        const float invTotal=1.f/(qa+qb+qc);
+                        qa*=invTotal;qb*=invTotal;qc*=invTotal;
                     }
                     float wx=qa*xyz[3*ia]+qb*xyz[3*ib]+qc*xyz[3*ic];
                     float wy=qa*xyz[3*ia+1]+qb*xyz[3*ib+1]+qc*xyz[3*ic+1];
