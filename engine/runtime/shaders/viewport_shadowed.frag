@@ -71,7 +71,9 @@ void main(){
             vec4 c=shadowMatrix*vec4(vWorldPosition,1.0);
             if(c.w>0.0){
                 vec3 q=c.xyz/c.w;
-                vec2 uv=vec2(q.x*.5+.5,1.0-(q.y*.5+.5));
+                // Positive-height Vulkan viewports map NDC +Y toward increasing framebuffer Y.
+                // Sample shadow depth in the same orientation used to rasterize it.
+                vec2 uv=vec2(q.x*.5+.5,q.y*.5+.5);
                 if(all(greaterThanEqual(uv,vec2(0.0))) &&
                    all(lessThanEqual(uv,vec2(1.0))) && q.z>=0.0 && q.z<=1.0){
                     vec2 texel=1.0/vec2(textureSize(shadowDepth,0));
