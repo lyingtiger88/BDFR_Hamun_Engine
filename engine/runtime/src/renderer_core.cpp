@@ -248,9 +248,10 @@ static int hamun_mesh_render_impl(
             }
         }
         bool rebuild=hash!=cachedHash||cachedShadows.size()!=lightCount;
-        std::vector<ShadowMap> shadows;
-        if(!rebuild)shadows=cachedShadows;
-        else shadows.resize(lightCount);
+        // Reuse the atlas in-place. Copying cachedShadows each redraw copies
+        // 64 MiB per 4096x4096 Sun and can cause severe viewport stutter.
+        if(rebuild)cachedShadows.assign(lightCount, ShadowMap{});
+        auto& shadows=cachedShadows;
         if(rebuild)for(uint32_t li=0;li<lightCount;++li){
             const float* l=lights+12*li;
             if(l[0]>=0.5f || l[11]<0.f || l[10]<=0.f)continue; // Sun with shadows enabled
@@ -314,7 +315,7 @@ static int hamun_mesh_render_impl(
                 }
             }
         }
-        if(rebuild){cachedShadows=shadows;cachedHash=hash;}
+        if(rebuild)cachedHash=hash;
         std::vector<float> zbuf(size_t(width)*height,-1e30f);
         auto edge=[](const P& a,const P& b,float x,float y){
             return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
