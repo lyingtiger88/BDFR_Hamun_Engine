@@ -316,6 +316,15 @@ static int hamun_mesh_render_impl(
             }
         }
         if(rebuild)cachedHash=hash;
+        // Cache invariant Sun angular radii once per draw instead of each pixel.
+        float cachedAngularRadius[32]={};
+        bool anyShadow=false;
+        for(uint32_t li=0;li<lightCount&&li<32;++li){
+            if(shadows[li].depth.empty())continue;
+            const float angle=std::clamp(lights[12*li+1],0.f,3.14159f);
+            cachedAngularRadius[li]=std::tan(std::min(angle*0.5f,1.45f))*softness;
+            anyShadow=true;
+        }
         std::vector<float> zbuf(size_t(width)*height,-1e30f);
         auto edge=[](const P& a,const P& b,float x,float y){
             return (x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x);
@@ -413,7 +422,7 @@ static int hamun_mesh_render_impl(
                 float shadeR=red,shadeG=green,shadeB=blue;
                 // Perspective-correct reconstruction of world position.
                 // Shadow filtering is applied before tone mapping.
-                if(lights && lightCount){
+                if(anyShadow){
                     float qa=wa,qb=wb,qc=wc;
                     if(mvp){
                         auto clipW=[&](uint32_t vi){
@@ -445,15 +454,14 @@ static int hamun_mesh_render_impl(
                         const float* sun=lights+12*li;
                         // Slot 1 stores the Sun angular diameter in radians; its
                         // world-space position must not affect directional shadows.
-                        const float angle=std::clamp(sun[1],0.f,3.14159f);
-                        const float angularRadius=std::tan(std::min(angle*0.5f,1.45f));
+                        const float angularRadius=cachedAngularRadius[li];
                         const int cx=std::clamp(int(std::round(sx)),0,shadowSize-1);
                         const int cy=std::clamp(int(std::round(sy)),0,shadowSize-1);
                         const float blockerDepth=sm.depth[size_t(cy)*shadowSize+cx];
                         const float separation=std::max(0.f,blockerDepth-d);
                         // Bounded approximate penumbra for the transitional CPU path.
                         const int radius=std::clamp(
-                            int(std::ceil(angularRadius*softness*separation/std::max(sm.step,1e-6f))),
+                            int(std::ceil(angularRadius*separation/std::max(sm.step,1e-6f))),
                             1,5);
                         float visibility=0.f;
                         int samples=0;
