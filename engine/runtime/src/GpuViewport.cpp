@@ -60,7 +60,7 @@ struct PersistentVkContext {
         if(!gpuCount)throw std::runtime_error("No Vulkan GPU");
         std::vector<VkPhysicalDevice> gpus(gpuCount);
         require(vkEnumeratePhysicalDevices(instance,&gpuCount,gpus.data()),"Enumerate GPU list failed");
-        VkPhysicalDevice gpu=VK_NULL_HANDLE;uint32_t family=UINT32_MAX;
+        gpu=VK_NULL_HANDLE;family=UINT32_MAX;
         for(auto candidate:gpus){
             uint32_t count=0;vkGetPhysicalDeviceQueueFamilyProperties(candidate,&count,nullptr);
             std::vector<VkQueueFamilyProperties> props(count);
@@ -138,6 +138,7 @@ static int gpuViewportImpl(
         std::memcpy(pixels,cachedImage.data(),cachedImage.size());
         return 1;
     }
+    VkDevice device=VK_NULL_HANDLE;
     VkCommandPool pool=VK_NULL_HANDLE;
     VkRenderPass pass=VK_NULL_HANDLE,shadowPass=VK_NULL_HANDLE;
     VkPipelineLayout layout=VK_NULL_HANDLE,shadowLayout=VK_NULL_HANDLE;
@@ -191,8 +192,7 @@ static int gpuViewportImpl(
     };
     try {
         static thread_local PersistentVkContext persistent;
-        VkInstance instance=persistent.instance;
-        VkDevice device=persistent.device;
+        device=persistent.device;
         VkPhysicalDevice gpu=persistent.gpu;
         VkQueue queue=persistent.queue;
         uint32_t family=persistent.family;
