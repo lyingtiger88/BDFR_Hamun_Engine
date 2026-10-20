@@ -196,6 +196,8 @@ static int gpuViewportImpl(
     VkSampler shadowSampler=VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout=VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool=VK_NULL_HANDLE;
+    VkBuffer lightUniform=VK_NULL_HANDLE;
+    VkDeviceMemory lightUniformMemory=VK_NULL_HANDLE;
     VkBuffer shadowUniform=VK_NULL_HANDLE;
     VkDeviceMemory shadowUniformMemory=VK_NULL_HANDLE;
     VkBuffer vertices=VK_NULL_HANDLE,readback=VK_NULL_HANDLE;
@@ -212,6 +214,8 @@ static int gpuViewportImpl(
             if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
             if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
             /* persistent pipeline resource */
+            if(lightUniform)vkDestroyBuffer(device,lightUniform,nullptr);
+            if(lightUniformMemory)vkFreeMemory(device,lightUniformMemory,nullptr);
             if(shadowUniform)vkDestroyBuffer(device,shadowUniform,nullptr);
             if(shadowUniformMemory)vkFreeMemory(device,shadowUniformMemory,nullptr);
             if(shadowView)vkDestroyImageView(device,shadowView,nullptr);
@@ -411,18 +415,20 @@ static int gpuViewportImpl(
         shadowSamplerInfo.compareOp=VK_COMPARE_OP_LESS_OR_EQUAL;
         shadowSamplerInfo.minLod=0;shadowSamplerInfo.maxLod=0;
         require(vkCreateSampler(device,&shadowSamplerInfo,nullptr,&shadowSampler),"Create shadow sampler failed");
-        VkDescriptorSetLayoutBinding bindings[2]{};
+        VkDescriptorSetLayoutBinding bindings[3]{};
         bindings[0].binding=0;bindings[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount=1;bindings[0].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[1].binding=1;bindings[1].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[1].descriptorCount=1;bindings[1].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[2].binding=2;bindings[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[2].descriptorCount=1;bindings[2].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        dl.bindingCount=2;dl.pBindings=bindings;
+        dl.bindingCount=3;dl.pBindings=bindings;
         if(!persistent.descriptorLayout)
             require(vkCreateDescriptorSetLayout(device,&dl,nullptr,&persistent.descriptorLayout),"Create shadow descriptor layout failed");
         setLayout=persistent.descriptorLayout;
         VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1},
-                                           {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1}};
+                                           {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,2}};
         VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         dp.maxSets=1;dp.poolSizeCount=2;dp.pPoolSizes=poolSizes;
         require(vkCreateDescriptorPool(device,&dp,nullptr,&descriptorPool),"Create shadow descriptor pool failed");
@@ -434,7 +440,25 @@ static int gpuViewportImpl(
         depthBinding.sampler=shadowSampler;depthBinding.imageView=shadowView;
         depthBinding.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
         VkDescriptorBufferInfo uniformBinding{shadowUniform,0,sizeof(shadowData)};
-        VkWriteDescriptorSet writes[2]{};
+        // std140 layout: four vec4 per light; supports all 32 ABI lights.
+        struct GpuLight {float positionType[4],directionRange[4],colorEnergy[4],settings[4];};
+        struct LightBlock {GpuLight entries[32];int count;int padding[3];} lightBlock{};
+        lightBlock.count=static_cast<int>(lightCount);
+        for(uint32_t i=0;i<lightCount;++i){
+            const float* l=lights+12*i;
+            auto& o=lightBlock.entries[i];
+            o.positionType[0]=l[1];o.positionType[1]=l[2];o.positionType[2]=l[3];o.positionType[3]=l[0];
+            o.directionRange[0]=l[4];o.directionRange[1]=l[5];o.directionRange[2]=l[6];
+            o.colorEnergy[0]=l[7];o.colorEnergy[1]=l[8];o.colorEnergy[2]=l[9];o.colorEnergy[3]=std::max(0.f,l[10]);
+            o.settings[0]=l[11];
+        }
+        createBuffer(sizeof(lightBlock),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,lightUniform,lightUniformMemory);
+        void* lightMapped=nullptr;
+        require(vkMapMemory(device,lightUniformMemory,0,sizeof(lightBlock),0,&lightMapped),"Map light uniforms failed");
+        std::memcpy(lightMapped,&lightBlock,sizeof(lightBlock));
+        vkUnmapMemory(device,lightUniformMemory);
+        VkDescriptorBufferInfo lightsBinding{lightUniform,0,sizeof(lightBlock)};
+        VkWriteDescriptorSet writes[3]{};
         for(auto& write:writes)write.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet=descriptorSet;writes[0].dstBinding=0;
         writes[0].descriptorCount=1;writes[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -442,7 +466,10 @@ static int gpuViewportImpl(
         writes[1].dstSet=descriptorSet;writes[1].dstBinding=1;
         writes[1].descriptorCount=1;writes[1].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[1].pBufferInfo=&uniformBinding;
-        vkUpdateDescriptorSets(device,2,writes,0,nullptr);
+        writes[2].dstSet=descriptorSet;writes[2].dstBinding=2;
+        writes[2].descriptorCount=1;writes[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[2].pBufferInfo=&lightsBinding;
+        vkUpdateDescriptorSets(device,3,writes,0,nullptr);
         VkAttachmentDescription attachments[2]{};
         attachments[0].format=VK_FORMAT_R8G8B8A8_UNORM;
         attachments[0].samples=VK_SAMPLE_COUNT_1_BIT;
