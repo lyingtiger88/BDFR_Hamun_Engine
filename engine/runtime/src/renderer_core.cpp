@@ -167,7 +167,7 @@ static int hamun_mesh_render_impl(
     uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count,
     const float* mvp,const float* lights,uint32_t lightCount,
-    const float* faceNormals){
+    const float* faceNormals,uint32_t requestedShadowSize=256){
     lastError.clear();
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
@@ -216,7 +216,10 @@ static int hamun_mesh_render_impl(
             float minU,minV,step;
             std::vector<float> depth;
         };
-        constexpr int shadowSize=256;
+        const int shadowSize=int(requestedShadowSize);
+        if(shadowSize<64 || shadowSize>4096 || (shadowSize & (shadowSize-1))) {
+            lastError="Invalid Sun shadow resolution"; return 0;
+        }
         // Reuse the sun shadow atlas when geometry and sun orientation match.
         // Blender redraws unchanged frames frequently; rebuilding the atlas
         // for each such frame is wasteful.
@@ -227,6 +230,7 @@ static int hamun_mesh_render_impl(
             const auto* bytes=static_cast<const unsigned char*>(p);
             for(size_t k=0;k<size;++k){hash^=bytes[k];hash*=1099511628211ull;}
         };
+        hashBytes(&shadowSize,sizeof(shadowSize));
         hashBytes(&vertices,sizeof(vertices));
         hashBytes(&count,sizeof(count));
         hashBytes(xyz,size_t(vertices)*3*sizeof(float));
@@ -510,4 +514,19 @@ extern "C" int hamun_renderer_mesh_lit_normals(uint32_t w,uint32_t h,uint8_t* rg
     if(lightCount>32||(lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
     if(!normals){lastError="Missing world-space face normals";return 0;}
     return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,normals);
+}
+
+// Optional extended CPU shadow API. Previous DLL exports remain unchanged.
+extern "C" int hamun_renderer_mesh_lit_normals_quality(uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,
+    const float* xyz,uint32_t nv,const uint32_t* idx,uint32_t ni,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* normals,
+    uint32_t shadowResolution) {
+    if(!mvp){lastError="Missing camera matrix";return 0;}
+    if(lightCount>32||(lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
+    if(!normals){lastError="Missing world-space face normals";return 0;}
+    if(shadowResolution<64||shadowResolution>4096||
+       (shadowResolution&(shadowResolution-1))!=0){
+        lastError="Invalid shadow map resolution";return 0;
+    }
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,normals,shadowResolution);
 }
