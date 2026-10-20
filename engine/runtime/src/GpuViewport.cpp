@@ -42,11 +42,11 @@ std::vector<char> binary(const wchar_t* filename){
     return bytes;
 }
 }
-extern "C" int hamun_gpu_viewport_render(
+static int gpuViewportImpl(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
-    char* error,uint32_t errorCapacity) {
+    char* error,uint32_t errorCapacity,uint32_t requestedShadowSize,float shadowSoftness,float shadowBias) {
     auto fail=[&](const char* why) {
         if(error&&errorCapacity){
             std::strncpy(error,why,errorCapacity-1);
@@ -70,6 +70,8 @@ extern "C" int hamun_gpu_viewport_render(
         for(size_t i=0;i<n;++i){key^=b[i];key*=1099511628211ull;}
     };
     mix(&w,sizeof(w));mix(&h,sizeof(h));
+    mix(&requestedShadowSize,sizeof(requestedShadowSize));
+    mix(&shadowSoftness,sizeof(shadowSoftness));mix(&shadowBias,sizeof(shadowBias));
     mix(&vertexCount,sizeof(vertexCount));mix(&indexCount,sizeof(indexCount));
     mix(positions,size_t(vertexCount)*3*sizeof(float));
     mix(indices,size_t(indexCount)*sizeof(uint32_t));
@@ -83,20 +85,38 @@ extern "C" int hamun_gpu_viewport_render(
     VkInstance instance=VK_NULL_HANDLE;
     VkDevice device=VK_NULL_HANDLE;
     VkCommandPool pool=VK_NULL_HANDLE;
-    VkRenderPass pass=VK_NULL_HANDLE;
-    VkPipelineLayout layout=VK_NULL_HANDLE;
-    VkPipeline pipeline=VK_NULL_HANDLE;
-    VkShaderModule vert=VK_NULL_HANDLE,frag=VK_NULL_HANDLE;
-    VkImage color=VK_NULL_HANDLE,depth=VK_NULL_HANDLE;
-    VkDeviceMemory colorMemory=VK_NULL_HANDLE,depthMemory=VK_NULL_HANDLE;
-    VkImageView colorView=VK_NULL_HANDLE,depthView=VK_NULL_HANDLE;
-    VkFramebuffer framebuffer=VK_NULL_HANDLE;
+    VkRenderPass pass=VK_NULL_HANDLE,shadowPass=VK_NULL_HANDLE;
+    VkPipelineLayout layout=VK_NULL_HANDLE,shadowLayout=VK_NULL_HANDLE;
+    VkPipeline pipeline=VK_NULL_HANDLE,shadowPipeline=VK_NULL_HANDLE;
+    VkShaderModule vert=VK_NULL_HANDLE,frag=VK_NULL_HANDLE,shadowVert=VK_NULL_HANDLE;
+    VkImage color=VK_NULL_HANDLE,depth=VK_NULL_HANDLE,shadowImage=VK_NULL_HANDLE;
+    VkDeviceMemory colorMemory=VK_NULL_HANDLE,depthMemory=VK_NULL_HANDLE,shadowMemory=VK_NULL_HANDLE;
+    VkImageView colorView=VK_NULL_HANDLE,depthView=VK_NULL_HANDLE,shadowView=VK_NULL_HANDLE;
+    VkFramebuffer framebuffer=VK_NULL_HANDLE,shadowFramebuffer=VK_NULL_HANDLE;
+    VkSampler shadowSampler=VK_NULL_HANDLE;
+    VkDescriptorSetLayout setLayout=VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool=VK_NULL_HANDLE;
+    VkBuffer shadowUniform=VK_NULL_HANDLE;
+    VkDeviceMemory shadowUniformMemory=VK_NULL_HANDLE;
     VkBuffer vertices=VK_NULL_HANDLE,readback=VK_NULL_HANDLE;
     VkDeviceMemory vertexMemory=VK_NULL_HANDLE,readbackMemory=VK_NULL_HANDLE;
     auto cleanup=[&]{
         if(device){
             vkDeviceWaitIdle(device);
             if(framebuffer)vkDestroyFramebuffer(device,framebuffer,nullptr);
+            if(shadowFramebuffer)vkDestroyFramebuffer(device,shadowFramebuffer,nullptr);
+            if(shadowPipeline)vkDestroyPipeline(device,shadowPipeline,nullptr);
+            if(shadowLayout)vkDestroyPipelineLayout(device,shadowLayout,nullptr);
+            if(shadowPass)vkDestroyRenderPass(device,shadowPass,nullptr);
+            if(shadowVert)vkDestroyShaderModule(device,shadowVert,nullptr);
+            if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
+            if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
+            if(setLayout)vkDestroyDescriptorSetLayout(device,setLayout,nullptr);
+            if(shadowUniform)vkDestroyBuffer(device,shadowUniform,nullptr);
+            if(shadowUniformMemory)vkFreeMemory(device,shadowUniformMemory,nullptr);
+            if(shadowView)vkDestroyImageView(device,shadowView,nullptr);
+            if(shadowImage)vkDestroyImage(device,shadowImage,nullptr);
+            if(shadowMemory)vkFreeMemory(device,shadowMemory,nullptr);
             if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);
             if(layout)vkDestroyPipelineLayout(device,layout,nullptr);
             if(pass)vkDestroyRenderPass(device,pass,nullptr);
@@ -163,9 +183,9 @@ extern "C" int hamun_gpu_viewport_render(
             require(vkAllocateMemory(device,&alloc,nullptr,&memory),"Allocate buffer failed");
             require(vkBindBufferMemory(device,handle,memory,0),"Bind buffer failed");
         };
-        auto createImage=[&](VkFormat format,VkImageUsageFlags usage,VkImage& handle,VkDeviceMemory& memory,VkImageView& view,VkImageAspectFlags aspect){
+        auto createImage=[&](VkFormat format,VkImageUsageFlags usage,VkImage& handle,VkDeviceMemory& memory,VkImageView& view,VkImageAspectFlags aspect,uint32_t iw,uint32_t ih){
             VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-            ci.imageType=VK_IMAGE_TYPE_2D;ci.format=format;ci.extent={w,h,1};
+            ci.imageType=VK_IMAGE_TYPE_2D;ci.format=format;ci.extent={iw,ih,1};
             ci.mipLevels=1;ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;
             ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.usage=usage;
             ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
@@ -183,9 +203,9 @@ extern "C" int hamun_gpu_viewport_render(
         };
         createImage(VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-            color,colorMemory,colorView,VK_IMAGE_ASPECT_COLOR_BIT);
+            color,colorMemory,colorView,VK_IMAGE_ASPECT_COLOR_BIT,w,h);
         createImage(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            depth,depthMemory,depthView,VK_IMAGE_ASPECT_DEPTH_BIT);
+            depth,depthMemory,depthView,VK_IMAGE_ASPECT_DEPTH_BIT,w,h);
         std::vector<Vertex> mesh;
         mesh.reserve(indexCount);
         for(uint32_t i=0;i<indexCount;i+=3){
