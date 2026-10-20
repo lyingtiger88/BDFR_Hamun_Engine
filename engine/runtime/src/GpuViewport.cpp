@@ -48,6 +48,9 @@ struct PersistentVkContext {
     VkDevice device=VK_NULL_HANDLE;
     VkQueue queue=VK_NULL_HANDLE;
     VkPipelineCache pipelineCache=VK_NULL_HANDLE;
+    VkBuffer meshBuffer=VK_NULL_HANDLE;
+    VkDeviceMemory meshMemory=VK_NULL_HANDLE;
+    uint64_t meshKey=0;
     uint32_t family=UINT32_MAX;
     PersistentVkContext(){
         try{
@@ -90,6 +93,8 @@ struct PersistentVkContext {
                 "Create persistent pipeline cache failed");
 
         }catch(...){
+            if(meshBuffer&&device)vkDestroyBuffer(device,meshBuffer,nullptr);
+            if(meshMemory&&device)vkFreeMemory(device,meshMemory,nullptr);
             if(pipelineCache&&device)vkDestroyPipelineCache(device,pipelineCache,nullptr);
             if(device)vkDestroyDevice(device,nullptr);
             if(instance)vkDestroyInstance(instance,nullptr);
@@ -99,6 +104,8 @@ struct PersistentVkContext {
     ~PersistentVkContext(){
         if(device){
             vkDeviceWaitIdle(device);
+            if(meshBuffer)vkDestroyBuffer(device,meshBuffer,nullptr);
+            if(meshMemory)vkFreeMemory(device,meshMemory,nullptr);
             if(pipelineCache)vkDestroyPipelineCache(device,pipelineCache,nullptr);
             vkDestroyDevice(device,nullptr);
         }
@@ -142,6 +149,7 @@ static int gpuViewportImpl(
     mix(positions,size_t(vertexCount)*3*sizeof(float));
     mix(indices,size_t(indexCount)*sizeof(uint32_t));
     mix(faceNormals,size_t(indexCount)*sizeof(float));
+    const uint64_t currentMeshKey=key;
     mix(mvp,16*sizeof(float));mix(&lightCount,sizeof(lightCount));
     if(lightCount)mix(lights,size_t(lightCount)*12*sizeof(float));
     if(key==cachedKey&&cachedW==w&&cachedH==h&&cachedImage.size()==size_t(w)*h*4){
@@ -164,7 +172,7 @@ static int gpuViewportImpl(
     VkBuffer shadowUniform=VK_NULL_HANDLE;
     VkDeviceMemory shadowUniformMemory=VK_NULL_HANDLE;
     VkBuffer vertices=VK_NULL_HANDLE,readback=VK_NULL_HANDLE;
-    VkDeviceMemory vertexMemory=VK_NULL_HANDLE,readbackMemory=VK_NULL_HANDLE;
+    VkDeviceMemory readbackMemory=VK_NULL_HANDLE;
     auto cleanup=[&]{
         if(device){
             vkDeviceWaitIdle(device);
@@ -193,9 +201,7 @@ static int gpuViewportImpl(
             if(depth)vkDestroyImage(device,depth,nullptr);
             if(colorMemory)vkFreeMemory(device,colorMemory,nullptr);
             if(depthMemory)vkFreeMemory(device,depthMemory,nullptr);
-            if(vertices)vkDestroyBuffer(device,vertices,nullptr);
             if(readback)vkDestroyBuffer(device,readback,nullptr);
-            if(vertexMemory)vkFreeMemory(device,vertexMemory,nullptr);
             if(readbackMemory)vkFreeMemory(device,readbackMemory,nullptr);
             if(pool)vkDestroyCommandPool(device,pool,nullptr);
         }
@@ -307,22 +313,37 @@ static int gpuViewportImpl(
                 "Map shadow uniforms failed");
         std::memcpy(shadowMapped,&shadowData,sizeof(shadowData));
         vkUnmapMemory(device,shadowUniformMemory);
-        std::vector<Vertex> mesh;
-        mesh.reserve(indexCount);
-        for(uint32_t i=0;i<indexCount;i+=3){
-            for(uint32_t k=0;k<3;++k){
-                uint32_t index=indices[i+k];
-                if(index>=vertexCount)throw std::runtime_error("Mesh index out of bounds");
-                Vertex v{};
-                std::memcpy(v.p,positions+3*index,sizeof(v.p));
-                std::memcpy(v.n,faceNormals+i,sizeof(v.n));
-                mesh.push_back(v);
+        if(persistent.meshBuffer==VK_NULL_HANDLE || persistent.meshKey!=currentMeshKey){
+            if(persistent.meshBuffer){
+                vkDestroyBuffer(device,persistent.meshBuffer,nullptr);
+                persistent.meshBuffer=VK_NULL_HANDLE;
             }
+            if(persistent.meshMemory){
+                vkFreeMemory(device,persistent.meshMemory,nullptr);
+                persistent.meshMemory=VK_NULL_HANDLE;
+            }
+            persistent.meshKey=0;
+            std::vector<Vertex> mesh;
+            mesh.reserve(indexCount);
+            for(uint32_t i=0;i<indexCount;i+=3){
+                for(uint32_t k=0;k<3;++k){
+                    uint32_t index=indices[i+k];
+                    if(index>=vertexCount)throw std::runtime_error("Mesh index out of bounds");
+                    Vertex v{};
+                    std::memcpy(v.p,positions+3*index,sizeof(v.p));
+                    std::memcpy(v.n,faceNormals+i,sizeof(v.n));
+                    mesh.push_back(v);
+                }
+            }
+            createBuffer(mesh.size()*sizeof(Vertex),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,persistent.meshBuffer,persistent.meshMemory);
+            void* uploadMapped=nullptr;
+            require(vkMapMemory(device,persistent.meshMemory,0,VK_WHOLE_SIZE,0,&uploadMapped),"Map vertices failed");
+            std::memcpy(uploadMapped,mesh.data(),mesh.size()*sizeof(Vertex));
+            vkUnmapMemory(device,persistent.meshMemory);
+            persistent.meshKey=currentMeshKey;
         }
-        createBuffer(mesh.size()*sizeof(Vertex),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertices,vertexMemory);
+        vertices=persistent.meshBuffer;
         void* mapped=nullptr;
-        require(vkMapMemory(device,vertexMemory,0,VK_WHOLE_SIZE,0,&mapped),"Map vertices failed");
-        std::memcpy(mapped,mesh.data(),mesh.size()*sizeof(Vertex));vkUnmapMemory(device,vertexMemory);
         createBuffer(VkDeviceSize(w)*h*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,readback,readbackMemory);
         VkAttachmentDescription shadowAttachment{};
         shadowAttachment.format=VK_FORMAT_D32_SFLOAT;
