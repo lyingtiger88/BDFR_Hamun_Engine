@@ -1216,6 +1216,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             ]
             native.hamun_renderer_mesh_camera.restype = ctypes.c_int
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
+            profile_geometry_start = time.perf_counter()
             verts, indices, face_normals = [], [], []
             for obj in depsgraph.objects:
                 if obj.type != "MESH" or obj.hide_render:
@@ -1239,6 +1240,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         face_normals.extend((normal.x, normal.y, normal.z))
                 finally:
                     evaluated.to_mesh_clear()
+            profile_geometry_ms = (time.perf_counter() - profile_geometry_start) * 1000.0
             if not verts or not indices:
                 return
             rv3d = context.space_data.region_3d
@@ -1338,6 +1340,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         self._hamun_gpu_success_logged = True
             else:
                 ok = 0
+            profile_native_start = time.perf_counter()
             shadow_settings_fn = getattr(native, "hamun_renderer_mesh_lit_normals_settings", None)
             shadow_quality_fn = getattr(native, "hamun_renderer_mesh_lit_normals_quality", None)
             requested_shadow_size = int(depsgraph.scene.hamun_shadow_map_resolution)
@@ -1405,6 +1408,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
                     matrix, light_array, len(lights))
+            profile_native_ms = (time.perf_counter() - profile_native_start) * 1000.0
             _hamun_metrics["lights"] = len(lights)
             _hamun_metrics["light_energy"] = round(sum(item[10] for item in lights), 2)
             # Do not synchronously append to a disk log every viewport frame.
@@ -1444,12 +1448,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         tuple(rgba[(height // 2 * width + width // 2) * 4:
                                    (height // 2 * width + width // 2) * 4 + 4])))
                 self._hamun_logged_lights = light_signature
+            profile_convert_start = time.perf_counter()
             # Blender GPU expects a shaped buffer for texture upload.
             import numpy as np
             pixels_array = np.ctypeslib.as_array(rgba)
             floats = np.ascontiguousarray(
                 pixels_array.reshape((height, width, 4)), dtype=np.float32)
             floats *= (1.0 / 255.0)
+            profile_convert_ms = (time.perf_counter() - profile_convert_start) * 1000.0
+            profile_upload_start = time.perf_counter()
             buffer = gpu.types.Buffer("FLOAT", (height, width, 4), floats)
             texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
             shader = gpu.shader.from_builtin("IMAGE")
@@ -1461,7 +1468,30 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             shader.bind()
             shader.uniform_sampler("image", texture)
             batch.draw(shader)
-            _hamun_draw_metrics(width, height, (time.perf_counter() - frame_started) * 1000.0)
+            profile_upload_ms = (time.perf_counter() - profile_upload_start) * 1000.0
+            profile_total_ms = (time.perf_counter() - frame_started) * 1000.0
+            # Accumulate and write just one summary every five seconds.
+            stats = getattr(self, "_hamun_profile_stats", None)
+            if stats is None:
+                stats = [0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                self._hamun_profile_stats = stats
+                self._hamun_profile_last_write = time.perf_counter()
+            stats[0] += 1
+            for index, value in enumerate((profile_geometry_ms, profile_native_ms,
+                                           profile_convert_ms, profile_upload_ms,
+                                           profile_total_ms), start=1):
+                stats[index] += value
+            if time.perf_counter() - self._hamun_profile_last_write >= 5.0:
+                count = max(1, stats[0])
+                _hamun_diagnostic_log(
+                    "PERF_PROFILE samples=%d geometry_ms=%.2f dll_ms=%.2f "
+                    "conversion_ms=%.2f gpu_upload_draw_ms=%.2f total_ms=%.2f "
+                    "triangles=%d image=%dx%d" %
+                    (count, stats[1]/count, stats[2]/count, stats[3]/count,
+                     stats[4]/count, stats[5]/count, len(indices)//3, width, height))
+                self._hamun_profile_stats = [0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                self._hamun_profile_last_write = time.perf_counter()
+            _hamun_draw_metrics(width, height, profile_total_ms)
             if not getattr(self, "_hamun_success_logged", False):
                 _hamun_diagnostic_log("Viewport image drawn " + str((width, height)))
                 self._hamun_success_logged = True
