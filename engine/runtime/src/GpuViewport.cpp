@@ -48,6 +48,7 @@ struct PersistentVkContext {
     VkDevice device=VK_NULL_HANDLE;
     VkQueue queue=VK_NULL_HANDLE;
     VkPipelineCache pipelineCache=VK_NULL_HANDLE;
+    VkRenderPass mainPass=VK_NULL_HANDLE,depthPass=VK_NULL_HANDLE;
     VkBuffer meshBuffer=VK_NULL_HANDLE;
     VkDeviceMemory meshMemory=VK_NULL_HANDLE;
     uint64_t meshKey=0;
@@ -94,6 +95,8 @@ struct PersistentVkContext {
                 "Create persistent pipeline cache failed");
 
         }catch(...){
+            if(mainPass&&device)vkDestroyRenderPass(device,mainPass,nullptr);
+            if(depthPass&&device)vkDestroyRenderPass(device,depthPass,nullptr);
             if(mainVert&&device)vkDestroyShaderModule(device,mainVert,nullptr);
             if(mainFrag&&device)vkDestroyShaderModule(device,mainFrag,nullptr);
             if(sunDepthVert&&device)vkDestroyShaderModule(device,sunDepthVert,nullptr);
@@ -108,6 +111,8 @@ struct PersistentVkContext {
     ~PersistentVkContext(){
         if(device){
             vkDeviceWaitIdle(device);
+            if(mainPass)vkDestroyRenderPass(device,mainPass,nullptr);
+            if(depthPass)vkDestroyRenderPass(device,depthPass,nullptr);
             if(mainVert)vkDestroyShaderModule(device,mainVert,nullptr);
             if(mainFrag)vkDestroyShaderModule(device,mainFrag,nullptr);
             if(sunDepthVert)vkDestroyShaderModule(device,sunDepthVert,nullptr);
@@ -188,7 +193,7 @@ static int gpuViewportImpl(
             if(shadowFramebuffer)vkDestroyFramebuffer(device,shadowFramebuffer,nullptr);
             if(shadowPipeline)vkDestroyPipeline(device,shadowPipeline,nullptr);
             if(shadowLayout)vkDestroyPipelineLayout(device,shadowLayout,nullptr);
-            if(shadowPass)vkDestroyRenderPass(device,shadowPass,nullptr);
+            // Depth render pass retained by PersistentVkContext.
 
             if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
             if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
@@ -200,7 +205,7 @@ static int gpuViewportImpl(
             if(shadowMemory)vkFreeMemory(device,shadowMemory,nullptr);
             if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);
             if(layout)vkDestroyPipelineLayout(device,layout,nullptr);
-            if(pass)vkDestroyRenderPass(device,pass,nullptr);
+            // Main render pass retained by PersistentVkContext.
             // Persistent shader modules are owned by PersistentVkContext.
             if(colorView)vkDestroyImageView(device,colorView,nullptr);
             if(depthView)vkDestroyImageView(device,depthView,nullptr);
@@ -373,7 +378,9 @@ static int gpuViewportImpl(
         shadowPassInfo.attachmentCount=1;shadowPassInfo.pAttachments=&shadowAttachment;
         shadowPassInfo.subpassCount=1;shadowPassInfo.pSubpasses=&shadowSubpass;
         shadowPassInfo.dependencyCount=1;shadowPassInfo.pDependencies=&shadowDependency;
-        require(vkCreateRenderPass(device,&shadowPassInfo,nullptr,&shadowPass),"Create Sun shadow pass failed");
+        if(!persistent.depthPass)
+            require(vkCreateRenderPass(device,&shadowPassInfo,nullptr,&persistent.depthPass),"Create Sun shadow pass failed");
+        shadowPass=persistent.depthPass;
         VkFramebufferCreateInfo shadowFb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         shadowFb.renderPass=shadowPass;shadowFb.attachmentCount=1;
         shadowFb.pAttachments=&shadowView;shadowFb.width=shadowSize;
@@ -440,7 +447,9 @@ static int gpuViewportImpl(
         sub.colorAttachmentCount=1;sub.pColorAttachments=&cr;sub.pDepthStencilAttachment=&dr;
         VkRenderPassCreateInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
         rp.attachmentCount=2;rp.pAttachments=attachments;rp.subpassCount=1;rp.pSubpasses=&sub;
-        require(vkCreateRenderPass(device,&rp,nullptr,&pass),"Create render pass failed");
+        if(!persistent.mainPass)
+            require(vkCreateRenderPass(device,&rp,nullptr,&persistent.mainPass),"Create render pass failed");
+        pass=persistent.mainPass;
         auto module=[&](const wchar_t* filename){
             auto bytes=binary(filename);
             VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
