@@ -1338,8 +1338,25 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         self._hamun_gpu_success_logged = True
             else:
                 ok = 0
+            shadow_quality_fn = getattr(native, "hamun_renderer_mesh_lit_normals_quality", None)
             lit_with_normals = getattr(native, "hamun_renderer_mesh_lit_normals", None)
-            if not ok and lit_with_normals is not None:
+            if not ok and shadow_quality_fn is not None:
+                shadow_quality_fn.argtypes = [
+                    ctypes.c_uint32, ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
+                    ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_uint32, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+                ]
+                shadow_quality_fn.restype = ctypes.c_int
+                normal_array = (ctypes.c_float * len(face_normals))(*face_normals)
+                ok = shadow_quality_fn(
+                    width, height, rgba, ctypes.sizeof(rgba),
+                    positions, len(verts) // 3, faces, len(indices),
+                    matrix, light_array, len(lights), normal_array,
+                    int(depsgraph.scene.hamun_shadow_map_resolution))
+            if not ok and shadow_quality_fn is None and lit_with_normals is not None:
                 lit_with_normals.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
                     ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64,
@@ -1354,7 +1371,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
                     matrix, light_array, len(lights), normal_array)
-            elif not ok:
+            elif not ok and shadow_quality_fn is None:
                 ok = native.hamun_renderer_mesh_lit(
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
@@ -1580,6 +1597,9 @@ class HAMUN_PT_vulkan_settings(bpy.types.Panel):
         dll = _hamun_renderer_dll(scene)
         layout.label(text="Renderer: " + ("DLL found" if dll else "DLL missing"), icon="CHECKMARK" if dll else "ERROR")
         layout.prop(scene, "hamun_vulkan_fps_cap")
+        shadow_box = layout.box()
+        shadow_box.label(text="Shadows", icon="SHADING_RENDERED")
+        shadow_box.prop(scene, "hamun_shadow_map_resolution", text="Shadow Map")
         layout.operator("hamun.probe_renderer", text="Check Integrated Vulkan", icon="SHADING_RENDERED")
         layout.operator("hamun.diagnose_viewport", text="Write Diagnostic Log", icon="TEXT")
         if scene.get("hamun_renderer_gpu"):
@@ -1687,6 +1707,13 @@ def register():
         name="Runtime Executable", subtype="FILE_PATH",
         description="Path to HamunRuntime.exe"
     )
+    bpy.types.Scene.hamun_shadow_map_resolution = bpy.props.EnumProperty(
+        name="Shadow Map Resolution",
+        description="CPU Sun shadow resolution (higher quality costs CPU time and memory)",
+        items=[(str(i), f"{i} x {i}", f"Sun shadow resolution: {i} x {i}")
+               for i in (64, 128, 256, 512, 1024, 2048, 4096)],
+        default="512",
+    )
     bpy.types.Scene.hamun_vulkan_fps_cap = bpy.props.EnumProperty(
         name="Target FPS", description="Informational setting; runtime key F6 currently sets cap",
         items=[('0','Unlimited',''),('30','30',''),('60','60',''),('120','120',''),('144','144','')],
@@ -1711,6 +1738,7 @@ def unregister():
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.hamun_shadow_map_resolution
     del bpy.types.Scene.hamun_vulkan_fps_cap
     del bpy.types.Scene.hamun_vulkan_executable
 
