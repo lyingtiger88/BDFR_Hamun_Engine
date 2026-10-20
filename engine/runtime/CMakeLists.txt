@@ -14,7 +14,7 @@ target_compile_features(HamunRuntime PRIVATE cxx_std_17)
 target_compile_definitions(HamunRuntime PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX VK_USE_PLATFORM_WIN32_KHR)
 target_link_libraries(HamunRuntime PRIVATE Vulkan::Vulkan user32 gdi32 psapi shell32)
 set(SHADER_OUTPUTS)
-foreach(name triangle.vert triangle.frag viewport.vert viewport.frag viewport_shadow.vert viewport_direct.vert viewport_direct.frag)
+foreach(name triangle.vert triangle.frag viewport.vert viewport.frag viewport_shadow.vert viewport_direct.vert viewport_direct.frag viewport_sun_depth.vert)
   set(out "${CMAKE_CURRENT_BINARY_DIR}/shaders/${name}.spv")
   add_custom_command(OUTPUT "${out}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
