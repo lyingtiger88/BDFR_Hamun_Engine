@@ -380,7 +380,40 @@ static int gpuViewportImpl(
         float lightMatrix[16]={};
         const bool pointShadow=shadowLightIndex>=0 &&
             lights[12*shadowLightIndex]>=0.5f && lights[12*shadowLightIndex]<1.5f;
-        if(pointShadow){
+        const bool spotShadow=shadowLightIndex>=0 &&
+            lights[12*shadowLightIndex]>=1.5f && lights[12*shadowLightIndex]<2.5f;
+        if(spotShadow){
+            // Perspective projection must originate at the Spot emitter and
+            // match the exact lighting cone. An orthographic Sun projection
+            // clips nearby occluders and produces impossible receiver shadows.
+            const float* source=lights+12*shadowLightIndex;
+            const std::array<float,3> origin{source[1],source[2],source[3]};
+            const float angle=source[11]>1.f
+                ? std::clamp(source[11]-1.f,0.05f,3.10f)
+                : 1.0681415f; // old ABI fallback: ~61.2 degrees
+            const float xyScale=1.f/std::tan(angle*0.5f);
+            float farPlane=0.1f;
+            for(uint32_t i=0;i<vertexCount;++i){
+                const std::array<float,3> p{positions[3*i]-origin[0],
+                                            positions[3*i+1]-origin[1],
+                                            positions[3*i+2]-origin[2]};
+                const float distance=std::sqrt(dot(p,p));
+                farPlane=std::max(farPlane,distance);
+            }
+            farPlane=farPlane*1.10f+0.01f;
+            const float nearPlane=std::min(0.05f,farPlane*0.01f);
+            const float zScale=farPlane/(farPlane-nearPlane);
+            for(int j=0;j<3;++j){
+                lightMatrix[j*4+0]=u[j]*xyScale;
+                lightMatrix[j*4+1]=v[j]*xyScale;
+                lightMatrix[j*4+2]=d[j]*zScale;
+                lightMatrix[j*4+3]=d[j];
+            }
+            lightMatrix[12]=-dot(u,origin)*xyScale;
+            lightMatrix[13]=-dot(v,origin)*xyScale;
+            lightMatrix[14]=-dot(d,origin)*zScale-nearPlane*zScale;
+            lightMatrix[15]=-dot(d,origin);
+        }else if(pointShadow){
             // Perspective depth projection from the Point emitter: unlike an
             // orthographic Sun map, objects nearer the emitter cast correctly
             // expanding shadows onto receivers behind them.
@@ -592,6 +625,8 @@ static int gpuViewportImpl(
             o.directionRange[0]=l[4];o.directionRange[1]=l[5];o.directionRange[2]=l[6];
             o.colorEnergy[0]=l[7];o.colorEnergy[1]=l[8];o.colorEnergy[2]=l[9];o.colorEnergy[3]=std::max(0.f,l[10]);
             o.settings[0]=l[11];
+            o.settings[1]=l[0]>=1.5f && l[0]<2.5f && l[11]>1.f
+                ?std::clamp(l[11]-1.f,0.05f,3.10f):1.0681415f;
         }
         createBuffer(sizeof(lightBlock),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,lightUniform,lightUniformMemory);
         void* lightMapped=nullptr;
