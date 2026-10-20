@@ -47,6 +47,7 @@ struct PersistentVkContext {
     VkPhysicalDevice gpu=VK_NULL_HANDLE;
     VkDevice device=VK_NULL_HANDLE;
     VkQueue queue=VK_NULL_HANDLE;
+    VkPipelineCache pipelineCache=VK_NULL_HANDLE;
     uint32_t family=UINT32_MAX;
     PersistentVkContext(){
         try{
@@ -83,15 +84,24 @@ struct PersistentVkContext {
         dci.queueCreateInfoCount=1;dci.pQueueCreateInfos=&qi;
         require(vkCreateDevice(gpu,&dci,nullptr,&device),"Create GPU device failed");
         vkGetDeviceQueue(device,family,0,&queue);
+        // Retain compiled graphics pipeline data for this Vulkan device.
+        VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        require(vkCreatePipelineCache(device,&cacheInfo,nullptr,&pipelineCache),
+                "Create persistent pipeline cache failed");
 
         }catch(...){
+            if(pipelineCache&&device)vkDestroyPipelineCache(device,pipelineCache,nullptr);
             if(device)vkDestroyDevice(device,nullptr);
             if(instance)vkDestroyInstance(instance,nullptr);
             throw;
         }
     }
     ~PersistentVkContext(){
-        if(device){vkDeviceWaitIdle(device);vkDestroyDevice(device,nullptr);}
+        if(device){
+            vkDeviceWaitIdle(device);
+            if(pipelineCache)vkDestroyPipelineCache(device,pipelineCache,nullptr);
+            vkDestroyDevice(device,nullptr);
+        }
         if(instance)vkDestroyInstance(instance,nullptr);
     }
     PersistentVkContext(const PersistentVkContext&)=delete;
@@ -453,7 +463,7 @@ static int gpuViewportImpl(
         pipe.pRasterizationState=&rs;pipe.pMultisampleState=&ms;
         pipe.pColorBlendState=&cb;pipe.pDepthStencilState=&ds;
         pipe.layout=layout;pipe.renderPass=pass;
-        require(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pipe,nullptr,&pipeline),"Create graphics pipeline failed");
+        require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&pipe,nullptr,&pipeline),"Create graphics pipeline failed");
         VkPushConstantRange shadowPush{VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(lightMatrix)};
         VkPipelineLayoutCreateInfo shadowPli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         shadowPli.pushConstantRangeCount=1;shadowPli.pPushConstantRanges=&shadowPush;
@@ -472,7 +482,7 @@ static int gpuViewportImpl(
         depthPipe.stageCount=1;depthPipe.pStages=&depthStage;
         depthPipe.pViewportState=&shadowVp;depthPipe.pColorBlendState=&shadowBlend;
         depthPipe.layout=shadowLayout;depthPipe.renderPass=shadowPass;
-        require(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&depthPipe,nullptr,
+        require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&depthPipe,nullptr,
                                           &shadowPipeline),"Create Sun depth graphics pipeline failed");
         VkImageView attachmentViews[2]={colorView,depthView};
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
