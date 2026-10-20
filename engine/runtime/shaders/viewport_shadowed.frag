@@ -25,8 +25,7 @@ layout(set=0,binding=2,std140) uniform SceneLights {
 void main(){
     vec3 n=normalize(vNormal);
     vec3 linear=vec3(0.10,0.12,0.15);
-    // The current single shadow map belongs to the first enabled Sun.
-    bool sunShadowUsed=false;
+    // One shadow map: active Sun, otherwise the first shadow-casting Area.
     for(int i=0;i<min(scene.count,32);++i){
         SceneLight l=scene.lights[i];
         int kind=int(l.positionType.w+0.5);
@@ -52,8 +51,7 @@ void main(){
         }
         float diffuse=max(dot(n,lightDir),0.0);
         float visibility=1.0;
-        if(kind==0 && !sunShadowUsed && s.settings.x>0.5 && diffuse>0.0){
-            sunShadowUsed=true;
+        if((kind==0 || kind==3) && int(s.settings.w+0.5)==i+1 && s.settings.x>0.5 && diffuse>0.0){
             vec4 c=s.lightViewProjection*vec4(vWorldPosition,1.0);
             if(c.w>0.0){
                 vec3 q=c.xyz/c.w;
