@@ -433,11 +433,32 @@ static int hamun_mesh_render_impl(
                         int ix=int(std::floor(sx)),iy=int(std::floor(sy));
                         if(ix<1||iy<1||ix>=shadowSize-1||iy>=shadowSize-1)continue;
                         float d=-(wx*sm.dx+wy*sm.dy+wz*sm.dz);
-                        const float bias=std::max(0.002f,sm.step*2.f);
-                        // Restored stable 2x2 directional shadow PCF.
+                        // Bias in light-space depth units, scaled to the shadow texel size.
+                        // A two-texel bias can erase shallow contact shadows.
+                        const float bias=std::max(0.0001f,sm.step*0.3f);
+                        const float* sun=lights+12*li;
+                        // Slot 1 stores the Sun angular diameter in radians; its
+                        // world-space position must not affect directional shadows.
+                        const float angle=std::clamp(sun[1],0.f,3.14159f);
+                        const float angularRadius=std::tan(std::min(angle*0.5f,1.45f));
+                        const int cx=std::clamp(int(std::round(sx)),0,shadowSize-1);
+                        const int cy=std::clamp(int(std::round(sy)),0,shadowSize-1);
+                        const float blockerDepth=sm.depth[size_t(cy)*shadowSize+cx];
+                        const float separation=std::max(0.f,blockerDepth-d);
+                        // Bounded approximate penumbra for the transitional CPU path.
+                        const int radius=std::clamp(
+                            int(std::ceil(angularRadius*separation/std::max(sm.step,1e-6f))),
+                            1,5);
                         float visibility=0.f;
-                        for(int oy=0;oy<2;++oy)for(int ox=0;ox<2;++ox)
-                            visibility+=(d+bias>=sm.depth[size_t(iy+oy)*shadowSize+ix+ox])?0.25f:0.f;
+                        int samples=0;
+                        for(int oy=-radius;oy<=radius;++oy)
+                            for(int ox=-radius;ox<=radius;++ox){
+                                const int x=std::clamp(cx+ox,0,shadowSize-1);
+                                const int y=std::clamp(cy+oy,0,shadowSize-1);
+                                visibility+=(d+bias>=sm.depth[size_t(y)*shadowSize+x])?1.f:0.f;
+                                ++samples;
+                            }
+                        visibility/=float(samples);
                         if(visibility>=1.f)continue;
                         const float* light=lights+12*li;
                         // Only occlude this Sun's own direct contribution;
