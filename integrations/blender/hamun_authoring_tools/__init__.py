@@ -1487,16 +1487,12 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                                    (height // 2 * width + width // 2) * 4 + 4])))
                 self._hamun_logged_lights = light_signature
             profile_convert_start = time.perf_counter()
-            # Blender GPU expects a shaped buffer for texture upload.
-            import numpy as np
-            pixels_array = np.ctypeslib.as_array(rgba)
-            floats = np.ascontiguousarray(
-                pixels_array.reshape((height, width, 4)), dtype=np.float32)
-            floats *= (1.0 / 255.0)
+            # The DLL already returns tightly packed RGBA8. Upload bytes
+            # directly: avoid 4x larger float staging and float conversion.
+            buffer = gpu.types.Buffer("UBYTE", (height, width, 4), rgba)
             profile_convert_ms = (time.perf_counter() - profile_convert_start) * 1000.0
             profile_upload_start = time.perf_counter()
-            buffer = gpu.types.Buffer("FLOAT", (height, width, 4), floats)
-            texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
+            texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
             shader = gpu.shader.from_builtin("IMAGE")
             batch = batch_for_shader(shader, "TRI_FAN", {
                 "pos": ((0, 0), (display_width, 0), (display_width, display_height), (0, display_height)),
