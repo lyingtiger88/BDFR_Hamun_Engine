@@ -1492,7 +1492,18 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             buffer = gpu.types.Buffer("UBYTE", (height, width, 4), rgba)
             profile_convert_ms = (time.perf_counter() - profile_convert_start) * 1000.0
             profile_upload_start = time.perf_counter()
-            texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
+            texture = getattr(self, "_hamun_display_texture", None)
+            if texture is None or getattr(self, "_hamun_display_texture_size", None) != (width, height):
+                texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
+                self._hamun_display_texture = texture
+                self._hamun_display_texture_size = (width, height)
+            else:
+                # GPUTexture.update avoids texture allocation on every redraw.
+                try:
+                    texture.update(buffer)
+                except (RuntimeError, TypeError, ValueError):
+                    texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
+                    self._hamun_display_texture = texture
             shader = gpu.shader.from_builtin("IMAGE")
             batch = batch_for_shader(shader, "TRI_FAN", {
                 "pos": ((0, 0), (display_width, 0), (display_width, display_height), (0, display_height)),
