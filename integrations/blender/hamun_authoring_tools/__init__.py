@@ -1489,10 +1489,23 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 "pos": ((0, 0), (display_width, 0), (display_width, display_height), (0, display_height)),
                 "texCoord": ((0, 1), (1, 1), (1, 0), (0, 0)),
             })
-            gpu.state.blend_set("NONE")
-            shader.bind()
-            shader.uniform_sampler("image", texture)
-            batch.draw(shader)
+            # RenderEngine.view_draw inherits Blender's 3D matrices. IMAGE
+            # vertices are pixel coordinates, so draw with an explicit 2D
+            # orthographic transform independent of camera and render scale.
+            from mathutils import Matrix
+            screen_projection = Matrix((
+                (2.0 / display_width, 0.0, 0.0, -1.0),
+                (0.0, 2.0 / display_height, 0.0, -1.0),
+                (0.0, 0.0, -1.0, 0.0),
+                (0.0, 0.0, 0.0, 1.0),
+            ))
+            with gpu.matrix.push_pop():
+                gpu.matrix.load_matrix(Matrix.Identity(4))
+                gpu.matrix.load_projection_matrix(screen_projection)
+                gpu.state.blend_set("NONE")
+                shader.bind()
+                shader.uniform_sampler("image", texture)
+                batch.draw(shader)
             profile_upload_ms = (time.perf_counter() - profile_upload_start) * 1000.0
             profile_total_ms = (time.perf_counter() - frame_started) * 1000.0
             # Accumulate and write just one summary every five seconds.
