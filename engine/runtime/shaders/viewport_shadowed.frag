@@ -11,6 +11,8 @@ layout(set=0,binding=0) uniform sampler2DShadow shadowDepth;
 layout(set=0,binding=1,std140) uniform SunShadow {
     mat4 lightViewProjection;
     vec4 settings;
+    mat4 pointFaces[6];
+    vec4 pointPosition;
 } s;
 struct SceneLight {
     vec4 positionType;
@@ -52,16 +54,40 @@ void main(){
         float diffuse=max(dot(n,lightDir),0.0);
         float visibility=1.0;
         if(int(s.settings.w+0.5)==i+1 && s.settings.x>0.5 && diffuse>0.0){
-            vec4 c=s.lightViewProjection*vec4(vWorldPosition,1.0);
+            int face=-1;
+            mat4 shadowMatrix=s.lightViewProjection;
+            if(kind==1 && s.pointPosition.w>0.5){
+                // Point lights are omnidirectional: select one of six fixed
+                // world-axis faces from the fragment's position, never from
+                // the Blender light object's rotation.
+                vec3 ray=vWorldPosition-s.pointPosition.xyz;
+                vec3 a=abs(ray);
+                if(a.x>=a.y && a.x>=a.z)face=ray.x>=0.0?0:1;
+                else if(a.y>=a.z)face=ray.y>=0.0?2:3;
+                else face=ray.z>=0.0?4:5;
+                shadowMatrix=s.pointFaces[face];
+            }
+            vec4 c=shadowMatrix*vec4(vWorldPosition,1.0);
             if(c.w>0.0){
                 vec3 q=c.xyz/c.w;
                 vec2 uv=vec2(q.x*.5+.5,1.0-(q.y*.5+.5));
                 if(all(greaterThanEqual(uv,vec2(0.0))) &&
                    all(lessThanEqual(uv,vec2(1.0))) && q.z>=0.0 && q.z<=1.0){
                     vec2 texel=1.0/vec2(textureSize(shadowDepth,0));
+                    vec2 offset=vec2(0.0),scale=vec2(1.0);
+                    if(face>=0){
+                        offset=vec2(float(face%3)/3.0,float(face/3)/2.0);
+                        scale=vec2(1.0/3.0,1.0/2.0);
+                    }
+                    // Do not let PCF taps cross atlas tile boundaries.
+                    vec2 halfPixel=texel*0.5;
                     visibility=0.0;
                     for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
-                        visibility+=texture(shadowDepth,vec3(uv+vec2(x,y)*texel*s.settings.z,q.z-s.settings.y));
+                        vec2 local=uv+vec2(x,y)*(texel/scale)*s.settings.z;
+                        vec2 atlasUV=clamp(offset+local*scale,
+                                           offset+halfPixel,
+                                           offset+scale-halfPixel);
+                        visibility+=texture(shadowDepth,vec3(atlasUV,q.z-s.settings.y));
                     }
                     visibility/=9.0;
                 }
