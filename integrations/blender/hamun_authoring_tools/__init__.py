@@ -1205,8 +1205,12 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             region = context.region
             if region is None:
                 return
-            width = max(1, min(int(region.width), 1600))
-            height = max(1, min(int(region.height), 1600))
+            # Render fewer CPU pixels but display across the original viewport.
+            display_width = max(1, int(region.width))
+            display_height = max(1, int(region.height))
+            render_scale = int(depsgraph.scene.hamun_viewport_render_scale) / 100.0
+            width = max(1, int(min(display_width, 1600) * render_scale))
+            height = max(1, int(min(display_height, 1600) * render_scale))
             dll = _hamun_renderer_dll(depsgraph.scene)
             if dll is None:
                 raise RuntimeError("HamunRenderer.dll missing")
@@ -1473,7 +1477,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
             shader = gpu.shader.from_builtin("IMAGE")
             batch = batch_for_shader(shader, "TRI_FAN", {
-                "pos": ((0, 0), (width, 0), (width, height), (0, height)),
+                "pos": ((0, 0), (display_width, 0), (display_width, display_height), (0, display_height)),
                 "texCoord": ((0, 1), (1, 1), (1, 0), (0, 0)),
             })
             gpu.state.blend_set("NONE")
@@ -1673,6 +1677,7 @@ class HAMUN_PT_vulkan_settings(bpy.types.Panel):
         dll = _hamun_renderer_dll(scene)
         layout.label(text="Renderer: " + ("DLL found" if dll else "DLL missing"), icon="CHECKMARK" if dll else "ERROR")
         layout.prop(scene, "hamun_vulkan_fps_cap")
+        layout.prop(scene, "hamun_viewport_render_scale", text="Viewport Scale")
         shadow_box = layout.box()
         shadow_box.label(text="Shadows", icon="SHADING_RENDERED")
         shadow_box.prop(scene, "hamun_shadow_map_resolution", text="Shadow Map")
@@ -1802,6 +1807,16 @@ def register():
         name="Runtime Executable", subtype="FILE_PATH",
         description="Path to HamunRuntime.exe"
     )
+    bpy.types.Scene.hamun_viewport_render_scale = bpy.props.EnumProperty(
+        name="Viewport Render Scale",
+        description="Internal CPU preview resolution; lower values improve speed at reduced sharpness",
+        items=[("25", "25%", "Render at 25% in both dimensions"),
+               ("50", "50%", "Render at 50% in both dimensions"),
+               ("75", "75%", "Render at 75% in both dimensions"),
+               ("100", "100%", "Render at full preview resolution")],
+        default="50",
+        update=_hamun_shadow_resolution_changed,
+    )
     bpy.types.Scene.hamun_shadow_map_resolution = bpy.props.EnumProperty(
         name="Shadow Map Resolution",
         description="CPU Sun shadow resolution (higher quality costs CPU time and memory)",
@@ -1840,6 +1855,7 @@ def unregister():
     bpy.types.VIEW3D_MT_editor_menus.remove(draw_hamun_menu)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.hamun_viewport_render_scale
     del bpy.types.Scene.hamun_shadow_softness
     del bpy.types.Scene.hamun_shadow_bias
     del bpy.types.Scene.hamun_shadow_map_resolution
