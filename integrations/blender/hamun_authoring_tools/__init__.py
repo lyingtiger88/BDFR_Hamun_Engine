@@ -1339,6 +1339,14 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             else:
                 ok = 0
             shadow_quality_fn = getattr(native, "hamun_renderer_mesh_lit_normals_quality", None)
+            requested_shadow_size = int(depsgraph.scene.hamun_shadow_map_resolution)
+            quality_route = "CPU_SHADOW_QUALITY" if shadow_quality_fn is not None else "LEGACY_CPU_SHADOW"
+            quality_state = (requested_shadow_size, quality_route)
+            if getattr(self, "_hamun_last_quality_state", None) != quality_state:
+                _hamun_diagnostic_log(
+                    "SHADOW_QUALITY requested=%d route=%s dll=%s" %
+                    (requested_shadow_size, quality_route, str(dll)))
+                self._hamun_last_quality_state = quality_state
             lit_with_normals = getattr(native, "hamun_renderer_mesh_lit_normals", None)
             if not ok and shadow_quality_fn is not None:
                 shadow_quality_fn.argtypes = [
@@ -1355,7 +1363,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
                     matrix, light_array, len(lights), normal_array,
-                    int(depsgraph.scene.hamun_shadow_map_resolution))
+                    requested_shadow_size)
             if not ok and shadow_quality_fn is None and lit_with_normals is not None:
                 lit_with_normals.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
@@ -1707,12 +1715,30 @@ def register():
         name="Runtime Executable", subtype="FILE_PATH",
         description="Path to HamunRuntime.exe"
     )
+def _hamun_shadow_resolution_changed(self, context):
+    """Force viewport redraw whenever the CPU Sun shadow atlas size changes."""
+    try:
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+        for engine in _hamun_metrics.get("active_engines", ()):
+            try:
+                engine.tag_update()
+                engine.tag_redraw()
+            except (AttributeError, ReferenceError, RuntimeError):
+                pass
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
+
+
     bpy.types.Scene.hamun_shadow_map_resolution = bpy.props.EnumProperty(
         name="Shadow Map Resolution",
         description="CPU Sun shadow resolution (higher quality costs CPU time and memory)",
         items=[(str(i), f"{i} x {i}", f"Sun shadow resolution: {i} x {i}")
                for i in (64, 128, 256, 512, 1024, 2048, 4096)],
         default="512",
+        update=_hamun_shadow_resolution_changed,
     )
     bpy.types.Scene.hamun_vulkan_fps_cap = bpy.props.EnumProperty(
         name="Target FPS", description="Informational setting; runtime key F6 currently sets cap",
