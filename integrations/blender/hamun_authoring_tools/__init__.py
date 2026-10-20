@@ -1333,6 +1333,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             if getattr(self, "_hamun_last_render_route", None) != route:
                 _hamun_diagnostic_log("RENDER_ROUTE=" + route)
                 self._hamun_last_render_route = route
+            # Include Vulkan execution and CPU fallback in the native profiling window.
             if gpu_viewport is not None:
                 gpu_viewport.argtypes = [
                     ctypes.c_uint32, ctypes.c_uint32,
