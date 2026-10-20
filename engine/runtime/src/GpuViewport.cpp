@@ -49,6 +49,10 @@ struct PersistentVkContext {
     VkQueue queue=VK_NULL_HANDLE;
     VkPipelineCache pipelineCache=VK_NULL_HANDLE;
     VkRenderPass mainPass=VK_NULL_HANDLE,depthPass=VK_NULL_HANDLE;
+    VkDescriptorSetLayout descriptorLayout=VK_NULL_HANDLE;
+    VkPipelineLayout mainLayout=VK_NULL_HANDLE,sunLayout=VK_NULL_HANDLE;
+    VkPipeline mainPipeline=VK_NULL_HANDLE,sunPipeline=VK_NULL_HANDLE;
+    uint32_t pipelineW=0,pipelineH=0,pipelineShadowSize=0;
     VkBuffer meshBuffer=VK_NULL_HANDLE;
     VkDeviceMemory meshMemory=VK_NULL_HANDLE;
     uint64_t meshKey=0;
@@ -95,6 +99,11 @@ struct PersistentVkContext {
                 "Create persistent pipeline cache failed");
 
         }catch(...){
+            if(mainPipeline&&device)vkDestroyPipeline(device,mainPipeline,nullptr);
+            if(sunPipeline&&device)vkDestroyPipeline(device,sunPipeline,nullptr);
+            if(mainLayout&&device)vkDestroyPipelineLayout(device,mainLayout,nullptr);
+            if(sunLayout&&device)vkDestroyPipelineLayout(device,sunLayout,nullptr);
+            if(descriptorLayout&&device)vkDestroyDescriptorSetLayout(device,descriptorLayout,nullptr);
             if(mainPass&&device)vkDestroyRenderPass(device,mainPass,nullptr);
             if(depthPass&&device)vkDestroyRenderPass(device,depthPass,nullptr);
             if(mainVert&&device)vkDestroyShaderModule(device,mainVert,nullptr);
@@ -111,6 +120,11 @@ struct PersistentVkContext {
     ~PersistentVkContext(){
         if(device){
             vkDeviceWaitIdle(device);
+            if(mainPipeline)vkDestroyPipeline(device,mainPipeline,nullptr);
+            if(sunPipeline)vkDestroyPipeline(device,sunPipeline,nullptr);
+            if(mainLayout)vkDestroyPipelineLayout(device,mainLayout,nullptr);
+            if(sunLayout)vkDestroyPipelineLayout(device,sunLayout,nullptr);
+            if(descriptorLayout)vkDestroyDescriptorSetLayout(device,descriptorLayout,nullptr);
             if(mainPass)vkDestroyRenderPass(device,mainPass,nullptr);
             if(depthPass)vkDestroyRenderPass(device,depthPass,nullptr);
             if(mainVert)vkDestroyShaderModule(device,mainVert,nullptr);
@@ -191,20 +205,20 @@ static int gpuViewportImpl(
             vkDeviceWaitIdle(device);
             if(framebuffer)vkDestroyFramebuffer(device,framebuffer,nullptr);
             if(shadowFramebuffer)vkDestroyFramebuffer(device,shadowFramebuffer,nullptr);
-            if(shadowPipeline)vkDestroyPipeline(device,shadowPipeline,nullptr);
-            if(shadowLayout)vkDestroyPipelineLayout(device,shadowLayout,nullptr);
+            /* persistent pipeline resource */
+            /* persistent pipeline resource */
             // Depth render pass retained by PersistentVkContext.
 
             if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
             if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
-            if(setLayout)vkDestroyDescriptorSetLayout(device,setLayout,nullptr);
+            /* persistent pipeline resource */
             if(shadowUniform)vkDestroyBuffer(device,shadowUniform,nullptr);
             if(shadowUniformMemory)vkFreeMemory(device,shadowUniformMemory,nullptr);
             if(shadowView)vkDestroyImageView(device,shadowView,nullptr);
             if(shadowImage)vkDestroyImage(device,shadowImage,nullptr);
             if(shadowMemory)vkFreeMemory(device,shadowMemory,nullptr);
-            if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);
-            if(layout)vkDestroyPipelineLayout(device,layout,nullptr);
+            /* persistent pipeline resource */
+            /* persistent pipeline resource */
             // Main render pass retained by PersistentVkContext.
             // Persistent shader modules are owned by PersistentVkContext.
             if(colorView)vkDestroyImageView(device,colorView,nullptr);
@@ -404,7 +418,9 @@ static int gpuViewportImpl(
         bindings[1].descriptorCount=1;bindings[1].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         dl.bindingCount=2;dl.pBindings=bindings;
-        require(vkCreateDescriptorSetLayout(device,&dl,nullptr,&setLayout),"Create shadow descriptor layout failed");
+        if(!persistent.descriptorLayout)
+            require(vkCreateDescriptorSetLayout(device,&dl,nullptr,&persistent.descriptorLayout),"Create shadow descriptor layout failed");
+        setLayout=persistent.descriptorLayout;
         VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1},
                                            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1}};
         VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -495,19 +511,32 @@ static int gpuViewportImpl(
         VkPipelineLayoutCreateInfo pli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         pli.pushConstantRangeCount=1;pli.pPushConstantRanges=&pr;
         pli.setLayoutCount=1;pli.pSetLayouts=&setLayout;
-        require(vkCreatePipelineLayout(device,&pli,nullptr,&layout),"Create pipeline layout failed");
+        if(!persistent.mainLayout)
+            require(vkCreatePipelineLayout(device,&pli,nullptr,&persistent.mainLayout),"Create pipeline layout failed");
+        layout=persistent.mainLayout;
         VkGraphicsPipelineCreateInfo pipe{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         pipe.stageCount=2;pipe.pStages=stages;pipe.pVertexInputState=&vi;
         pipe.pInputAssemblyState=&ia;pipe.pViewportState=&vp;
         pipe.pRasterizationState=&rs;pipe.pMultisampleState=&ms;
         pipe.pColorBlendState=&cb;pipe.pDepthStencilState=&ds;
         pipe.layout=layout;pipe.renderPass=pass;
-        require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&pipe,nullptr,&pipeline),"Create graphics pipeline failed");
+        const bool pipelineResize=(persistent.pipelineW!=w || persistent.pipelineH!=h ||
+                                   persistent.pipelineShadowSize!=shadowSize);
+        if(pipelineResize){
+            if(persistent.mainPipeline){vkDestroyPipeline(device,persistent.mainPipeline,nullptr);persistent.mainPipeline=VK_NULL_HANDLE;}
+            if(persistent.sunPipeline){vkDestroyPipeline(device,persistent.sunPipeline,nullptr);persistent.sunPipeline=VK_NULL_HANDLE;}
+            persistent.pipelineW=0; persistent.pipelineH=0; persistent.pipelineShadowSize=0;
+        }
+        if(!persistent.mainPipeline)
+            require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&pipe,nullptr,&persistent.mainPipeline),"Create graphics pipeline failed");
+        pipeline=persistent.mainPipeline;
         VkPushConstantRange shadowPush{VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(lightMatrix)};
         VkPipelineLayoutCreateInfo shadowPli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         shadowPli.pushConstantRangeCount=1;shadowPli.pPushConstantRanges=&shadowPush;
-        require(vkCreatePipelineLayout(device,&shadowPli,nullptr,&shadowLayout),
-                "Create Sun shadow pipeline layout failed");
+        if(!persistent.sunLayout)
+            require(vkCreatePipelineLayout(device,&shadowPli,nullptr,&persistent.sunLayout),
+                    "Create Sun shadow pipeline layout failed");
+        shadowLayout=persistent.sunLayout;
         VkPipelineShaderStageCreateInfo depthStage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
         depthStage.stage=VK_SHADER_STAGE_VERTEX_BIT;
         depthStage.module=shadowVert;depthStage.pName="main";
@@ -521,8 +550,11 @@ static int gpuViewportImpl(
         depthPipe.stageCount=1;depthPipe.pStages=&depthStage;
         depthPipe.pViewportState=&shadowVp;depthPipe.pColorBlendState=&shadowBlend;
         depthPipe.layout=shadowLayout;depthPipe.renderPass=shadowPass;
-        require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&depthPipe,nullptr,
-                                          &shadowPipeline),"Create Sun depth graphics pipeline failed");
+        if(!persistent.sunPipeline)
+            require(vkCreateGraphicsPipelines(device,persistent.pipelineCache,1,&depthPipe,nullptr,
+                                              &persistent.sunPipeline),"Create Sun depth graphics pipeline failed");
+        shadowPipeline=persistent.sunPipeline;
+        persistent.pipelineW=w; persistent.pipelineH=h; persistent.pipelineShadowSize=shadowSize;
         VkImageView attachmentViews[2]={colorView,depthView};
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         fi.renderPass=pass;fi.attachmentCount=2;fi.pAttachments=attachmentViews;
