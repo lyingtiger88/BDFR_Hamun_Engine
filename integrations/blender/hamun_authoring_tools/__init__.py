@@ -1324,9 +1324,12 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # Prefer the implemented CPU Sun shadow map over silently showing
             # a shadowless scene. Keep GPU active for unshadowed previews.
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
-            if has_sun:
-                gpu_viewport = None  # CPU shadow fallback; Vulkan has no shadow sampler.
-            route = "CPU_SUN_SHADOW_FALLBACK" if has_sun else ("VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")
+            shadowed_sun = any(item[0] < 0.5 and item[10] > 0.0 and item[11] >= 0.0 for item in lights)
+            if shadowed_sun:
+                gpu_viewport = None  # Keep correct shadows until Vulkan shadow sampling is ready.
+            route = ("CPU_SUN_SHADOW_FALLBACK" if shadowed_sun else
+                     ("VULKAN_DIRECT_SUN_NO_SHADOW" if gpu_viewport is not None and has_sun else
+                      ("VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")))
             if getattr(self, "_hamun_last_render_route", None) != route:
                 _hamun_diagnostic_log("RENDER_ROUTE=" + route)
                 self._hamun_last_render_route = route
