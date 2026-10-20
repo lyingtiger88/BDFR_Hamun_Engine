@@ -320,10 +320,15 @@ static int gpuViewportImpl(
             if(shadowLightIndex>=0){
                 const float* chosen=lights+12*shadowLightIndex;
                 if(chosen[0]>=0.5f && chosen[0]<1.5f){
-                    std::array<float,3> center{0.f,0.f,0.f};
-                    for(uint32_t i=0;i<vertexCount;++i)for(int j=0;j<3;++j)
-                        center[j]+=positions[3*i+j]/static_cast<float>(vertexCount);
-                    for(int j=0;j<3;++j)sunDir[j]=center[j]-chosen[1+j];
+                    // Aim the point shadow frustum at the scene bounding box,
+                    // not the vertex average (which is tessellation-dependent).
+                    float lo[3]={1e30f,1e30f,1e30f};
+                    float hi[3]={-1e30f,-1e30f,-1e30f};
+                    for(uint32_t i=0;i<vertexCount;++i)for(int j=0;j<3;++j){
+                        lo[j]=std::min(lo[j],positions[3*i+j]);
+                        hi[j]=std::max(hi[j],positions[3*i+j]);
+                    }
+                    for(int j=0;j<3;++j)sunDir[j]=0.5f*(lo[j]+hi[j])-chosen[1+j];
                 }else{
                     std::memcpy(sunDir,chosen+4,sizeof(sunDir));
                 }
@@ -356,16 +361,53 @@ static int gpuViewportImpl(
             }
         }
         float lightMatrix[16]={};
-        const std::array<float,3> axes[3]={u,v,d};
-        for(int row=0;row<3;++row){
-            const float range=std::max(maxima[row]-minima[row],0.1f)*1.06f;
-            const float scale=row==2?1.f/range:2.f/range;
-            for(int col=0;col<3;++col)lightMatrix[col*4+row]=axes[row][col]*scale;
-            lightMatrix[12+row]=row==2
-                ? -(minima[row]-0.03f*range)*scale
-                : -(minima[row]+maxima[row])*0.5f*scale;
+        const bool pointShadow=shadowLightIndex>=0 &&
+            lights[12*shadowLightIndex]>=0.5f && lights[12*shadowLightIndex]<1.5f;
+        if(pointShadow){
+            // Perspective depth projection from the Point emitter: unlike an
+            // orthographic Sun map, objects nearer the emitter cast correctly
+            // expanding shadows onto receivers behind them.
+            const float* emitter=lights+12*shadowLightIndex+1;
+            float nearest=1e30f,farthest=0.f,maxSlope=0.f;
+            for(uint32_t i=0;i<vertexCount;++i){
+                const std::array<float,3> p{
+                    positions[3*i]-emitter[0],
+                    positions[3*i+1]-emitter[1],
+                    positions[3*i+2]-emitter[2]};
+                const float z=dot(d,p);
+                if(z<=0.001f)continue;
+                nearest=std::min(nearest,z);
+                farthest=std::max(farthest,z);
+                maxSlope=std::max(maxSlope,std::max(std::fabs(dot(u,p)),std::fabs(dot(v,p)))/z);
+            }
+            if(farthest>0.f){
+                const float nearPlane=std::max(0.005f,std::min(nearest*0.5f,farthest*0.1f));
+                const float farPlane=std::max(nearPlane+0.1f,farthest*1.05f);
+                const float scale=1.f/std::max(0.1f,maxSlope*1.1f);
+                for(int j=0;j<3;++j){
+                    lightMatrix[j*4+0]=u[j]*scale;
+                    lightMatrix[j*4+1]=v[j]*scale;
+                    lightMatrix[j*4+2]=d[j]*farPlane/(farPlane-nearPlane);
+                    lightMatrix[j*4+3]=d[j];
+                }
+                lightMatrix[12]=-dot(u,std::array<float,3>{emitter[0],emitter[1],emitter[2]})*scale;
+                lightMatrix[13]=-dot(v,std::array<float,3>{emitter[0],emitter[1],emitter[2]})*scale;
+                lightMatrix[14]=-dot(d,std::array<float,3>{emitter[0],emitter[1],emitter[2]})*
+                    farPlane/(farPlane-nearPlane)-nearPlane*farPlane/(farPlane-nearPlane);
+                lightMatrix[15]=-dot(d,std::array<float,3>{emitter[0],emitter[1],emitter[2]});
+            }
+        }else{
+            const std::array<float,3> axes[3]={u,v,d};
+            for(int row=0;row<3;++row){
+                const float range=std::max(maxima[row]-minima[row],0.1f)*1.06f;
+                const float scale=row==2?1.f/range:2.f/range;
+                for(int col=0;col<3;++col)lightMatrix[col*4+row]=axes[row][col]*scale;
+                lightMatrix[12+row]=row==2
+                    ? -(minima[row]-0.03f*range)*scale
+                    : -(minima[row]+maxima[row])*0.5f*scale;
+            }
+            lightMatrix[15]=1.f;
         }
-        lightMatrix[15]=1.f;
         struct ShadowUniform { float matrix[16]; float settings[4]; } shadowData{};
         std::memcpy(shadowData.matrix,lightMatrix,sizeof(lightMatrix));
         shadowData.settings[0]=shadowLightIndex>=0?1.f:0.f;
