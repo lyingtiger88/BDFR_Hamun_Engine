@@ -167,7 +167,8 @@ static int hamun_mesh_render_impl(
     uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
     const float* xyz,uint32_t vertices,const uint32_t* indices,uint32_t count,
     const float* mvp,const float* lights,uint32_t lightCount,
-    const float* faceNormals,uint32_t requestedShadowSize=256){
+    const float* faceNormals,uint32_t requestedShadowSize=256,
+    float softness=1.f,float biasScale=1.f){
     lastError.clear();
     if(!xyz||!indices||vertices>1000000||count>3000000||count%3!=0){
         lastError="Invalid mesh buffer";return 0;
@@ -439,7 +440,7 @@ static int hamun_mesh_render_impl(
                         float d=-(wx*sm.dx+wy*sm.dy+wz*sm.dz);
                         // Bias in light-space depth units, scaled to the shadow texel size.
                         // A two-texel bias can erase shallow contact shadows.
-                        const float bias=std::max(0.0001f,sm.step*0.3f);
+                        const float bias=std::max(0.0001f,sm.step*0.3f)*biasScale;
                         const float* sun=lights+12*li;
                         // Slot 1 stores the Sun angular diameter in radians; its
                         // world-space position must not affect directional shadows.
@@ -451,7 +452,7 @@ static int hamun_mesh_render_impl(
                         const float separation=std::max(0.f,blockerDepth-d);
                         // Bounded approximate penumbra for the transitional CPU path.
                         const int radius=std::clamp(
-                            int(std::ceil(angularRadius*separation/std::max(sm.step,1e-6f))),
+                            int(std::ceil(angularRadius*softness*separation/std::max(sm.step,1e-6f))),
                             1,5);
                         float visibility=0.f;
                         int samples=0;
@@ -529,4 +530,17 @@ extern "C" int hamun_renderer_mesh_lit_normals_quality(uint32_t w,uint32_t h,uin
         lastError="Invalid shadow map resolution";return 0;
     }
     return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,normals,shadowResolution);
+}
+
+extern "C" int hamun_renderer_mesh_lit_normals_settings(uint32_t w,uint32_t h,uint8_t* rgba,uint64_t n,
+    const float* xyz,uint32_t nv,const uint32_t* idx,uint32_t ni,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* normals,
+    uint32_t shadowResolution,float softness,float biasScale) {
+    if(!mvp||!normals){lastError="Missing camera matrix or normals";return 0;}
+    if(lightCount>32||(lightCount>0&&!lights)){lastError="Invalid light array";return 0;}
+    if(shadowResolution<64||shadowResolution>4096||(shadowResolution&(shadowResolution-1))!=0 ||
+       !std::isfinite(softness)||softness<0.f||softness>4.f ||
+       !std::isfinite(biasScale)||biasScale<0.f||biasScale>4.f){lastError="Invalid shadow settings";return 0;}
+    return hamun_mesh_render_impl(w,h,rgba,n,xyz,nv,idx,ni,mvp,lights,lightCount,normals,
+                                  shadowResolution,softness,biasScale);
 }
