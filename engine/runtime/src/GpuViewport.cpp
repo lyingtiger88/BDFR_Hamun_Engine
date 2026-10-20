@@ -142,14 +142,15 @@ static int gpuViewportImpl(
         const auto* b=static_cast<const unsigned char*>(ptr);
         for(size_t i=0;i<n;++i){key^=b[i];key*=1099511628211ull;}
     };
-    mix(&w,sizeof(w));mix(&h,sizeof(h));
-    mix(&requestedShadowSize,sizeof(requestedShadowSize));
-    mix(&shadowSoftness,sizeof(shadowSoftness));mix(&shadowBias,sizeof(shadowBias));
+    // Geometry identity excludes render target size and shadow/camera settings.
     mix(&vertexCount,sizeof(vertexCount));mix(&indexCount,sizeof(indexCount));
     mix(positions,size_t(vertexCount)*3*sizeof(float));
     mix(indices,size_t(indexCount)*sizeof(uint32_t));
     mix(faceNormals,size_t(indexCount)*sizeof(float));
     const uint64_t currentMeshKey=key;
+    mix(&w,sizeof(w));mix(&h,sizeof(h));
+    mix(&requestedShadowSize,sizeof(requestedShadowSize));
+    mix(&shadowSoftness,sizeof(shadowSoftness));mix(&shadowBias,sizeof(shadowBias));
     mix(mvp,16*sizeof(float));mix(&lightCount,sizeof(lightCount));
     if(lightCount)mix(lights,size_t(lightCount)*12*sizeof(float));
     if(key==cachedKey&&cachedW==w&&cachedH==h&&cachedImage.size()==size_t(w)*h*4){
