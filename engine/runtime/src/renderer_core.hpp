@@ -30,5 +30,10 @@ HAMUN_API int hamun_gpu_viewport_render(uint32_t width,uint32_t height,uint8_t* 
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* viewProjection16,const float* lights12,uint32_t lightCount,const float* faceNormals3,
     char* error,uint32_t errorCapacity);
+// Optional selectable shadow-map quality; existing renderer ABI is preserved.
+HAMUN_API int hamun_renderer_mesh_lit_normals_quality(uint32_t width,uint32_t height,uint8_t* rgba,uint64_t byteCount,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* viewProjection16,const float* lights12,uint32_t lightCount,const float* faceNormals3,
+    uint32_t shadowResolution);
 HAMUN_API const char* hamun_renderer_last_error();
 }
