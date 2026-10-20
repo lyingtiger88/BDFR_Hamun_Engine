@@ -46,7 +46,8 @@ void main(){
                 // must be sent through an extended light ABI.
                 vec3 axis=normalize(l.directionRange.xyz);
                 float cone=dot(-lightDir,axis);
-                attenuation*=smoothstep(0.65,0.82,cone);
+                float edge=cos(clamp(l.settings.y,0.05,3.10)*0.5);
+                attenuation*=smoothstep(edge,min(1.0,edge+0.10),cone);
             }
             // Area preview uses its center as a point emitter until area
             // dimensions and sampled soft shadows are implemented.
