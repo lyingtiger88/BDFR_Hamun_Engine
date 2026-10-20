@@ -430,6 +430,26 @@ static int gpuViewportImpl(
         pipe.pColorBlendState=&cb;pipe.pDepthStencilState=&ds;
         pipe.layout=layout;pipe.renderPass=pass;
         require(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&pipe,nullptr,&pipeline),"Create graphics pipeline failed");
+        VkPushConstantRange shadowPush{VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(lightMatrix)};
+        VkPipelineLayoutCreateInfo shadowPli{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        shadowPli.pushConstantRangeCount=1;shadowPli.pPushConstantRanges=&shadowPush;
+        require(vkCreatePipelineLayout(device,&shadowPli,nullptr,&shadowLayout),
+                "Create Sun shadow pipeline layout failed");
+        VkPipelineShaderStageCreateInfo depthStage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        depthStage.stage=VK_SHADER_STAGE_VERTEX_BIT;
+        depthStage.module=shadowVert;depthStage.pName="main";
+        VkViewport shadowViewport{0,0,float(shadowSize),float(shadowSize),0,1};
+        VkRect2D shadowScissor{{0,0},{shadowSize,shadowSize}};
+        VkPipelineViewportStateCreateInfo shadowVp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        shadowVp.viewportCount=1;shadowVp.pViewports=&shadowViewport;
+        shadowVp.scissorCount=1;shadowVp.pScissors=&shadowScissor;
+        VkPipelineColorBlendStateCreateInfo shadowBlend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        VkGraphicsPipelineCreateInfo depthPipe=pipe;
+        depthPipe.stageCount=1;depthPipe.pStages=&depthStage;
+        depthPipe.pViewportState=&shadowVp;depthPipe.pColorBlendState=&shadowBlend;
+        depthPipe.layout=shadowLayout;depthPipe.renderPass=shadowPass;
+        require(vkCreateGraphicsPipelines(device,VK_NULL_HANDLE,1,&depthPipe,nullptr,
+                                          &shadowPipeline),"Create Sun depth graphics pipeline failed");
         VkImageView attachmentViews[2]={colorView,depthView};
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         fi.renderPass=pass;fi.attachmentCount=2;fi.pAttachments=attachmentViews;
@@ -448,9 +468,25 @@ static int gpuViewportImpl(
         VkRenderPassBeginInfo rb{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         rb.renderPass=pass;rb.framebuffer=framebuffer;rb.renderArea.extent={w,h};
         rb.clearValueCount=2;rb.pClearValues=clears;
+        VkDeviceSize offset=0;
+        VkClearValue shadowClear{};
+        shadowClear.depthStencil={1.f,0};
+        VkRenderPassBeginInfo shadowBegin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        shadowBegin.renderPass=shadowPass;shadowBegin.framebuffer=shadowFramebuffer;
+        shadowBegin.renderArea.extent={shadowSize,shadowSize};
+        shadowBegin.clearValueCount=1;shadowBegin.pClearValues=&shadowClear;
+        vkCmdBeginRenderPass(cmd,&shadowBegin,VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,shadowPipeline);
+        vkCmdBindVertexBuffers(cmd,0,1,&vertices,&offset);
+        vkCmdPushConstants(cmd,shadowLayout,VK_SHADER_STAGE_VERTEX_BIT,0,
+                           sizeof(lightMatrix),lightMatrix);
+        vkCmdDraw(cmd,indexCount,1,0,0);
+        vkCmdEndRenderPass(cmd);
         vkCmdBeginRenderPass(cmd,&rb,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
-        VkDeviceSize offset=0;vkCmdBindVertexBuffers(cmd,0,1,&vertices,&offset);
+        vkCmdBindVertexBuffers(cmd,0,1,&vertices,&offset);
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,0,1,
+                                &descriptorSet,0,nullptr);
         Params params{};
         std::memcpy(params.mvp,mvp,sizeof(params.mvp));
         params.dir[2]=-1.f;params.color[0]=params.color[1]=params.color[2]=1.f;
@@ -490,4 +526,25 @@ static int gpuViewportImpl(
         cachedKey=key;cachedW=w;cachedH=h;
         cleanup();return 1;
     }catch(const std::exception& ex){std::string msg=ex.what();cleanup();return fail(msg.c_str());}
+}
+
+extern "C" int hamun_gpu_viewport_render(
+    uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
+    char* error,uint32_t errorCapacity){
+    return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
+                           mvp,lights,lightCount,faceNormals,error,errorCapacity,1024,1.f,1.f);
+}
+extern "C" int hamun_gpu_viewport_render_shadow(
+    uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
+    char* error,uint32_t errorCapacity,uint32_t shadowSize,float softness,float bias){
+    if(shadowSize<64||shadowSize>4096||(shadowSize&(shadowSize-1))!=0||
+       !std::isfinite(softness)||softness<0.f||softness>4.f||
+       !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
+    return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
+                           mvp,lights,lightCount,faceNormals,error,errorCapacity,
+                           shadowSize,softness,bias);
 }
