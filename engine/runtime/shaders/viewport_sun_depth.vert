@@ -1,11 +1,11 @@
 #version 450
-// Vulkan Sun shadow-map depth pass. Positions are already in world space.
+// Depth-only Sun shadow pass; uses the same world-space vertex stream as
+// viewport_direct.vert. Light VP maps depth to Vulkan's [0,1] range.
 layout(location=0) in vec3 position;
+layout(location=1) in vec3 normal;
 layout(push_constant) uniform SunDepthParams {
     mat4 lightViewProjection;
 } sun;
 void main() {
-    vec4 clip = sun.lightViewProjection * vec4(position, 1.0);
-    // Shadow matrices are constructed with a Vulkan [0, 1] depth range.
-    gl_Position = clip;
+    gl_Position = sun.lightViewProjection * vec4(position, 1.0);
 }
