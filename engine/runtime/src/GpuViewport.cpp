@@ -51,6 +51,7 @@ struct PersistentVkContext {
     VkBuffer meshBuffer=VK_NULL_HANDLE;
     VkDeviceMemory meshMemory=VK_NULL_HANDLE;
     uint64_t meshKey=0;
+    VkShaderModule mainVert=VK_NULL_HANDLE,mainFrag=VK_NULL_HANDLE,sunDepthVert=VK_NULL_HANDLE;
     uint32_t family=UINT32_MAX;
     PersistentVkContext(){
         try{
@@ -93,6 +94,9 @@ struct PersistentVkContext {
                 "Create persistent pipeline cache failed");
 
         }catch(...){
+            if(mainVert&&device)vkDestroyShaderModule(device,mainVert,nullptr);
+            if(mainFrag&&device)vkDestroyShaderModule(device,mainFrag,nullptr);
+            if(sunDepthVert&&device)vkDestroyShaderModule(device,sunDepthVert,nullptr);
             if(meshBuffer&&device)vkDestroyBuffer(device,meshBuffer,nullptr);
             if(meshMemory&&device)vkFreeMemory(device,meshMemory,nullptr);
             if(pipelineCache&&device)vkDestroyPipelineCache(device,pipelineCache,nullptr);
@@ -104,6 +108,9 @@ struct PersistentVkContext {
     ~PersistentVkContext(){
         if(device){
             vkDeviceWaitIdle(device);
+            if(mainVert)vkDestroyShaderModule(device,mainVert,nullptr);
+            if(mainFrag)vkDestroyShaderModule(device,mainFrag,nullptr);
+            if(sunDepthVert)vkDestroyShaderModule(device,sunDepthVert,nullptr);
             if(meshBuffer)vkDestroyBuffer(device,meshBuffer,nullptr);
             if(meshMemory)vkFreeMemory(device,meshMemory,nullptr);
             if(pipelineCache)vkDestroyPipelineCache(device,pipelineCache,nullptr);
@@ -182,7 +189,7 @@ static int gpuViewportImpl(
             if(shadowPipeline)vkDestroyPipeline(device,shadowPipeline,nullptr);
             if(shadowLayout)vkDestroyPipelineLayout(device,shadowLayout,nullptr);
             if(shadowPass)vkDestroyRenderPass(device,shadowPass,nullptr);
-            if(shadowVert)vkDestroyShaderModule(device,shadowVert,nullptr);
+
             if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
             if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
             if(setLayout)vkDestroyDescriptorSetLayout(device,setLayout,nullptr);
@@ -194,8 +201,7 @@ static int gpuViewportImpl(
             if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);
             if(layout)vkDestroyPipelineLayout(device,layout,nullptr);
             if(pass)vkDestroyRenderPass(device,pass,nullptr);
-            if(vert)vkDestroyShaderModule(device,vert,nullptr);
-            if(frag)vkDestroyShaderModule(device,frag,nullptr);
+            // Persistent shader modules are owned by PersistentVkContext.
             if(colorView)vkDestroyImageView(device,colorView,nullptr);
             if(depthView)vkDestroyImageView(device,depthView,nullptr);
             if(color)vkDestroyImage(device,color,nullptr);
@@ -443,8 +449,10 @@ static int gpuViewportImpl(
             require(vkCreateShaderModule(device,&ci,nullptr,&sm),"Create shader module failed");
             return sm;
         };
-        vert=module(L"viewport_shadowed.vert.spv");frag=module(L"viewport_shadowed.frag.spv");
-        shadowVert=module(L"viewport_sun_depth.vert.spv");
+        if(!persistent.mainVert)persistent.mainVert=module(L"viewport_shadowed.vert.spv");
+        if(!persistent.mainFrag)persistent.mainFrag=module(L"viewport_shadowed.frag.spv");
+        if(!persistent.sunDepthVert)persistent.sunDepthVert=module(L"viewport_sun_depth.vert.spv");
+        vert=persistent.mainVert;frag=persistent.mainFrag;shadowVert=persistent.sunDepthVert;
         VkPipelineShaderStageCreateInfo stages[2]{};
         for(auto& x:stages){x.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;x.pName="main";}
         stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vert;
