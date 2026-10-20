@@ -1209,8 +1209,13 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             display_width = max(1, int(region.width))
             display_height = max(1, int(region.height))
             render_scale = int(depsgraph.scene.hamun_viewport_render_scale) / 100.0
-            width = max(1, int(min(display_width, 1600) * render_scale))
-            height = max(1, int(min(display_height, 1600) * render_scale))
+            # Apply a single uniform resolution factor to both axes.
+            # Clamping each axis separately distorts the camera aspect ratio
+            # and makes stationary geometry appear to shift when scale changes.
+            fit = min(1.0, 1600.0 / display_width, 1600.0 / display_height)
+            pixel_scale = fit * render_scale
+            width = max(1, round(display_width * pixel_scale))
+            height = max(1, round(display_height * pixel_scale))
             dll = _hamun_renderer_dll(depsgraph.scene)
             if dll is None:
                 raise RuntimeError("HamunRenderer.dll missing")
