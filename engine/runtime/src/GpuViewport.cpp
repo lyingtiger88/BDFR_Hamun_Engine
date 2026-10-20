@@ -298,15 +298,36 @@ static int gpuViewportImpl(
                     break;
                 }
             }
+            // Single-map fallback priority: Spot, Area, then Point.
+            // Point is initially a scene-facing directional approximation;
+            // complete omnidirectional shadows require six cube faces.
+            if(shadowLightIndex<0)for(int kind=2;kind<=3;++kind){
+                for(uint32_t li=0;li<lightCount;++li){
+                    const float* l=lights+12*li;
+                    if(l[0]>=kind-0.5f && l[0]<kind+0.5f &&
+                       l[10]>0.f && l[11]>=0.f){
+                        shadowLightIndex=static_cast<int>(li);break;
+                    }
+                }
+                if(shadowLightIndex>=0)break;
+            }
             if(shadowLightIndex<0)for(uint32_t li=0;li<lightCount;++li){
                 const float* l=lights+12*li;
-                if(l[0]>=2.5f && l[0]<3.5f && l[10]>0.f && l[11]>=0.f){
-                    shadowLightIndex=static_cast<int>(li);
-                    break;
+                if(l[0]>=0.5f && l[0]<1.5f && l[10]>0.f && l[11]>=0.f){
+                    shadowLightIndex=static_cast<int>(li);break;
                 }
             }
-            if(shadowLightIndex>=0)
-                std::memcpy(sunDir,lights+12*shadowLightIndex+4,sizeof(sunDir));
+            if(shadowLightIndex>=0){
+                const float* chosen=lights+12*shadowLightIndex;
+                if(chosen[0]>=0.5f && chosen[0]<1.5f){
+                    std::array<float,3> center{0.f,0.f,0.f};
+                    for(uint32_t i=0;i<vertexCount;++i)for(int j=0;j<3;++j)
+                        center[j]+=positions[3*i+j]/static_cast<float>(vertexCount);
+                    for(int j=0;j<3;++j)sunDir[j]=center[j]-chosen[1+j];
+                }else{
+                    std::memcpy(sunDir,chosen+4,sizeof(sunDir));
+                }
+            }
         }
         auto normalize=[](std::array<float,3> a){
             const float len=std::sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
