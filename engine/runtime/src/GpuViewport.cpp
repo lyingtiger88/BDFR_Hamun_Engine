@@ -221,7 +221,7 @@ static int gpuViewportImpl(
             const float* l=lights+12*li;
             if(l[0]<0.5f&&l[10]>0.f){
                 hasShadowSun=l[11]>=0.f;
-                std::memcpy(sunDir,l+4,3*sizeof(sunDir));break;
+                std::memcpy(sunDir,l+4,sizeof(sunDir));break;
             }
         }
         auto normalize=[](std::array<float,3> a){
