@@ -1407,10 +1407,15 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     matrix, light_array, len(lights))
             _hamun_metrics["lights"] = len(lights)
             _hamun_metrics["light_energy"] = round(sum(item[10] for item in lights), 2)
-            _hamun_diagnostic_log(
-                "RENDER_CALL_RESULT ok=%s route=%s vertices=%d triangles=%d lights=%d "
-                "dll=%s" % (bool(ok), route, len(verts) // 3, len(indices) // 3,
-                            len(lights), str(dll)))
+            # Do not synchronously append to a disk log every viewport frame.
+            # Preserve failures and log one summary per five seconds.
+            now = time.perf_counter()
+            if not ok or now - getattr(self, "_hamun_last_render_log_time", 0.0) >= 5.0:
+                _hamun_diagnostic_log(
+                    "RENDER_CALL_RESULT ok=%s route=%s vertices=%d triangles=%d lights=%d "
+                    "dll=%s" % (bool(ok), route, len(verts) // 3, len(indices) // 3,
+                                len(lights), str(dll)))
+                self._hamun_last_render_log_time = now
             if not ok:
                 error = native.hamun_renderer_last_error()
                 message = error.decode(errors="replace") if error else "DLL draw failed"
