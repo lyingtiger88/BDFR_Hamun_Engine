@@ -69,6 +69,15 @@ void main(){
                 shadowMatrix=s.pointFaces[face];
             }
             vec4 c=shadowMatrix*vec4(vWorldPosition,1.0);
+            if(kind==1 && s.pointPosition.w>1.5){
+                // Diagnostic view: R/G encode the chosen face's projected UV,
+                // B encodes normalized depth. The face identity is visible as
+                // six different depth-projection orientations on the receiver.
+                vec3 qDebug=c.xyz/max(abs(c.w),0.00001);
+                vec2 uvDebug=qDebug.xy*0.5+0.5;
+                outColor=vec4(clamp(vec3(uvDebug,qDebug.z),0.0,1.0),1.0);
+                return;
+            }
             if(c.w>0.0){
                 vec3 q=c.xyz/c.w;
                 // Positive-height Vulkan viewports map NDC +Y toward increasing framebuffer Y.
