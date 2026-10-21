@@ -1298,8 +1298,19 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 # Preserve the 12-float bridge while forwarding the Spot cone
                 # (radians) to GPU shadow projection and lighting consistently.
                 # Positive values mean enabled; 1 + angle encodes Spot angle.
-                shadow_flag = ((1.0 + float(data.spot_size)) if data.type == "SPOT"
-                               else 1.0) if shadow_enabled else -1.0
+                # ABI slot 11: negative disables shadows; positive carries
+                # the emitter extent for Point/Area or cone angle for Spot.
+                # Keep Sun at 1.0 for legacy compatibility.
+                if not shadow_enabled:
+                    shadow_flag = -1.0
+                elif data.type == "SPOT":
+                    shadow_flag = 1.0 + float(data.spot_size)
+                elif data.type == "POINT":
+                    shadow_flag = 1.0 + max(0.0, float(getattr(data, "shadow_soft_size", 0.0)))
+                elif data.type == "AREA":
+                    shadow_flag = 1.0 + max(0.0, float(getattr(data, "size", 0.0))) * 0.5
+                else:
+                    shadow_flag = 1.0
                 # Sun has no meaningful position: ABI slot 1 carries its
                 # angular diameter (radians) without changing the 12-float ABI.
                 sun_angle = float(getattr(data, "angle", 0.0)) if data.type == "SUN" else 0.0
