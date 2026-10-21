@@ -382,7 +382,48 @@ static int gpuViewportImpl(
             lights[12*shadowLightIndex]>=0.5f && lights[12*shadowLightIndex]<1.5f;
         const bool spotShadow=shadowLightIndex>=0 &&
             lights[12*shadowLightIndex]>=1.5f && lights[12*shadowLightIndex]<2.5f;
-        if(spotShadow){
+        const bool areaShadow=shadowLightIndex>=0 &&
+            lights[12*shadowLightIndex]>=2.5f && lights[12*shadowLightIndex]<3.5f;
+        if(areaShadow){
+            // A finite Area emitter is not a directional Sun. Use its world
+            // position as the projection origin and its local -Z as the axis.
+            // Fit the perspective frustum to scene geometry in front of it.
+            // Keep the existing PCF softness unchanged.
+            const float* source=lights+12*shadowLightIndex;
+            const std::array<float,3> origin{source[1],source[2],source[3]};
+            float farPlane=0.1f;
+            float maxSlope=0.0f;
+            bool hasForwardGeometry=false;
+            for(uint32_t i=0;i<vertexCount;++i){
+                const std::array<float,3> p{positions[3*i]-origin[0],
+                                            positions[3*i+1]-origin[1],
+                                            positions[3*i+2]-origin[2]};
+                const float z=dot(d,p);
+                if(z<=0.005f)continue;
+                hasForwardGeometry=true;
+                farPlane=std::max(farPlane,std::sqrt(dot(p,p)));
+                maxSlope=std::max(maxSlope,
+                    std::max(std::fabs(dot(u,p)),std::fabs(dot(v,p)))/z);
+            }
+            if(hasForwardGeometry){
+                // Avoid a near-180-degree frustum from geometry grazing the
+                // emitter plane. Those locations are outside usable light.
+                const float xyScale=1.f/std::clamp(maxSlope*1.05f,0.15f,10.f);
+                farPlane=farPlane*1.1f+0.01f;
+                const float nearPlane=std::min(0.05f,farPlane*0.01f);
+                const float zScale=farPlane/(farPlane-nearPlane);
+                for(int j=0;j<3;++j){
+                    lightMatrix[j*4+0]=u[j]*xyScale;
+                    lightMatrix[j*4+1]=v[j]*xyScale;
+                    lightMatrix[j*4+2]=d[j]*zScale;
+                    lightMatrix[j*4+3]=d[j];
+                }
+                lightMatrix[12]=-dot(u,origin)*xyScale;
+                lightMatrix[13]=-dot(v,origin)*xyScale;
+                lightMatrix[14]=-dot(d,origin)*zScale-nearPlane*zScale;
+                lightMatrix[15]=-dot(d,origin);
+            }
+        }else if(spotShadow){
             // Perspective projection must originate at the Spot emitter and
             // match the exact lighting cone. An orthographic Sun projection
             // clips nearby occluders and produces impossible receiver shadows.
