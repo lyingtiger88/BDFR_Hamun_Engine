@@ -1613,8 +1613,10 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # The previous gate silently forced the untextured path even when
             # TEXTURE_BRIDGE=ready, making Base Color impossible by default.
             # Retain the established shadow ABI when no image is available.
+            # Stable default: preserve known-good lighting and shadows.
+            # Texture/UV paths require explicit opt-in until they are validated.
             gpu_viewport = (
-                gpu_tex_fn if use_textured_api else
+                gpu_tex_fn if experimental_materials and use_textured_api else
                 gpu_uv_fn if experimental_materials and gpu_uv_fn is not None else
                 gpu_shadow_fn if gpu_shadow_fn is not None else
                 None if wants_shadow else gpu_direct_fn)
