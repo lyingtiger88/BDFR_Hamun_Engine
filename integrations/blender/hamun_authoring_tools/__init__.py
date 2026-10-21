@@ -2109,6 +2109,84 @@ def _hamun_light_panel_compat(enable):
                 compatible.discard("HAMUN_VULKAN")
 
 
+def hamun_translate_principled_material(material):
+    """Translate the supported Principled BSDF subset to Hamun Material Core.
+
+    Safe authoring-side representation only: never changes RenderEngine state.
+    Unsupported graph nodes are reported rather than misrepresented as PBR.
+    """
+    result = {
+        "name": getattr(material, "name", ""),
+        "base_color": (1.0, 1.0, 1.0, 1.0),
+        "metallic": 0.0, "roughness": 0.5,
+        "alpha": 1.0, "emission": (0.0, 0.0, 0.0),
+        "emission_strength": 0.0,
+        "textures": {}, "warnings": [],
+    }
+    if material is None or not material.use_nodes or material.node_tree is None:
+        result["warnings"].append("Material has no node tree")
+        return result
+    output = next((n for n in material.node_tree.nodes
+                   if n.type == "OUTPUT_MATERIAL" and n.is_active_output), None)
+    if output is None:
+        result["warnings"].append("No active Material Output")
+        return result
+    surface = output.inputs.get("Surface")
+    principled = next((link.from_node for link in surface.links
+                      if link.from_node.type == "BSDF_PRINCIPLED"), None) if surface else None
+    if principled is None:
+        result["warnings"].append("Surface is not directly connected to Principled BSDF")
+        return result
+
+    fields = (("Base Color", "base_color"),
+              ("Metallic", "metallic"),
+              ("Roughness", "roughness"),
+              ("Alpha", "alpha"),
+              ("Emission Color", "emission"),
+              ("Emission Strength", "emission_strength"))
+    for input_name, key in fields:
+        inp = principled.inputs.get(input_name)
+        if inp is None:
+            continue
+        value = inp.default_value
+        if key in ("base_color", "emission"):
+            result[key] = tuple(float(v) for v in value[:(4 if key == "base_color" else 3)])
+        else:
+            result[key] = float(value)
+        if inp.is_linked:
+            source = inp.links[0].from_node
+            if source.type == "TEX_IMAGE" and source.image:
+                result["textures"][key] = {
+                    "image_name": source.image.name,
+                    "image": source.image,
+                    "channel": inp.links[0].from_socket.name,
+                    "colorspace": "sRGB" if key in ("base_color", "emission") else "Linear",
+                }
+            else:
+                result["warnings"].append(
+                    f"{input_name}: unsupported link from {source.bl_idname}")
+    normal = principled.inputs.get("Normal")
+    if normal and normal.is_linked:
+        source = normal.links[0].from_node
+        if source.type == "NORMAL_MAP":
+            color = source.inputs.get("Color")
+            if color and color.is_linked and color.links[0].from_node.type == "TEX_IMAGE":
+                tex = color.links[0].from_node
+                if tex.image:
+                    result["textures"]["normal"] = {
+                        "image_name": tex.image.name, "image": tex.image,
+                        "colorspace": "Linear", "channel": "Color",
+                        "strength": float(source.inputs["Strength"].default_value),
+                    }
+            else:
+                result["warnings"].append("Normal Map without a direct Image Texture")
+        else:
+            result["warnings"].append("Unsupported Normal node: " + source.bl_idname)
+    result["metallic"] = max(0.0, min(1.0, result["metallic"]))
+    result["roughness"] = max(0.045, min(1.0, result["roughness"]))
+    return result
+
+
 def _hamun_material_panel_compat(enable):
     """Show native Material Properties for the custom Vulkan RenderEngine.
 
