@@ -510,6 +510,11 @@ static int gpuViewportImpl(
         shadowData.settings[3]=static_cast<float>(shadowLightIndex+1);
         shadowData.settings[1]=std::max(0.00001f,shadowBias*0.0005f);
         shadowData.settings[2]=std::max(0.f,shadowSoftness);
+        // Optional shadow diagnostics: set HAMUN_SHADOW_DEBUG=1 to visualize
+        // selected atlas faces and unclamped light-space coordinates.
+        char shadowDebug[8]={};
+        if(GetEnvironmentVariableA("HAMUN_SHADOW_DEBUG",shadowDebug,sizeof(shadowDebug))>0)
+            shadowData.pointPosition[3]=2.f;
         createBuffer(sizeof(shadowData),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                      shadowUniform,shadowUniformMemory);
         void* shadowMapped=nullptr;
