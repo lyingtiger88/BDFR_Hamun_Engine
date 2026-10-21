@@ -106,7 +106,17 @@ void main(){
                                       vec2(12.9898,78.233)))*43758.5453);
                     mat2 rotation=mat2(cos(angle),-sin(angle),
                                        sin(angle),cos(angle));
-                    float radius=max(0.0,s.settings.z)*1.5;
+                    // EEVEE-inspired distance-aware filter footprint. Point's
+                    // radius and Area's half-width come from Blender light data.
+                    // This is a bounded PCF approximation, not full PCSS.
+                    float sourceRadius=max(0.0,l.settings.z);
+                    float receiverDistance=max(length(vWorldPosition-l.positionType.xyz),0.05);
+                    float apparentSize=sourceRadius/receiverDistance;
+                    // Screen-space softness responds to emitter size and
+                    // receiver distance, without modifying shadow projection.
+                    float sizeSoftness=(kind==1 || kind==3)
+                        ?clamp(apparentSize*12.0,0.0,8.0):0.0;
+                    float radius=clamp(max(0.0,s.settings.z)*1.5+sizeSoftness,0.0,12.0);
                     visibility=0.0;
                     for(int tap=0;tap<12;++tap){
                         vec2 local=uv+(rotation*taps[tap])*(texel/scale)*radius;
