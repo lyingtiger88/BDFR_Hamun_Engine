@@ -831,37 +831,47 @@ class HAMUN_OT_wasd_navigate(bpy.types.Operator):
 
 
 _hamun_keymaps = []
+_hamun_overridden_keymaps = []
 
 
 def _register_hamun_shortcuts():
-    keyconfig = bpy.context.window_manager.keyconfigs.addon
-    if keyconfig is None:
+    wm = bpy.context.window_manager
+    addon = wm.keyconfigs.addon
+    if addon is None:
         return
-    km = keyconfig.keymaps.new(name="Window", space_type="EMPTY")
+    km = addon.keymaps.new(name="Window", space_type="EMPTY")
     for operator, key in (("hamun.quick_save", "S"), ("hamun.open_project", "O")):
         item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
         _hamun_keymaps.append((km, item))
-    viewmap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
-    # Blender's default W (selection) and T (toolbar) shortcuts can take
-    # precedence over addon bindings. Install overriding items at the head of
-    # the active user keymap so WASD and E/R/T respond in the 3D View.
-    priority_config = bpy.context.window_manager.keyconfigs.user
-    priority_viewmap = (priority_config.keymaps.get("3D View")
-                        if priority_config is not None else None)
-    if priority_viewmap is None:
-        priority_viewmap = viewmap
+
+    # Blender routes T/W through several keymap layers. The addon keymap
+    # alone may never receive them when a built-in binding consumes the key.
+    # Override only unmodified keys in the 3D View, recording prior state.
+    keys = {"W", "A", "S", "D", "E", "R", "T"}
+    user = wm.keyconfigs.user
+    if user is not None:
+        for name in ("3D View", "3D View Generic", "Object Mode"):
+            active_map = user.keymaps.get(name)
+            if active_map is None:
+                continue
+            for item in active_map.keymap_items:
+                if (item.active and item.type in keys and item.value == "PRESS"
+                        and not (item.ctrl or item.alt or item.shift or item.oskey)):
+                    _hamun_overridden_keymaps.append((item, item.active))
+                    item.active = False
+
+    viewmap = addon.keymaps.new(name="3D View", space_type="VIEW_3D")
     for key in ("W", "A", "S", "D"):
-        item = priority_viewmap.keymap_items.new(
-            "hamun.wasd_navigate", key, "PRESS", head=True)
+        item = viewmap.keymap_items.new("hamun.wasd_navigate", key, "PRESS", head=True)
         item.properties.initial_key = key
-        _hamun_keymaps.append((priority_viewmap, item))
+        _hamun_keymaps.append((viewmap, item))
     for key, operator in (("E", "transform.translate"),
                           ("R", "transform.rotate"),
                           ("T", "transform.resize")):
-        item = priority_viewmap.keymap_items.new(
-            operator, key, "PRESS", head=True)
-        _hamun_keymaps.append((priority_viewmap, item))
-    toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
+        item = viewmap.keymap_items.new(operator, key, "PRESS", head=True)
+        _hamun_keymaps.append((viewmap, item))
+    toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS",
+                                     ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
     for key, modifier, mode in (("F8", {}, "OFF"), ("F8", {"shift": True}, "BASIC"),
                                 ("F8", {"ctrl": True}, "ADVANCED")):
@@ -872,8 +882,17 @@ def _register_hamun_shortcuts():
 
 def _unregister_hamun_shortcuts():
     for km, item in _hamun_keymaps:
-        km.keymap_items.remove(item)
+        try:
+            km.keymap_items.remove(item)
+        except (ReferenceError, RuntimeError):
+            pass
     _hamun_keymaps.clear()
+    for item, old_active in _hamun_overridden_keymaps:
+        try:
+            item.active = old_active
+        except (ReferenceError, RuntimeError):
+            pass
+    _hamun_overridden_keymaps.clear()
 
 
 class HAMUN_OT_play_runtime(bpy.types.Operator):
