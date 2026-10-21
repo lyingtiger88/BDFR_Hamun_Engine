@@ -1374,6 +1374,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
             profile_geometry_start = time.perf_counter()
             if getattr(self, "_hamun_geometry_dirty", True) or not hasattr(self, "_hamun_geometry_cache"):
+                import struct
                 verts, indices, face_normals, uv_coords = [], [], [], []
                 for obj in depsgraph.objects:
                     if obj.type != "MESH" or obj.hide_render:
@@ -1397,7 +1398,6 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                                       if uv_layer is not None else (0.0, 0.0))
                                 # Float32 UV representation matches the
                                 # eventual Vulkan vertex attribute precision.
-                                import struct
                                 uv_bits = struct.pack("<ff", float(uv[0]), float(uv[1]))
                                 key = (int(vertex_index), uv_bits)
                                 index = split_vertices.get(key)
