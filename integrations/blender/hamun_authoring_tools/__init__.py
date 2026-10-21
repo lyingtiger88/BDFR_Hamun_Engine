@@ -767,6 +767,68 @@ def draw_hamun_file_menu(self, context):
     layout.operator("hamun.import_asset", text="Import Asset", icon="IMPORT")
 
 
+class HAMUN_OT_wasd_navigate(bpy.types.Operator):
+    """Hold WASD to fly the Hamun viewport; release to stop"""
+    bl_idname = "hamun.wasd_navigate"
+    bl_label = "Hamun WASD Navigation"
+    bl_options = {"INTERNAL"}
+
+    initial_key: bpy.props.EnumProperty(
+        items=[(key, key, "") for key in ("W", "A", "S", "D")]
+    )
+    _timer = None
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == "VIEW_3D"
+
+    def invoke(self, context, event):
+        self._held = {self.initial_key}
+        self._region_3d = context.space_data.region_3d
+        self._window = context.window
+        self._timer = context.window_manager.event_timer_add(1.0 / 60.0, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _finish(self, context):
+        if self._timer is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+        return {"FINISHED"}
+
+    def modal(self, context, event):
+        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+            return self._finish(context)
+        if event.type in {"W", "A", "S", "D"}:
+            if event.value == "PRESS":
+                self._held.add(event.type)
+            elif event.value == "RELEASE":
+                self._held.discard(event.type)
+                if not self._held:
+                    return self._finish(context)
+            return {"RUNNING_MODAL"}
+        if event.type == "TIMER" and event.timer == self._timer and self._held:
+            from mathutils import Vector
+            move = Vector((0.0, 0.0, 0.0))
+            if "W" in self._held:
+                move.z -= 1.0
+            if "S" in self._held:
+                move.z += 1.0
+            if "A" in self._held:
+                move.x -= 1.0
+            if "D" in self._held:
+                move.x += 1.0
+            if move.length_squared:
+                direction = self._region_3d.view_rotation @ move.normalized()
+                speed = max(0.01, self._region_3d.view_distance * 0.7)
+                if event.shift:
+                    speed *= 3.0
+                self._region_3d.view_location += direction * speed / 60.0
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        return {"PASS_THROUGH"}
+
+
 _hamun_keymaps = []
 
 
@@ -779,6 +841,16 @@ def _register_hamun_shortcuts():
         item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
         _hamun_keymaps.append((km, item))
     viewmap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
+    # Hamun navigation: hold WASD. E/R/T use Blender's native transform tools.
+    for key in ("W", "A", "S", "D"):
+        item = viewmap.keymap_items.new("hamun.wasd_navigate", key, "PRESS")
+        item.properties.initial_key = key
+        _hamun_keymaps.append((viewmap, item))
+    for key, operator in (("E", "transform.translate"),
+                          ("R", "transform.rotate"),
+                          ("T", "transform.resize")):
+        item = viewmap.keymap_items.new(operator, key, "PRESS")
+        _hamun_keymaps.append((viewmap, item))
     toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
     for key, modifier, mode in (("F8", {}, "OFF"), ("F8", {"shift": True}, "BASIC"),
@@ -1803,6 +1875,7 @@ def draw_hamun_menu(self, context):
 
 
 classes = (
+    HAMUN_OT_wasd_navigate,
     HAMUN_OT_create_project,
     HAMUN_OT_import_asset,
     HAMUN_OT_save_project,
