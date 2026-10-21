@@ -1482,16 +1482,17 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             gpu_direct_fn = getattr(native, "hamun_gpu_viewport_render", None)
             gpu_shadow_fn = getattr(native, "hamun_gpu_viewport_render_shadow", None)
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
-            shadowed_sun = any(item[0] < 0.5 and item[10] > 0.0 and item[11] >= 0.0 for item in lights)
-            # Use a GPU shadow pass for Sun when supported by the installed DLL;
-            # keep the CPU renderer as a fallback for unsupported GPUs/errors.
-            gpu_viewport = gpu_shadow_fn if gpu_shadow_fn is not None else (
-                None if shadowed_sun else gpu_direct_fn)
-            use_gpu_shadow_api = gpu_viewport is not None and gpu_viewport is gpu_shadow_fn
-            route = ("VULKAN_GPU_SUN_SHADOW" if use_gpu_shadow_api and shadowed_sun else
-                     "CPU_SUN_SHADOW_FALLBACK" if shadowed_sun else
-                     "VULKAN_DIRECT_SUN_NO_SHADOW" if gpu_viewport is not None and has_sun else
-                     "VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None else "CPU_FALLBACK")
+            wants_shadow = any(item[10] > 0.0 and item[11] >= 0.0
+                               for item in lights)
+            # Shadow API handles Point, Spot, Area and Sun. Direct rendering
+            # must not silently bypass shadows when the scene has no Sun.
+            gpu_viewport = (gpu_shadow_fn if gpu_shadow_fn is not None
+                            else None if wants_shadow else gpu_direct_fn)
+            use_gpu_shadow_api = gpu_viewport is gpu_shadow_fn and gpu_viewport is not None
+            route = ("VULKAN_GPU_SHADOW" if use_gpu_shadow_api else
+                     "CPU_SHADOW_FALLBACK" if wants_shadow else
+                     "VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None
+                     else "CPU_FALLBACK")
             if getattr(self, "_hamun_last_render_route", None) != route:
                 _hamun_diagnostic_log("RENDER_ROUTE=" + route)
                 self._hamun_last_render_route = route
@@ -1642,14 +1643,17 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                                    (height // 2 * width + width // 2) * 4 + 4])))
                 self._hamun_logged_lights = light_signature
             profile_convert_start = time.perf_counter()
-            # The DLL already returns tightly packed RGBA8. Upload bytes
-            # directly: avoid 4x larger float staging and float conversion.
-            buffer = gpu.types.Buffer("UBYTE", (height, width, 4), rgba)
+            # Blender 5.4's GPUTexture constructor accepts FLOAT buffers
+            # only. Normalize RGBA8 bytes and use an RGBA32F texture to avoid
+            # the UBYTE upload exception that left the viewport blank.
+            float_pixels = (ctypes.c_float * len(rgba))(
+                *(component / 255.0 for component in rgba))
+            buffer = gpu.types.Buffer("FLOAT", (height, width, 4), float_pixels)
             profile_convert_ms = (time.perf_counter() - profile_convert_start) * 1000.0
             profile_upload_start = time.perf_counter()
             texture = getattr(self, "_hamun_display_texture", None)
             if texture is None or getattr(self, "_hamun_display_texture_size", None) != (width, height):
-                texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
+                texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
                 self._hamun_display_texture = texture
                 self._hamun_display_texture_size = (width, height)
             else:
@@ -1657,7 +1661,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 try:
                     texture.update(buffer)
                 except (RuntimeError, TypeError, ValueError):
-                    texture = gpu.types.GPUTexture((width, height), format="RGBA8", data=buffer)
+                    texture = gpu.types.GPUTexture((width, height), format="RGBA32F", data=buffer)
                     self._hamun_display_texture = texture
             shader = gpu.shader.from_builtin("IMAGE")
             batch = batch_for_shader(shader, "TRI_FAN", {
