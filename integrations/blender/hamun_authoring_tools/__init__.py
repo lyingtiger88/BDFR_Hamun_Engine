@@ -767,26 +767,38 @@ def draw_hamun_file_menu(self, context):
     layout.operator("hamun.import_asset", text="Import Asset", icon="IMPORT")
 
 
-class HAMUN_OT_wasd_navigate(bpy.types.Operator):
-    """Hold WASD to fly the Hamun viewport; release to stop"""
-    bl_idname = "hamun.wasd_navigate"
-    bl_label = "Hamun WASD Navigation"
+_hamun_keymaps = []
+_hamun_overridden_keymaps = []
+_hamun_nav_instances = set()
+
+
+class HAMUN_OT_viewport_navigation(bpy.types.Operator):
+    """Non-blocking WASD movement while ordinary editing remains available"""
+    bl_idname = "hamun.viewport_navigation"
+    bl_label = "Hamun Continuous Viewport Navigation"
     bl_options = {"INTERNAL"}
 
-    initial_key: bpy.props.EnumProperty(
-        items=[(key, key, "") for key in ("W", "A", "S", "D")]
-    )
     _timer = None
+    _held = None
+    _area_ptr = None
+    _window_ptr = None
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == "VIEW_3D"
+        return (context.area is not None and context.area.type == "VIEW_3D"
+                and context.region is not None and context.region.type == "WINDOW")
 
     def invoke(self, context, event):
-        self._held = {self.initial_key}
-        self._region_3d = context.space_data.region_3d
-        self._window = context.window
-        self._timer = context.window_manager.event_timer_add(1.0 / 60.0, window=context.window)
+        self._area_ptr = context.area.as_pointer()
+        self._window_ptr = context.window.as_pointer()
+        if self._area_ptr in _hamun_nav_instances:
+            return {"CANCELLED"}
+        _hamun_nav_instances.add(self._area_ptr)
+        self._area = context.area
+        self._rv3d = context.space_data.region_3d
+        self._held = set()
+        self._timer = context.window_manager.event_timer_add(
+            1.0 / 60.0, window=context.window)
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
@@ -794,44 +806,63 @@ class HAMUN_OT_wasd_navigate(bpy.types.Operator):
         if self._timer is not None:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
-        return {"FINISHED"}
+        _hamun_nav_instances.discard(self._area_ptr)
+        return {"CANCELLED"}
 
     def modal(self, context, event):
-        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+        if (self._area is None or self._area.type != "VIEW_3D"
+                or context.window is None
+                or context.window.as_pointer() != self._window_ptr):
             return self._finish(context)
+        # Let modal transforms, text input, popups, and other editors function.
+        in_view = (context.area is not None and context.area.as_pointer() == self._area_ptr
+                   and context.region is not None and context.region.type == "WINDOW")
         if event.type in {"W", "A", "S", "D"}:
+            if not in_view or context.mode != "OBJECT":
+                self._held.clear()
+                return {"PASS_THROUGH"}
             if event.value == "PRESS":
                 self._held.add(event.type)
             elif event.value == "RELEASE":
                 self._held.discard(event.type)
-                if not self._held:
-                    return self._finish(context)
             return {"RUNNING_MODAL"}
-        if event.type == "TIMER" and event.timer == self._timer and self._held:
-            from mathutils import Vector
-            move = Vector((0.0, 0.0, 0.0))
-            if "W" in self._held:
-                move.z -= 1.0
-            if "S" in self._held:
-                move.z += 1.0
-            if "A" in self._held:
-                move.x -= 1.0
-            if "D" in self._held:
-                move.x += 1.0
-            if move.length_squared:
-                direction = self._region_3d.view_rotation @ move.normalized()
-                speed = max(0.01, self._region_3d.view_distance * 0.7)
-                if event.shift:
-                    speed *= 3.0
-                self._region_3d.view_location += direction * speed / 60.0
-                if context.area is not None:
-                    context.area.tag_redraw()
-            return {"RUNNING_MODAL"}
+        if event.type in {"WINDOW_DEACTIVATE", "ESC"}:
+            self._held.clear()
+            return {"PASS_THROUGH"}
+        if event.type == "TIMER" and event.timer == self._timer:
+            if self._held and context.mode == "OBJECT":
+                from mathutils import Vector
+                vector = Vector((float("D" in self._held) - float("A" in self._held),
+                                 0.0,
+                                 float("S" in self._held) - float("W" in self._held)))
+                if vector.length_squared:
+                    speed = max(0.1, self._rv3d.view_distance * 0.7)
+                    delta = (self._rv3d.view_rotation @ vector.normalized()) * speed / 60.0
+                    self._rv3d.view_location += delta
+                    self._area.tag_redraw()
+            return {"PASS_THROUGH"}
         return {"PASS_THROUGH"}
 
 
-_hamun_keymaps = []
-_hamun_overridden_keymaps = []
+def _hamun_start_navigation():
+    if not hasattr(bpy.ops.hamun, "viewport_navigation"):
+        return None
+    wm = bpy.context.window_manager
+    if wm is None:
+        return 1.0
+    for window in wm.windows:
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D" or area.as_pointer() in _hamun_nav_instances:
+                continue
+            region = next((r for r in area.regions if r.type == "WINDOW"), None)
+            if region is None:
+                continue
+            try:
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    bpy.ops.hamun.viewport_navigation("INVOKE_DEFAULT")
+            except (RuntimeError, ValueError, TypeError):
+                pass
+    return 1.0
 
 
 def _register_hamun_shortcuts():
@@ -839,78 +870,56 @@ def _register_hamun_shortcuts():
     addon = wm.keyconfigs.addon
     if addon is None:
         return
-    km = addon.keymaps.new(name="Window", space_type="EMPTY")
+    window_map = addon.keymaps.new(name="Window", space_type="EMPTY")
     for operator, key in (("hamun.quick_save", "S"), ("hamun.open_project", "O")):
-        item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
-        _hamun_keymaps.append((km, item))
+        item = window_map.keymap_items.new(operator, key, "PRESS", ctrl=True)
+        _hamun_keymaps.append((window_map, item))
 
-    # Blender's addon keymap is a separate layer from the active user
-    # configuration. Register in both layers so Hamun shortcuts reach the
-    # viewport even when Blender's user map contains overriding bindings.
+    # Only remap edit tools; WASD is handled by the continuous modal operator.
+    # Deactivate exact matching native bindings so T does not open the toolbar.
     user = wm.keyconfigs.user
-    viewmap = addon.keymaps.new(name="3D View", space_type="VIEW_3D")
-    user_viewmap = (user.keymaps.get("3D View") if user is not None else None)
-    if user is not None and user_viewmap is None:
-        user_viewmap = user.keymaps.new(name="3D View", space_type="VIEW_3D")
-
-    bindings = [(key, "hamun.wasd_navigate", False) for key in ("W", "A", "S", "D")]
-    bindings += [("E", "transform.translate", False),
-                 ("R", "transform.rotate", False),
-                 ("T", "transform.resize", False),
-                 ("T", "wm.context_toggle", True)]
-
-    # Object Mode bindings take precedence over the 3D View map for keys
-    # like S (Scale); the toolbar shortcut may reside in 3D View Generic.
-    # Override the actual higher-priority maps instead of only 3D View.
-    targets = [viewmap]
+    targets = []
     if user is not None:
         for name in ("3D View", "3D View Generic", "Object Mode"):
-            target = user.keymaps.get(name)
-            if target is None and name in {"3D View", "Object Mode"}:
-                target = user.keymaps.new(
-                    name=name, space_type="VIEW_3D" if name == "3D View" else "EMPTY")
-            if target is not None and all(target is not existing for existing in targets):
-                targets.append(target)
-
-    for destination in targets:
-        for key, operator, shifted in bindings:
-            # Never deactivate Hamun's own previously registered bindings
-            # in case Blender synchronizes addon and user keymaps.
-            for existing in list(destination.keymap_items):
-                if (existing.active and existing.type == key and existing.value == "PRESS"
-                        and existing.shift == shifted
-                        and not (existing.ctrl or existing.alt or existing.oskey)
-                        and existing.idname != operator):
-                    _hamun_overridden_keymaps.append((existing, True))
-                    existing.active = False
-            # Avoid duplicate registrations on repeated addon enable.
-            match = next((item for item in destination.keymap_items
-                          if item.idname == operator and item.type == key
-                          and item.value == "PRESS" and item.shift == shifted
-                          and not (item.ctrl or item.alt or item.oskey)), None)
-            if match is not None:
-                if not match.active:
-                    _hamun_overridden_keymaps.append((match, False))
-                    match.active = True
-                continue
-            item = destination.keymap_items.new(
-                operator, key, "PRESS", shift=shifted, head=True)
-            if operator == "hamun.wasd_navigate":
-                item.properties.initial_key = key
-            elif operator == "wm.context_toggle":
-                item.properties.data_path = "space_data.show_region_toolbar"
-            _hamun_keymaps.append((destination, item))
-    toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS",
-                                     ctrl=True, shift=True)
+            km = user.keymaps.get(name)
+            if km is not None:
+                targets.append(km)
+    viewmap = addon.keymaps.new(name="3D View", space_type="VIEW_3D")
+    targets.append(viewmap)
+    for km in targets:
+        for item in km.keymap_items:
+            if (item.active and item.type in {"T", "E", "R"}
+                    and item.value == "PRESS"
+                    and not (item.ctrl or item.alt or item.oskey)
+                    and ((item.type == "T" and not item.shift)
+                         or (item.type == "T" and item.shift))):
+                _hamun_overridden_keymaps.append((item, True))
+                item.active = False
+    for key, operator, shifted in (
+            ("E", "transform.translate", False),
+            ("R", "transform.rotate", False),
+            ("T", "transform.resize", False),
+            ("T", "wm.context_toggle", True)):
+        item = viewmap.keymap_items.new(operator, key, "PRESS", shift=shifted, head=True)
+        if shifted:
+            item.properties.data_path = "space_data.show_region_toolbar"
+        _hamun_keymaps.append((viewmap, item))
+    toggle = viewmap.keymap_items.new(
+        "hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
     for key, modifier, mode in (("F8", {}, "OFF"), ("F8", {"shift": True}, "BASIC"),
                                 ("F8", {"ctrl": True}, "ADVANCED")):
-        item = viewmap.keymap_items.new("hamun.set_metrics_mode", key, "PRESS", **modifier)
+        item = viewmap.keymap_items.new(
+            "hamun.set_metrics_mode", key, "PRESS", **modifier)
         item.properties.mode = mode
         _hamun_keymaps.append((viewmap, item))
+    if not bpy.app.timers.is_registered(_hamun_start_navigation):
+        bpy.app.timers.register(_hamun_start_navigation, first_interval=0.5)
 
 
 def _unregister_hamun_shortcuts():
+    if bpy.app.timers.is_registered(_hamun_start_navigation):
+        bpy.app.timers.unregister(_hamun_start_navigation)
     for km, item in _hamun_keymaps:
         try:
             km.keymap_items.remove(item)
@@ -1934,7 +1943,7 @@ def draw_hamun_menu(self, context):
 
 
 classes = (
-    HAMUN_OT_wasd_navigate,
+    HAMUN_OT_viewport_navigation,
     HAMUN_OT_create_project,
     HAMUN_OT_import_asset,
     HAMUN_OT_save_project,
