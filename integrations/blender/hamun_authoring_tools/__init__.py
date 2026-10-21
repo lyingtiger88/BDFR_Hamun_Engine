@@ -1501,14 +1501,19 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # Preserve a fallback for systems without a Vulkan-capable GPU.
             gpu_direct_fn = getattr(native, "hamun_gpu_viewport_render", None)
             gpu_shadow_fn = getattr(native, "hamun_gpu_viewport_render_shadow", None)
+            gpu_uv_fn = getattr(native, "hamun_gpu_viewport_render_shadow_uv", None)
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
             wants_shadow = any(item[10] > 0.0 and item[11] >= 0.0
                                for item in lights)
             # Shadow API handles Point, Spot, Area and Sun. Direct rendering
             # must not silently bypass shadows when the scene has no Sun.
-            gpu_viewport = (gpu_shadow_fn if gpu_shadow_fn is not None
-                            else None if wants_shadow else gpu_direct_fn)
-            use_gpu_shadow_api = gpu_viewport is gpu_shadow_fn and gpu_viewport is not None
+            # Prefer versioned UV bridge when installed, but keep the legacy
+            # shadow entry point available for older builds.
+            gpu_viewport = (gpu_uv_fn if gpu_uv_fn is not None else
+                            gpu_shadow_fn if gpu_shadow_fn is not None else
+                            None if wants_shadow else gpu_direct_fn)
+            use_uv_api = gpu_viewport is gpu_uv_fn and gpu_uv_fn is not None
+            use_gpu_shadow_api = gpu_viewport is not None and (use_uv_api or gpu_viewport is gpu_shadow_fn)
             route = ("VULKAN_GPU_SHADOW" if use_gpu_shadow_api else
                      "CPU_SHADOW_FALLBACK" if wants_shadow else
                      "VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None
@@ -1530,6 +1535,8 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_float),
                     ctypes.POINTER(ctypes.c_char), ctypes.c_uint32,
                 ]
+                if use_uv_api:
+                    gpu_viewport.argtypes += [ctypes.POINTER(ctypes.c_float)]
                 if use_gpu_shadow_api:
                     gpu_viewport.argtypes += [
                         ctypes.c_uint32, ctypes.c_float, ctypes.c_float,
@@ -1539,8 +1546,10 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 gpu_args = (
                     width, height, rgba, ctypes.sizeof(rgba),
                     positions, len(verts) // 3, faces, len(indices),
-                    matrix, light_array, len(lights), normal_array,
-                    gpu_error, len(gpu_error))
+                    matrix, light_array, len(lights), normal_array)
+                if use_uv_api:
+                    gpu_args += (self._hamun_uv_cache,)
+                gpu_args += (gpu_error, len(gpu_error))
                 if use_gpu_shadow_api:
                     gpu_args += (requested_shadow_size, shadow_softness, shadow_bias)
                 ok = gpu_viewport(*gpu_args)
