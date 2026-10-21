@@ -1725,7 +1725,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                      stats[4]/count, stats[5]/count, len(indices)//3, width, height))
                 self._hamun_profile_stats = [0, 0.0, 0.0, 0.0, 0.0, 0.0]
                 self._hamun_profile_last_write = time.perf_counter()
-            _hamun_draw_metrics(width, height, profile_total_ms)
+            # HUD uses full viewport pixel coordinates, never the scaled
+            # Vulkan render target dimensions.
+            _hamun_draw_metrics(display_width, display_height, profile_total_ms)
             if not getattr(self, "_hamun_success_logged", False):
                 _hamun_diagnostic_log("Viewport image drawn " + str((width, height)))
                 self._hamun_success_logged = True
