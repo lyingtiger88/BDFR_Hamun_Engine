@@ -91,17 +91,31 @@ void main(){
                         offset=vec2(float(face%3)/3.0,float(face/3)/2.0);
                         scale=vec2(1.0/3.0,1.0/2.0);
                     }
-                    // Do not let PCF taps cross atlas tile boundaries.
+                    // Rotated Poisson PCF removes the visible 3x3 grid pattern.
+                    // Keep samples within the selected Point atlas tile.
+                    const vec2 taps[12]=vec2[12](
+                        vec2(-0.326,-0.406),vec2(-0.840,-0.074),
+                        vec2(-0.696, 0.457),vec2(-0.203, 0.621),
+                        vec2( 0.962,-0.195),vec2( 0.473,-0.480),
+                        vec2( 0.519, 0.767),vec2( 0.185,-0.893),
+                        vec2( 0.507, 0.064),vec2( 0.896, 0.412),
+                        vec2(-0.322,-0.933),vec2(-0.792,-0.598)
+                    );
                     vec2 halfPixel=texel*0.5;
+                    float angle=6.2831853*fract(sin(dot(gl_FragCoord.xy,
+                                      vec2(12.9898,78.233)))*43758.5453);
+                    mat2 rotation=mat2(cos(angle),-sin(angle),
+                                       sin(angle),cos(angle));
+                    float radius=max(0.0,s.settings.z)*1.5;
                     visibility=0.0;
-                    for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
-                        vec2 local=uv+vec2(x,y)*(texel/scale)*s.settings.z;
+                    for(int tap=0;tap<12;++tap){
+                        vec2 local=uv+(rotation*taps[tap])*(texel/scale)*radius;
                         vec2 atlasUV=clamp(offset+local*scale,
                                            offset+halfPixel,
                                            offset+scale-halfPixel);
                         visibility+=texture(shadowDepth,vec3(atlasUV,q.z-s.settings.y));
                     }
-                    visibility/=9.0;
+                    visibility/=12.0;
                 }
             }
         }
