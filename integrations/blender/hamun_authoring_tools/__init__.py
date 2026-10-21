@@ -853,24 +853,42 @@ def _register_hamun_shortcuts():
     if user is not None and user_viewmap is None:
         user_viewmap = user.keymaps.new(name="3D View", space_type="VIEW_3D")
 
-    bindings = [(key, "hamun.wasd_navigate") for key in ("W", "A", "S", "D")]
-    bindings += [("E", "transform.translate"), ("R", "transform.rotate"),
-                 ("T", "transform.resize")]
+    bindings = [(key, "hamun.wasd_navigate", False) for key in ("W", "A", "S", "D")]
+    bindings += [("E", "transform.translate", False),
+                 ("R", "transform.rotate", False),
+                 ("T", "transform.resize", False),
+                 ("T", "wm.context_toggle", True)]
     for destination in (viewmap, user_viewmap):
-        if destination is None or destination == viewmap and user_viewmap is viewmap:
+        if destination is None or destination is viewmap and user_viewmap is viewmap:
             continue
-        for key, operator in bindings:
-            # Disable only conflicting unmodified presses in this exact map.
-            # Do not change shortcuts in Object Mode or global keymaps.
-            for existing in destination.keymap_items:
+        for key, operator, shifted in bindings:
+            # Preserve original bindings for addon shutdown; remove conflicts
+            # only for this exact key+modifier combination.
+            for existing in list(destination.keymap_items):
                 if (existing.active and existing.type == key and existing.value == "PRESS"
-                        and not (existing.ctrl or existing.alt or existing.shift or existing.oskey)):
+                        and existing.shift == shifted
+                        and not (existing.ctrl or existing.alt or existing.oskey)):
                     _hamun_overridden_keymaps.append((existing, True))
                     existing.active = False
-            item = destination.keymap_items.new(operator, key, "PRESS", head=True)
+            item = destination.keymap_items.new(
+                operator, key, "PRESS", shift=shifted, head=True)
             if operator == "hamun.wasd_navigate":
                 item.properties.initial_key = key
+            elif operator == "wm.context_toggle":
+                item.properties.data_path = "space_data.show_region_toolbar"
             _hamun_keymaps.append((destination, item))
+    # Built-in Object Mode S=Scale can preempt the 3D View keymap.
+    # Disable that specific shortcut while the Hamun addon is enabled.
+    if user is not None:
+        for map_name in ("Object Mode", "Mesh", "3D View Generic"):
+            other = user.keymaps.get(map_name)
+            if other is None:
+                continue
+            for existing in other.keymap_items:
+                if (existing.active and existing.type == "S" and existing.value == "PRESS"
+                        and not (existing.ctrl or existing.shift or existing.alt or existing.oskey)):
+                    _hamun_overridden_keymaps.append((existing, True))
+                    existing.active = False
     toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS",
                                      ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
