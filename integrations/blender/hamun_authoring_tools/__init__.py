@@ -1678,13 +1678,25 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 (0.0, 0.0, -1.0, 0.0),
                 (0.0, 0.0, 0.0, 1.0),
             ))
-            with gpu.matrix.push_pop():
-                gpu.matrix.load_matrix(Matrix.Identity(4))
-                gpu.matrix.load_projection_matrix(screen_projection)
+            # RenderEngine inherits GPU state from Blender's viewport.
+            # Disable depth rejection explicitly: the RGBA result is a
+            # fullscreen compositing quad, not 3D scene geometry. Without
+            # this, a previously populated depth buffer can hide the image
+            # after its first successful frame.
+            try:
+                gpu.state.depth_test_set("NONE")
+                gpu.state.depth_mask_set(False)
+                with gpu.matrix.push_pop():
+                    gpu.matrix.load_matrix(Matrix.Identity(4))
+                    gpu.matrix.load_projection_matrix(screen_projection)
+                    gpu.state.blend_set("NONE")
+                    shader.bind()
+                    shader.uniform_sampler("image", texture)
+                    batch.draw(shader)
+            finally:
+                gpu.state.depth_mask_set(True)
+                gpu.state.depth_test_set("NONE")
                 gpu.state.blend_set("NONE")
-                shader.bind()
-                shader.uniform_sampler("image", texture)
-                batch.draw(shader)
             profile_upload_ms = (time.perf_counter() - profile_upload_start) * 1000.0
             profile_total_ms = (time.perf_counter() - frame_started) * 1000.0
             # Accumulate and write just one summary every five seconds.
