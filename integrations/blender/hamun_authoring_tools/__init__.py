@@ -1646,9 +1646,19 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # Blender 5.4's GPUTexture constructor accepts FLOAT buffers
             # only. Normalize RGBA8 bytes and use an RGBA32F texture to avoid
             # the UBYTE upload exception that left the viewport blank.
-            float_pixels = (ctypes.c_float * len(rgba))(
-                *(component / 255.0 for component in rgba))
-            buffer = gpu.types.Buffer("FLOAT", (height, width, 4), float_pixels)
+            # Vectorized NumPy conversion avoids millions of Python float
+            # allocations per frame (1584x887 RGBA = 5.6M components).
+            # Blender bundles NumPy. Keep the Python fallback for unusual builds.
+            try:
+                import numpy as np
+                pixels = np.ctypeslib.as_array(rgba)
+                float_pixels = pixels.astype(np.float32)
+                float_pixels *= np.float32(1.0 / 255.0)
+                buffer = gpu.types.Buffer("FLOAT", (height, width, 4), float_pixels)
+            except ImportError:
+                float_pixels = (ctypes.c_float * len(rgba))(
+                    *(component / 255.0 for component in rgba))
+                buffer = gpu.types.Buffer("FLOAT", (height, width, 4), float_pixels)
             profile_convert_ms = (time.perf_counter() - profile_convert_start) * 1000.0
             profile_upload_start = time.perf_counter()
             # Blender 5.4 GPUTexture exposes no update() method. Recreate
