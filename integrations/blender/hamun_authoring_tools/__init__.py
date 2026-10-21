@@ -824,7 +824,8 @@ class HAMUN_OT_wasd_navigate(bpy.types.Operator):
                 if event.shift:
                     speed *= 3.0
                 self._region_3d.view_location += direction * speed / 60.0
-                context.area.tag_redraw()
+                if context.area is not None:
+                    context.area.tag_redraw()
             return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
 
@@ -841,16 +842,25 @@ def _register_hamun_shortcuts():
         item = km.keymap_items.new(operator, key, "PRESS", ctrl=True)
         _hamun_keymaps.append((km, item))
     viewmap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
-    # Hamun navigation: hold WASD. E/R/T use Blender's native transform tools.
+    # Blender's default W (selection) and T (toolbar) shortcuts can take
+    # precedence over addon bindings. Install overriding items at the head of
+    # the active user keymap so WASD and E/R/T respond in the 3D View.
+    priority_config = bpy.context.window_manager.keyconfigs.user
+    priority_viewmap = (priority_config.keymaps.get("3D View")
+                        if priority_config is not None else None)
+    if priority_viewmap is None:
+        priority_viewmap = viewmap
     for key in ("W", "A", "S", "D"):
-        item = viewmap.keymap_items.new("hamun.wasd_navigate", key, "PRESS")
+        item = priority_viewmap.keymap_items.new(
+            "hamun.wasd_navigate", key, "PRESS", head=True)
         item.properties.initial_key = key
-        _hamun_keymaps.append((viewmap, item))
+        _hamun_keymaps.append((priority_viewmap, item))
     for key, operator in (("E", "transform.translate"),
                           ("R", "transform.rotate"),
                           ("T", "transform.resize")):
-        item = viewmap.keymap_items.new(operator, key, "PRESS")
-        _hamun_keymaps.append((viewmap, item))
+        item = priority_viewmap.keymap_items.new(
+            operator, key, "PRESS", head=True)
+        _hamun_keymaps.append((priority_viewmap, item))
     toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS", ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
     for key, modifier, mode in (("F8", {}, "OFF"), ("F8", {"shift": True}, "BASIC"),
