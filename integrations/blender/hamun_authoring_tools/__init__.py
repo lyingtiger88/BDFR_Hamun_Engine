@@ -1531,9 +1531,21 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 if not object_images:
                     has_untextured_mesh = True
                 image_candidates.update(object_images)
+            # The initial texture bridge is global, but an untextured shadow
+            # receiver must not suppress a valid image on the textured mesh.
+            # TODO: move to per-material draw ranges so receivers stay untextured.
             shared_image = (next(iter(image_candidates))
-                            if len(image_candidates) == 1 and not has_untextured_mesh
-                            else None)
+                            if len(image_candidates) == 1 else None)
+            if getattr(self, "_hamun_material_scan_state", None) != (
+                    len(image_candidates), has_untextured_mesh,
+                    shared_image.name if shared_image else None):
+                self._hamun_material_scan_state = (
+                    len(image_candidates), has_untextured_mesh,
+                    shared_image.name if shared_image else None)
+                _hamun_diagnostic_log(
+                    "MATERIAL_SCAN image_count=" + str(len(image_candidates)) +
+                    " untextured_mesh=" + str(has_untextured_mesh) +
+                    " selected=" + (shared_image.name if shared_image else "NONE"))
             texture_pixels = None
             texture_width = texture_height = 0
             if shared_image is not None and shared_image.has_data:
@@ -1561,6 +1573,18 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     else:
                         texture_pixels = cache[1]
             use_textured_api = gpu_tex_fn is not None and texture_pixels is not None
+            texture_status = (
+                "ready" if use_textured_api else
+                "api_missing" if gpu_tex_fn is None else
+                "image_missing" if shared_image is None else
+                "image_has_no_data" if not shared_image.has_data else
+                "image_invalid_dimensions_or_pixels")
+            if getattr(self, "_hamun_texture_status", None) != texture_status:
+                self._hamun_texture_status = texture_status
+                _hamun_diagnostic_log(
+                    "TEXTURE_BRIDGE status=" + texture_status +
+                    " api=" + str(gpu_tex_fn is not None) +
+                    " image=" + (shared_image.name if shared_image else "NONE"))
             if use_textured_api and getattr(self, "_hamun_texture_logged", None) != shared_image.name:
                 _hamun_diagnostic_log("BASE_COLOR_TEXTURE=" + shared_image.name +
                                       " size=" + str((texture_width, texture_height)))
