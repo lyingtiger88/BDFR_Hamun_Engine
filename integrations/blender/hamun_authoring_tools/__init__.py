@@ -1374,7 +1374,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
             profile_geometry_start = time.perf_counter()
             if getattr(self, "_hamun_geometry_dirty", True) or not hasattr(self, "_hamun_geometry_cache"):
-                verts, indices, face_normals = [], [], []
+                verts, indices, face_normals, uv_coords = [], [], [], []
                 for obj in depsgraph.objects:
                     if obj.type != "MESH" or obj.hide_render:
                         continue
@@ -1384,25 +1384,45 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         if mesh is None:
                             continue
                         mesh.calc_loop_triangles()
-                        base = len(verts) // 3
                         world = evaluated.matrix_world
-                        # Inverse transpose is essential for nonuniform or mirrored scales.
+                        # Preserve per-corner UV discontinuities by splitting
+                        # mesh vertices only at UV seams. Untextured geometry
+                        # continues to use one vertex per mesh vertex.
                         normal_matrix = world.to_3x3().inverted_safe().transposed()
-                        for vertex in mesh.vertices:
-                            pt = world @ vertex.co
-                            verts.extend((pt.x, pt.y, pt.z))
+                        uv_layer = mesh.uv_layers.active
+                        split_vertices = {}
                         for tri in mesh.loop_triangles:
-                            indices.extend(base + int(j) for j in tri.vertices)
+                            for vertex_index, loop_index in zip(tri.vertices, tri.loops):
+                                uv = (tuple(uv_layer.data[loop_index].uv)
+                                      if uv_layer is not None else (0.0, 0.0))
+                                # Float32 UV representation matches the
+                                # eventual Vulkan vertex attribute precision.
+                                import struct
+                                uv_bits = struct.pack("<ff", float(uv[0]), float(uv[1]))
+                                key = (int(vertex_index), uv_bits)
+                                index = split_vertices.get(key)
+                                if index is None:
+                                    index = len(verts) // 3
+                                    split_vertices[key] = index
+                                    pt = world @ mesh.vertices[vertex_index].co
+                                    verts.extend((pt.x, pt.y, pt.z))
+                                    uv_coords.extend((float(uv[0]), float(uv[1])))
+                                indices.append(index)
                             normal = (normal_matrix @ tri.normal).normalized()
                             face_normals.extend((normal.x, normal.y, normal.z))
                     finally:
                         evaluated.to_mesh_clear()
-    
+
                 self._hamun_geometry_cache = (
                     (ctypes.c_float * len(verts))(*verts),
                     (ctypes.c_uint32 * len(indices))(*indices),
                     (ctypes.c_float * len(face_normals))(*face_normals),
                 )
+                # Store seam-safe UVs aligned with the expanded vertex buffer.
+                # The existing Vulkan entry point deliberately remains intact
+                # until the versioned textured render bridge is implemented.
+                self._hamun_uv_cache = (
+                    (ctypes.c_float * len(uv_coords))(*uv_coords))
                 self._hamun_geometry_dirty = False
             positions, faces, normal_array = self._hamun_geometry_cache
             verts, indices, face_normals = positions, faces, normal_array
