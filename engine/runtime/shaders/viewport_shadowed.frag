@@ -9,6 +9,7 @@ layout(push_constant) uniform Params {
     vec4 sunColorEnergy;
 } p;
 layout(set=0,binding=0) uniform sampler2DShadow shadowDepth;
+layout(set=0,binding=3) uniform sampler2D baseColorMap;
 layout(set=0,binding=1,std140) uniform SunShadow {
     mat4 lightViewProjection;
     vec4 settings;
@@ -133,6 +134,9 @@ void main(){
         float energy=0.8*log(1.0+l.colorEnergy.w);
         linear+=l.colorEnergy.rgb*(energy*diffuse*attenuation*visibility);
     }
+    // Vulkan sampled sRGB image is decoded to linear RGB automatically.
+    vec3 baseColor=texture(baseColorMap,vec2(vUV.x,1.0-vUV.y)).rgb;
+    linear*=baseColor;
     vec3 mapped=linear/(vec3(1.0)+linear);
     outColor=vec4(pow(mapped,vec3(1.0/2.2)),1.0);
 }
