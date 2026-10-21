@@ -1601,8 +1601,12 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # Material authoring must never disable basic lighting/shadows.
             experimental_materials = bool(
                 depsgraph.scene.get("hamun_experimental_materials", False))
+            # Select the textured shadow ABI when an actual image was found.
+            # The previous gate silently forced the untextured path even when
+            # TEXTURE_BRIDGE=ready, making Base Color impossible by default.
+            # Retain the established shadow ABI when no image is available.
             gpu_viewport = (
-                gpu_tex_fn if experimental_materials and use_textured_api else
+                gpu_tex_fn if use_textured_api else
                 gpu_uv_fn if experimental_materials and gpu_uv_fn is not None else
                 gpu_shadow_fn if gpu_shadow_fn is not None else
                 None if wants_shadow else gpu_direct_fn)
@@ -1610,7 +1614,8 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             use_uv_api = (use_tex_api or
                           (gpu_viewport is gpu_uv_fn and gpu_uv_fn is not None))
             use_gpu_shadow_api = gpu_viewport is not None and (use_uv_api or gpu_viewport is gpu_shadow_fn)
-            route = ("VULKAN_GPU_SHADOW" if use_gpu_shadow_api else
+            route = ("VULKAN_GPU_SHADOW_TEXTURED" if use_tex_api else
+                     "VULKAN_GPU_SHADOW" if use_gpu_shadow_api else
                      "CPU_SHADOW_FALLBACK" if wants_shadow else
                      "VULKAN_DIRECT_NO_SHADOW" if gpu_viewport is not None
                      else "CPU_FALLBACK")
