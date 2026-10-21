@@ -1479,7 +1479,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                                 # Each material occupies a separate atlas cell.
                                 # Fractional coordinates preserve UV repetition.
                                 u = (tile % 8 + (float(uv[0]) % 1.0) * .996 + .002) / 8.0
-                                v = (tile // 8 + (float(uv[1]) % 1.0) * .996 + .002) / 8.0
+                                # Fragment shader samples (u, 1-v). Invert the\n                                # *whole atlas coordinate* here; otherwise\n                                # every mesh samples a different atlas row.\n                                v = 1.0 - (tile // 8 + (float(uv[1]) % 1.0) * .996 + .002) / 8.0
                                 uv_bits = struct.pack("<ff", u, v)
                                 key = (int(vertex_index), uv_bits)
                                 index = split_vertices.get(key)
