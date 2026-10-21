@@ -145,7 +145,7 @@ static int gpuViewportImpl(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
-    const float* vertexUV,
+    const float* vertexUV,const uint8_t* textureRGBA,uint32_t textureW,uint32_t textureH,
     char* error,uint32_t errorCapacity,uint32_t requestedShadowSize,float shadowSoftness,float shadowBias) {
     auto fail=[&](const char* why) {
         if(error&&errorCapacity){
@@ -157,7 +157,8 @@ static int gpuViewportImpl(
     if(!pixels||!positions||!indices||!mvp||!faceNormals||
        w==0||h==0||w>4096||h>4096||vertexCount==0||
        indexCount==0||indexCount%3||vertexCount>1000000||indexCount>3000000||
-       capacity<uint64_t(w)*h*4||(lightCount&&!lights)||lightCount>32)
+       capacity<uint64_t(w)*h*4||(lightCount&&!lights)||lightCount>32||
+       (textureRGBA&&(!vertexUV||!textureW||!textureH||textureW>4096||textureH>4096)))
         return fail("Invalid Vulkan viewport parameters");
     // Skip full Vulkan setup for identical redraws. The bridge invokes this
     // function continuously even if neither mesh, camera nor light changed.
@@ -176,6 +177,8 @@ static int gpuViewportImpl(
     mix(faceNormals,size_t(indexCount)*sizeof(float));
     if(vertexUV)mix(vertexUV,size_t(vertexCount)*2*sizeof(float));
     const uint64_t currentMeshKey=key;
+    mix(&textureW,sizeof(textureW));mix(&textureH,sizeof(textureH));
+    if(textureRGBA)mix(textureRGBA,size_t(textureW)*textureH*4);
     mix(&w,sizeof(w));mix(&h,sizeof(h));
     mix(&requestedShadowSize,sizeof(requestedShadowSize));
     mix(&shadowSoftness,sizeof(shadowSoftness));mix(&shadowBias,sizeof(shadowBias));
@@ -191,11 +194,12 @@ static int gpuViewportImpl(
     VkPipelineLayout layout=VK_NULL_HANDLE,shadowLayout=VK_NULL_HANDLE;
     VkPipeline pipeline=VK_NULL_HANDLE,shadowPipeline=VK_NULL_HANDLE;
     VkShaderModule vert=VK_NULL_HANDLE,frag=VK_NULL_HANDLE,shadowVert=VK_NULL_HANDLE;
-    VkImage color=VK_NULL_HANDLE,depth=VK_NULL_HANDLE,shadowImage=VK_NULL_HANDLE;
-    VkDeviceMemory colorMemory=VK_NULL_HANDLE,depthMemory=VK_NULL_HANDLE,shadowMemory=VK_NULL_HANDLE;
-    VkImageView colorView=VK_NULL_HANDLE,depthView=VK_NULL_HANDLE,shadowView=VK_NULL_HANDLE;
+    VkImage color=VK_NULL_HANDLE,depth=VK_NULL_HANDLE,shadowImage=VK_NULL_HANDLE,albedoImage=VK_NULL_HANDLE;
+    VkDeviceMemory colorMemory=VK_NULL_HANDLE,depthMemory=VK_NULL_HANDLE,shadowMemory=VK_NULL_HANDLE,albedoMemory=VK_NULL_HANDLE,albedoStagingMemory=VK_NULL_HANDLE;
+    VkImageView colorView=VK_NULL_HANDLE,depthView=VK_NULL_HANDLE,shadowView=VK_NULL_HANDLE,albedoView=VK_NULL_HANDLE;
     VkFramebuffer framebuffer=VK_NULL_HANDLE,shadowFramebuffer=VK_NULL_HANDLE;
-    VkSampler shadowSampler=VK_NULL_HANDLE;
+    VkSampler shadowSampler=VK_NULL_HANDLE,albedoSampler=VK_NULL_HANDLE;
+    VkBuffer albedoStaging=VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout=VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool=VK_NULL_HANDLE;
     VkBuffer lightUniform=VK_NULL_HANDLE;
@@ -214,6 +218,12 @@ static int gpuViewportImpl(
             // Depth render pass retained by PersistentVkContext.
 
             if(shadowSampler)vkDestroySampler(device,shadowSampler,nullptr);
+            if(albedoSampler)vkDestroySampler(device,albedoSampler,nullptr);
+            if(albedoView)vkDestroyImageView(device,albedoView,nullptr);
+            if(albedoImage)vkDestroyImage(device,albedoImage,nullptr);
+            if(albedoMemory)vkFreeMemory(device,albedoMemory,nullptr);
+            if(albedoStaging)vkDestroyBuffer(device,albedoStaging,nullptr);
+            if(albedoStagingMemory)vkFreeMemory(device,albedoStagingMemory,nullptr);
             if(descriptorPool)vkDestroyDescriptorPool(device,descriptorPool,nullptr);
             /* persistent pipeline resource */
             if(lightUniform)vkDestroyBuffer(device,lightUniform,nullptr);
@@ -279,6 +289,22 @@ static int gpuViewportImpl(
             color,colorMemory,colorView,VK_IMAGE_ASPECT_COLOR_BIT,w,h);
         createImage(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             depth,depthMemory,depthView,VK_IMAGE_ASPECT_DEPTH_BIT,w,h);
+        // A single Base Color image for the initial textured-material ABI.
+        // The default 1x1 white texel keeps all legacy lighting unchanged.
+        const uint8_t whiteTexel[4]={255,255,255,255};
+        const uint8_t* albedoPixels=textureRGBA?textureRGBA:whiteTexel;
+        const uint32_t albedoW=textureRGBA?textureW:1u;
+        const uint32_t albedoH=textureRGBA?textureH:1u;
+        createImage(VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+            albedoImage,albedoMemory,albedoView,VK_IMAGE_ASPECT_COLOR_BIT,albedoW,albedoH);
+        createBuffer(VkDeviceSize(albedoW)*albedoH*4,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,albedoStaging,albedoStagingMemory);
+        void* albedoMapped=nullptr;
+        require(vkMapMemory(device,albedoStagingMemory,0,VK_WHOLE_SIZE,0,&albedoMapped),
+                "Map Base Color upload failed");
+        std::memcpy(albedoMapped,albedoPixels,size_t(albedoW)*albedoH*4);
+        vkUnmapMemory(device,albedoStagingMemory);
         // For a Point source render six 90-degree faces into one 3x2 atlas.
         int pointCandidate=-1;
         bool anySunShadow=false,anySpotShadow=false,anyAreaShadow=false;
@@ -638,19 +664,31 @@ static int gpuViewportImpl(
         shadowSamplerInfo.compareOp=VK_COMPARE_OP_LESS_OR_EQUAL;
         shadowSamplerInfo.minLod=0;shadowSamplerInfo.maxLod=0;
         require(vkCreateSampler(device,&shadowSamplerInfo,nullptr,&shadowSampler),"Create shadow sampler failed");
-        VkDescriptorSetLayoutBinding bindings[3]{};
+        VkSamplerCreateInfo albedoSamplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        albedoSamplerInfo.magFilter=VK_FILTER_LINEAR;
+        albedoSamplerInfo.minFilter=VK_FILTER_LINEAR;
+        albedoSamplerInfo.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        albedoSamplerInfo.addressModeU=VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        albedoSamplerInfo.addressModeV=VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        albedoSamplerInfo.addressModeW=VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        albedoSamplerInfo.maxLod=0;
+        require(vkCreateSampler(device,&albedoSamplerInfo,nullptr,&albedoSampler),
+                "Create Base Color sampler failed");
+        VkDescriptorSetLayoutBinding bindings[4]{};
         bindings[0].binding=0;bindings[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount=1;bindings[0].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[1].binding=1;bindings[1].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[1].descriptorCount=1;bindings[1].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[2].binding=2;bindings[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[2].descriptorCount=1;bindings[2].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[3].binding=3;bindings[3].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[3].descriptorCount=1;bindings[3].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
         VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        dl.bindingCount=3;dl.pBindings=bindings;
+        dl.bindingCount=4;dl.pBindings=bindings;
         if(!persistent.descriptorLayout)
             require(vkCreateDescriptorSetLayout(device,&dl,nullptr,&persistent.descriptorLayout),"Create shadow descriptor layout failed");
         setLayout=persistent.descriptorLayout;
-        VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1},
+        VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,2},
                                            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,2}};
         VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         dp.maxSets=1;dp.poolSizeCount=2;dp.pPoolSizes=poolSizes;
@@ -688,7 +726,11 @@ static int gpuViewportImpl(
         std::memcpy(lightMapped,&lightBlock,sizeof(lightBlock));
         vkUnmapMemory(device,lightUniformMemory);
         VkDescriptorBufferInfo lightsBinding{lightUniform,0,sizeof(lightBlock)};
-        VkWriteDescriptorSet writes[3]{};
+        VkDescriptorImageInfo albedoBinding{};
+        albedoBinding.sampler=albedoSampler;
+        albedoBinding.imageView=albedoView;
+        albedoBinding.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet writes[4]{};
         for(auto& write:writes)write.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet=descriptorSet;writes[0].dstBinding=0;
         writes[0].descriptorCount=1;writes[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -699,7 +741,11 @@ static int gpuViewportImpl(
         writes[2].dstSet=descriptorSet;writes[2].dstBinding=2;
         writes[2].descriptorCount=1;writes[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[2].pBufferInfo=&lightsBinding;
-        vkUpdateDescriptorSets(device,3,writes,0,nullptr);
+        writes[3].dstSet=descriptorSet;writes[3].dstBinding=3;
+        writes[3].descriptorCount=1;
+        writes[3].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[3].pImageInfo=&albedoBinding;
+        vkUpdateDescriptorSets(device,4,writes,0,nullptr);
         VkAttachmentDescription attachments[2]{};
         attachments[0].format=VK_FORMAT_R8G8B8A8_UNORM;
         attachments[0].samples=VK_SAMPLE_COUNT_1_BIT;
@@ -832,6 +878,33 @@ static int gpuViewportImpl(
         require(vkAllocateCommandBuffers(device,&ai,&cmd),"Allocate command buffer failed");
         VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         require(vkBeginCommandBuffer(cmd,&bi),"Begin GPU commands failed");
+        VkImageMemoryBarrier albedoToTransfer{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        albedoToTransfer.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        albedoToTransfer.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        albedoToTransfer.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+        albedoToTransfer.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+        albedoToTransfer.image=albedoImage;
+        albedoToTransfer.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        albedoToTransfer.subresourceRange.levelCount=1;
+        albedoToTransfer.subresourceRange.layerCount=1;
+        albedoToTransfer.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,
+                             1,&albedoToTransfer);
+        VkBufferImageCopy albedoCopy{};
+        albedoCopy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        albedoCopy.imageSubresource.layerCount=1;
+        albedoCopy.imageExtent={albedoW,albedoH,1};
+        vkCmdCopyBufferToImage(cmd,albedoStaging,albedoImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&albedoCopy);
+        VkImageMemoryBarrier albedoToRead=albedoToTransfer;
+        albedoToRead.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        albedoToRead.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        albedoToRead.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+        albedoToRead.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,
+                             1,&albedoToRead);
         VkClearValue clears[2]{};clears[0].color={{0.035f,0.10f,0.17f,1.f}};clears[1].depthStencil={1.f,0};
         VkRenderPassBeginInfo rb{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         rb.renderPass=pass;rb.framebuffer=framebuffer;rb.renderArea.extent={w,h};
@@ -921,7 +994,7 @@ extern "C" int hamun_gpu_viewport_render(
     const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
     char* error,uint32_t errorCapacity){
     return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
-                           mvp,lights,lightCount,faceNormals,nullptr,error,errorCapacity,1024,1.f,1.f);
+                           mvp,lights,lightCount,faceNormals,nullptr,nullptr,0,0,error,errorCapacity,1024,1.f,1.f);
 }
 extern "C" int hamun_gpu_viewport_render_shadow(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
@@ -932,7 +1005,7 @@ extern "C" int hamun_gpu_viewport_render_shadow(
        !std::isfinite(softness)||softness<0.f||softness>4.f||
        !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
     return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
-                           mvp,lights,lightCount,faceNormals,nullptr,error,errorCapacity,
+                           mvp,lights,lightCount,faceNormals,nullptr,nullptr,0,0,error,errorCapacity,
                            shadowSize,softness,bias);
 }
 
@@ -947,6 +1020,22 @@ extern "C" int hamun_gpu_viewport_render_shadow_uv(
        !std::isfinite(softness)||softness<0.f||softness>4.f||
        !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
     return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
-                           mvp,lights,lightCount,faceNormals,vertexUV,error,errorCapacity,
+                           mvp,lights,lightCount,faceNormals,vertexUV,nullptr,0,0,error,errorCapacity,
                            shadowSize,softness,bias);
+}
+
+// Initial one-material textured API: UVs index vertices and RGBA8 is sRGB.
+extern "C" int hamun_gpu_viewport_render_shadow_textured(
+    uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
+    const float* vertexUV,const uint8_t* baseColor,uint32_t texWidth,uint32_t texHeight,
+    char* error,uint32_t errorCapacity,uint32_t shadowSize,float softness,float bias){
+    if(!vertexUV||!baseColor||!texWidth||!texHeight||texWidth>4096||texHeight>4096||
+       shadowSize<64||shadowSize>4096||(shadowSize&(shadowSize-1))!=0||
+       !std::isfinite(softness)||softness<0.f||softness>4.f||
+       !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
+    return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
+                           mvp,lights,lightCount,faceNormals,vertexUV,baseColor,
+                           texWidth,texHeight,error,errorCapacity,shadowSize,softness,bias);
 }
