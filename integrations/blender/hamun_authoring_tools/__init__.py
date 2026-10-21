@@ -2103,6 +2103,23 @@ def _hamun_light_panel_compat(enable):
                 compatible.discard("HAMUN_VULKAN")
 
 
+def _hamun_material_panel_compat(enable):
+    """Show native Material Properties for the custom Vulkan RenderEngine.
+
+    Blender filters its built-in material panels by COMPAT_ENGINES, just
+    as it does the Light panels. This only changes UI visibility; shader
+    graph evaluation and Vulkan support are separate responsibilities.
+    """
+    from bl_ui import properties_material
+    for panel in properties_material.classes:
+        compatible = getattr(panel, "COMPAT_ENGINES", None)
+        if compatible is not None:
+            if enable:
+                compatible.add("HAMUN_VULKAN")
+            else:
+                compatible.discard("HAMUN_VULKAN")
+
+
 def _hamun_shadow_resolution_changed(self, context):
     """Force viewport redraw whenever the CPU Sun shadow atlas size changes."""
     try:
@@ -2122,6 +2139,7 @@ def _hamun_shadow_resolution_changed(self, context):
 
 def register():
     _hamun_light_panel_compat(True)
+    _hamun_material_panel_compat(True)
     bpy.types.Scene.hamun_vulkan_executable = bpy.props.StringProperty(
         name="Runtime Executable", subtype="FILE_PATH",
         description="Path to HamunRuntime.exe"
@@ -2166,6 +2184,7 @@ def register():
 
 def unregister():
     _hamun_light_panel_compat(False)
+    _hamun_material_panel_compat(False)
     _hamun_metrics.pop("active_engines", None)
     if bpy.app.timers.is_registered(_hamun_metrics_refresh_timer):
         bpy.app.timers.unregister(_hamun_metrics_refresh_timer)
