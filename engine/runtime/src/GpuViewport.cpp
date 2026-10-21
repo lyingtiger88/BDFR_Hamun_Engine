@@ -632,6 +632,11 @@ static int gpuViewportImpl(
             o.settings[0]=l[11];
             o.settings[1]=l[0]>=1.5f && l[0]<2.5f && l[11]>1.f
                 ?std::clamp(l[11]-1.f,0.05f,3.10f):1.0681415f;
+            // Point radius / Area half-size, encoded by the Blender bridge.
+            // Keep disabled lights at zero; Sun and Spot use other parameters.
+            o.settings[2]=(l[0]>=0.5f && l[0]<1.5f) ||
+                          (l[0]>=2.5f && l[0]<3.5f)
+                          ?std::max(0.f,l[11]-1.f):0.f;
         }
         createBuffer(sizeof(lightBlock),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,lightUniform,lightUniformMemory);
         void* lightMapped=nullptr;
