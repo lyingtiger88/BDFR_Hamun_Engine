@@ -1314,6 +1314,9 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
     # Never substitute Eevee's viewport: it masks the result of our custom
     # RenderEngine.view_draw, so scene lights appear to have no effect.
     bl_use_eevee_viewport = False
+    # Reuse Blender Principled BSDF/Image Texture authoring nodes. Without
+    # this, custom RenderEngine defaults hide Eevee/Cycles shader nodes.
+    bl_use_shading_nodes_custom = False
 
     def view_update(self, context, depsgraph):
         engines = _hamun_metrics.setdefault("active_engines", [])
