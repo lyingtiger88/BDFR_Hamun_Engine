@@ -1569,10 +1569,16 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # must not silently bypass shadows when the scene has no Sun.
             # Prefer versioned UV bridge when installed, but keep the legacy
             # shadow entry point available for older builds.
-            gpu_viewport = (gpu_tex_fn if use_textured_api else
-                            gpu_uv_fn if gpu_uv_fn is not None else
-                            gpu_shadow_fn if gpu_shadow_fn is not None else
-                            None if wants_shadow else gpu_direct_fn)
+            # SAFETY: preserve the proven shadow path by default. The UV and
+            # texture bridges are experimental and only enabled explicitly.
+            # Material authoring must never disable basic lighting/shadows.
+            experimental_materials = bool(
+                depsgraph.scene.get("hamun_experimental_materials", False))
+            gpu_viewport = (
+                gpu_tex_fn if experimental_materials and use_textured_api else
+                gpu_uv_fn if experimental_materials and gpu_uv_fn is not None else
+                gpu_shadow_fn if gpu_shadow_fn is not None else
+                None if wants_shadow else gpu_direct_fn)
             use_tex_api = gpu_viewport is gpu_tex_fn and use_textured_api
             use_uv_api = (use_tex_api or
                           (gpu_viewport is gpu_uv_fn and gpu_uv_fn is not None))
