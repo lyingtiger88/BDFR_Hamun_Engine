@@ -1502,6 +1502,66 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             gpu_direct_fn = getattr(native, "hamun_gpu_viewport_render", None)
             gpu_shadow_fn = getattr(native, "hamun_gpu_viewport_render_shadow", None)
             gpu_uv_fn = getattr(native, "hamun_gpu_viewport_render_shadow_uv", None)
+            gpu_tex_fn = getattr(native, "hamun_gpu_viewport_render_shadow_textured", None)
+            # First material milestone supports one shared image across all
+            # visible meshes; mixed material scenes fall back to UV/no texture.
+            image_candidates = set()
+            has_untextured_mesh = False
+            for material_obj in depsgraph.objects:
+                if material_obj.type != "MESH" or material_obj.hide_render:
+                    continue
+                object_images = set()
+                for slot in material_obj.material_slots:
+                    mat = slot.material
+                    if mat is None or not mat.use_nodes:
+                        continue
+                    for node in mat.node_tree.nodes:
+                        if node.type != "BSDF_PRINCIPLED":
+                            continue
+                        link_input = node.inputs.get("Base Color")
+                        if not link_input or not link_input.is_linked:
+                            continue
+                        for link in link_input.links:
+                            source = link.from_node
+                            if source.type == "TEX_IMAGE" and source.image is not None:
+                                object_images.add(source.image)
+                if not object_images:
+                    has_untextured_mesh = True
+                image_candidates.update(object_images)
+            shared_image = (next(iter(image_candidates))
+                            if len(image_candidates) == 1 and not has_untextured_mesh
+                            else None)
+            texture_pixels = None
+            texture_width = texture_height = 0
+            if shared_image is not None and shared_image.has_data:
+                texture_width, texture_height = (int(v) for v in shared_image.size)
+                if (0 < texture_width <= 4096 and 0 < texture_height <= 4096):
+                    import numpy as np
+                    signature = (shared_image.as_pointer(), texture_width, texture_height)
+                    cache = getattr(self, "_hamun_base_color_cache", None)
+                    if cache is None or cache[0] != signature or shared_image.is_dirty:
+                        linear_rgba = np.empty(texture_width * texture_height * 4,
+                                               dtype=np.float32)
+                        shared_image.pixels.foreach_get(linear_rgba)
+                        pixels2d = linear_rgba.reshape((-1, 4))
+                        rgb = np.clip(pixels2d[:, :3], 0.0, 1.0)
+                        srgb = np.where(rgb <= 0.0031308, 12.92 * rgb,
+                                        1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
+                        encoded = np.empty_like(pixels2d, dtype=np.uint8)
+                        encoded[:, :3] = np.clip(srgb * 255.0 + 0.5, 0, 255).astype(np.uint8)
+                        encoded[:, 3] = np.clip(pixels2d[:, 3] * 255.0 + 0.5,
+                                                0, 255).astype(np.uint8)
+                        cached_bytes = encoded.tobytes()
+                        texture_pixels = (ctypes.c_uint8 * len(cached_bytes)).from_buffer_copy(
+                            cached_bytes)
+                        self._hamun_base_color_cache = (signature, texture_pixels)
+                    else:
+                        texture_pixels = cache[1]
+            use_textured_api = gpu_tex_fn is not None and texture_pixels is not None
+            if use_textured_api and getattr(self, "_hamun_texture_logged", None) != shared_image.name:
+                _hamun_diagnostic_log("BASE_COLOR_TEXTURE=" + shared_image.name +
+                                      " size=" + str((texture_width, texture_height)))
+                self._hamun_texture_logged = shared_image.name
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
             wants_shadow = any(item[10] > 0.0 and item[11] >= 0.0
                                for item in lights)
@@ -1509,10 +1569,13 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             # must not silently bypass shadows when the scene has no Sun.
             # Prefer versioned UV bridge when installed, but keep the legacy
             # shadow entry point available for older builds.
-            gpu_viewport = (gpu_uv_fn if gpu_uv_fn is not None else
+            gpu_viewport = (gpu_tex_fn if use_textured_api else
+                            gpu_uv_fn if gpu_uv_fn is not None else
                             gpu_shadow_fn if gpu_shadow_fn is not None else
                             None if wants_shadow else gpu_direct_fn)
-            use_uv_api = gpu_viewport is gpu_uv_fn and gpu_uv_fn is not None
+            use_tex_api = gpu_viewport is gpu_tex_fn and use_textured_api
+            use_uv_api = (use_tex_api or
+                          (gpu_viewport is gpu_uv_fn and gpu_uv_fn is not None))
             use_gpu_shadow_api = gpu_viewport is not None and (use_uv_api or gpu_viewport is gpu_shadow_fn)
             route = ("VULKAN_GPU_SHADOW" if use_gpu_shadow_api else
                      "CPU_SHADOW_FALLBACK" if wants_shadow else
@@ -1537,6 +1600,10 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                 ]
                 if use_uv_api:
                     gpu_viewport.argtypes += [ctypes.POINTER(ctypes.c_float)]
+                if use_tex_api:
+                    gpu_viewport.argtypes += [
+                        ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32, ctypes.c_uint32,
+                    ]
                 if use_gpu_shadow_api:
                     gpu_viewport.argtypes += [
                         ctypes.c_uint32, ctypes.c_float, ctypes.c_float,
@@ -1549,6 +1616,8 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                     matrix, light_array, len(lights), normal_array)
                 if use_uv_api:
                     gpu_args += (self._hamun_uv_cache,)
+                if use_tex_api:
+                    gpu_args += (texture_pixels, texture_width, texture_height)
                 gpu_args += (gpu_error, len(gpu_error))
                 if use_gpu_shadow_api:
                     gpu_args += (requested_shadow_size, shadow_softness, shadow_bias)
