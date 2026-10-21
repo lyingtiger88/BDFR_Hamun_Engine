@@ -1375,6 +1375,77 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             ]
             native.hamun_renderer_mesh_camera.restype = ctypes.c_int
             native.hamun_renderer_last_error.restype = ctypes.c_char_p
+            # Build a deterministic material atlas. Tile zero is white for
+            # untextured geometry; the remaining tiles represent Base Color
+            # images. The existing single-image Vulkan ABI then remains valid.
+            def _base_image(mat):
+                if mat is None or not mat.use_nodes:
+                    return None
+                for node in mat.node_tree.nodes:
+                    if node.type != "BSDF_PRINCIPLED":
+                        continue
+                    socket = node.inputs.get("Base Color")
+                    if socket is not None and socket.is_linked:
+                        for link in socket.links:
+                            source = link.from_node
+                            if source.type == "TEX_IMAGE" and source.image is not None:
+                                return source.image
+                return None
+
+            material_images = {}
+            for material_obj in depsgraph.objects:
+                if material_obj.type == "MESH" and not material_obj.hide_render:
+                    for slot in material_obj.material_slots:
+                        if slot.material is not None:
+                            material_images[slot.material.as_pointer()] = _base_image(slot.material)
+            unique_images = sorted(
+                {img for img in material_images.values()
+                 if img is not None and img.has_data and
+                 0 < int(img.size[0]) <= 4096 and
+                 0 < int(img.size[1]) <= 4096},
+                key=lambda img: (img.name, img.as_pointer()))
+            # 8x8 cells: 1 white + 63 image textures.
+            unique_images = unique_images[:63]
+            image_tiles = {img.as_pointer(): index + 1
+                           for index, img in enumerate(unique_images)}
+            material_signature = tuple(
+                sorted((key, img.as_pointer() if img else 0)
+                       for key, img in material_images.items()))
+            atlas_signature = (material_signature,
+                               tuple((img.as_pointer(), tuple(img.size))
+                                     for img in unique_images))
+            if getattr(self, "_hamun_atlas_signature", None) != atlas_signature:
+                self._hamun_geometry_dirty = True
+                self._hamun_atlas_signature = atlas_signature
+            _atlas_dirty = (getattr(self, "_hamun_atlas_pixels", None) is None or
+                            getattr(self, "_hamun_atlas_pixels_signature", None) != atlas_signature or
+                            any(img.is_dirty for img in unique_images))
+            if _atlas_dirty:
+                import numpy as np
+                tile_size, atlas_grid = 256, 8
+                atlas = np.full((2048, 2048, 4), 255, dtype=np.uint8)
+                for img in unique_images:
+                    iw, ih = (int(v) for v in img.size)
+                    raw = np.empty(iw * ih * 4, dtype=np.float32)
+                    img.pixels.foreach_get(raw)
+                    raw = raw.reshape((ih, iw, 4))
+                    # Nearest-neighbour resize, keeping Blender's bottom-up rows.
+                    yy = (np.arange(tile_size) * ih // tile_size)
+                    xx = (np.arange(tile_size) * iw // tile_size)
+                    sample = np.clip(raw[yy[:, None], xx[None, :]], 0, 1)
+                    rgb = sample[:, :, :3]
+                    srgb = np.where(rgb <= 0.0031308, 12.92 * rgb,
+                                    1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
+                    encoded = np.empty((tile_size, tile_size, 4), dtype=np.uint8)
+                    encoded[:, :, :3] = np.clip(srgb * 255 + .5, 0, 255).astype(np.uint8)
+                    encoded[:, :, 3] = np.clip(sample[:, :, 3] * 255 + .5, 0, 255).astype(np.uint8)
+                    cell = image_tiles[img.as_pointer()]
+                    cx, cy = cell % atlas_grid, cell // atlas_grid
+                    atlas[cy * tile_size:(cy + 1) * tile_size,
+                          cx * tile_size:(cx + 1) * tile_size] = encoded
+                self._hamun_atlas_pixels = (ctypes.c_uint8 * atlas.size).from_buffer_copy(atlas.tobytes())
+                self._hamun_atlas_pixels_signature = atlas_signature
+            _hamun_atlas_enabled = bool(unique_images)
             profile_geometry_start = time.perf_counter()
             if getattr(self, "_hamun_geometry_dirty", True) or not hasattr(self, "_hamun_geometry_cache"):
                 import struct
@@ -1396,12 +1467,20 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                         uv_layer = mesh.uv_layers.active
                         split_vertices = {}
                         for tri in mesh.loop_triangles:
+                            mat = (mesh.materials[tri.material_index]
+                                   if tri.material_index < len(mesh.materials) else None)
+                            img = material_images.get(mat.as_pointer()) if mat else None
+                            tile = image_tiles.get(img.as_pointer(), 0) if img else 0
                             for vertex_index, loop_index in zip(tri.vertices, tri.loops):
                                 uv = (tuple(uv_layer.data[loop_index].uv)
                                       if uv_layer is not None else (0.0, 0.0))
                                 # Float32 UV representation matches the
                                 # eventual Vulkan vertex attribute precision.
-                                uv_bits = struct.pack("<ff", float(uv[0]), float(uv[1]))
+                                # Each material occupies a separate atlas cell.
+                                # Fractional coordinates preserve UV repetition.
+                                u = (tile % 8 + (float(uv[0]) % 1.0) * .996 + .002) / 8.0
+                                v = (tile // 8 + (float(uv[1]) % 1.0) * .996 + .002) / 8.0
+                                uv_bits = struct.pack("<ff", u, v)
                                 key = (int(vertex_index), uv_bits)
                                 index = split_vertices.get(key)
                                 if index is None:
@@ -1409,7 +1488,7 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
                                     split_vertices[key] = index
                                     pt = world @ mesh.vertices[vertex_index].co
                                     verts.extend((pt.x, pt.y, pt.z))
-                                    uv_coords.extend((float(uv[0]), float(uv[1])))
+                                    uv_coords.extend((u, v))
                                 indices.append(index)
                             normal = (normal_matrix @ tri.normal).normalized()
                             face_normals.extend((normal.x, normal.y, normal.z))
@@ -1508,87 +1587,16 @@ class HAMUN_RENDER_VULKAN(bpy.types.RenderEngine):
             gpu_tex_fn = getattr(native, "hamun_gpu_viewport_render_shadow_textured", None)
             # First material milestone supports one shared image across all
             # visible meshes; mixed material scenes fall back to UV/no texture.
-            image_candidates = set()
-            has_untextured_mesh = False
-            for material_obj in depsgraph.objects:
-                if material_obj.type != "MESH" or material_obj.hide_render:
-                    continue
-                object_images = set()
-                for slot in material_obj.material_slots:
-                    mat = slot.material
-                    if mat is None or not mat.use_nodes:
-                        continue
-                    for node in mat.node_tree.nodes:
-                        if node.type != "BSDF_PRINCIPLED":
-                            continue
-                        link_input = node.inputs.get("Base Color")
-                        if not link_input or not link_input.is_linked:
-                            continue
-                        for link in link_input.links:
-                            source = link.from_node
-                            if source.type == "TEX_IMAGE" and source.image is not None:
-                                object_images.add(source.image)
-                if not object_images:
-                    has_untextured_mesh = True
-                image_candidates.update(object_images)
-            # The initial texture bridge is global, but an untextured shadow
-            # receiver must not suppress a valid image on the textured mesh.
-            # TODO: move to per-material draw ranges so receivers stay untextured.
-            shared_image = (next(iter(image_candidates))
-                            if len(image_candidates) == 1 else None)
-            if getattr(self, "_hamun_material_scan_state", None) != (
-                    len(image_candidates), has_untextured_mesh,
-                    shared_image.name if shared_image else None):
-                self._hamun_material_scan_state = (
-                    len(image_candidates), has_untextured_mesh,
-                    shared_image.name if shared_image else None)
+            gpu_tex_fn_available = gpu_tex_fn is not None
+            texture_pixels = self._hamun_atlas_pixels if _hamun_atlas_enabled else None
+            texture_width = texture_height = 2048 if _hamun_atlas_enabled else 0
+            use_textured_api = gpu_tex_fn_available and _hamun_atlas_enabled
+            atlas_state = (len(unique_images), use_textured_api)
+            if getattr(self, "_hamun_atlas_log_state", None) != atlas_state:
+                self._hamun_atlas_log_state = atlas_state
                 _hamun_diagnostic_log(
-                    "MATERIAL_SCAN image_count=" + str(len(image_candidates)) +
-                    " untextured_mesh=" + str(has_untextured_mesh) +
-                    " selected=" + (shared_image.name if shared_image else "NONE"))
-            texture_pixels = None
-            texture_width = texture_height = 0
-            if shared_image is not None and shared_image.has_data:
-                texture_width, texture_height = (int(v) for v in shared_image.size)
-                if (0 < texture_width <= 4096 and 0 < texture_height <= 4096):
-                    import numpy as np
-                    signature = (shared_image.as_pointer(), texture_width, texture_height)
-                    cache = getattr(self, "_hamun_base_color_cache", None)
-                    if cache is None or cache[0] != signature or shared_image.is_dirty:
-                        linear_rgba = np.empty(texture_width * texture_height * 4,
-                                               dtype=np.float32)
-                        shared_image.pixels.foreach_get(linear_rgba)
-                        pixels2d = linear_rgba.reshape((-1, 4))
-                        rgb = np.clip(pixels2d[:, :3], 0.0, 1.0)
-                        srgb = np.where(rgb <= 0.0031308, 12.92 * rgb,
-                                        1.055 * np.power(rgb, 1.0 / 2.4) - 0.055)
-                        encoded = np.empty_like(pixels2d, dtype=np.uint8)
-                        encoded[:, :3] = np.clip(srgb * 255.0 + 0.5, 0, 255).astype(np.uint8)
-                        encoded[:, 3] = np.clip(pixels2d[:, 3] * 255.0 + 0.5,
-                                                0, 255).astype(np.uint8)
-                        cached_bytes = encoded.tobytes()
-                        texture_pixels = (ctypes.c_uint8 * len(cached_bytes)).from_buffer_copy(
-                            cached_bytes)
-                        self._hamun_base_color_cache = (signature, texture_pixels)
-                    else:
-                        texture_pixels = cache[1]
-            use_textured_api = gpu_tex_fn is not None and texture_pixels is not None
-            texture_status = (
-                "ready" if use_textured_api else
-                "api_missing" if gpu_tex_fn is None else
-                "image_missing" if shared_image is None else
-                "image_has_no_data" if not shared_image.has_data else
-                "image_invalid_dimensions_or_pixels")
-            if getattr(self, "_hamun_texture_status", None) != texture_status:
-                self._hamun_texture_status = texture_status
-                _hamun_diagnostic_log(
-                    "TEXTURE_BRIDGE status=" + texture_status +
-                    " api=" + str(gpu_tex_fn is not None) +
-                    " image=" + (shared_image.name if shared_image else "NONE"))
-            if use_textured_api and getattr(self, "_hamun_texture_logged", None) != shared_image.name:
-                _hamun_diagnostic_log("BASE_COLOR_TEXTURE=" + shared_image.name +
-                                      " size=" + str((texture_width, texture_height)))
-                self._hamun_texture_logged = shared_image.name
+                    "MATERIAL_ATLAS images=%d cells=%d textured_api=%s" %
+                    (len(unique_images), len(unique_images) + 1, use_textured_api))
             has_sun = any(item[0] < 0.5 and item[10] > 0.0 for item in lights)
             wants_shadow = any(item[10] > 0.0 and item[11] >= 0.0
                                for item in lights)
