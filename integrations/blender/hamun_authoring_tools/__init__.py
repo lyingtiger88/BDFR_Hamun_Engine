@@ -858,18 +858,41 @@ def _register_hamun_shortcuts():
                  ("R", "transform.rotate", False),
                  ("T", "transform.resize", False),
                  ("T", "wm.context_toggle", True)]
-    for destination in (viewmap, user_viewmap):
-        if destination is None or destination is viewmap and user_viewmap is viewmap:
-            continue
+
+    # Object Mode bindings take precedence over the 3D View map for keys
+    # like S (Scale); the toolbar shortcut may reside in 3D View Generic.
+    # Override the actual higher-priority maps instead of only 3D View.
+    targets = [viewmap]
+    if user is not None:
+        for name in ("3D View", "3D View Generic", "Object Mode"):
+            target = user.keymaps.get(name)
+            if target is None and name in {"3D View", "Object Mode"}:
+                target = user.keymaps.new(
+                    name=name, space_type="VIEW_3D" if name == "3D View" else "EMPTY")
+            if target is not None and all(target is not existing for existing in targets):
+                targets.append(target)
+
+    for destination in targets:
         for key, operator, shifted in bindings:
-            # Preserve original bindings for addon shutdown; remove conflicts
-            # only for this exact key+modifier combination.
+            # Never deactivate Hamun's own previously registered bindings
+            # in case Blender synchronizes addon and user keymaps.
             for existing in list(destination.keymap_items):
                 if (existing.active and existing.type == key and existing.value == "PRESS"
                         and existing.shift == shifted
-                        and not (existing.ctrl or existing.alt or existing.oskey)):
+                        and not (existing.ctrl or existing.alt or existing.oskey)
+                        and existing.idname != operator):
                     _hamun_overridden_keymaps.append((existing, True))
                     existing.active = False
+            # Avoid duplicate registrations on repeated addon enable.
+            match = next((item for item in destination.keymap_items
+                          if item.idname == operator and item.type == key
+                          and item.value == "PRESS" and item.shift == shifted
+                          and not (item.ctrl or item.alt or item.oskey)), None)
+            if match is not None:
+                if not match.active:
+                    _hamun_overridden_keymaps.append((match, False))
+                    match.active = True
+                continue
             item = destination.keymap_items.new(
                 operator, key, "PRESS", shift=shifted, head=True)
             if operator == "hamun.wasd_navigate":
@@ -877,18 +900,6 @@ def _register_hamun_shortcuts():
             elif operator == "wm.context_toggle":
                 item.properties.data_path = "space_data.show_region_toolbar"
             _hamun_keymaps.append((destination, item))
-    # Built-in Object Mode S=Scale can preempt the 3D View keymap.
-    # Disable that specific shortcut while the Hamun addon is enabled.
-    if user is not None:
-        for map_name in ("Object Mode", "Mesh", "3D View Generic"):
-            other = user.keymaps.get(map_name)
-            if other is None:
-                continue
-            for existing in other.keymap_items:
-                if (existing.active and existing.type == "S" and existing.value == "PRESS"
-                        and not (existing.ctrl or existing.shift or existing.alt or existing.oskey)):
-                    _hamun_overridden_keymaps.append((existing, True))
-                    existing.active = False
     toggle = viewmap.keymap_items.new("hamun.toggle_metrics", "F3", "PRESS",
                                      ctrl=True, shift=True)
     _hamun_keymaps.append((viewmap, toggle))
