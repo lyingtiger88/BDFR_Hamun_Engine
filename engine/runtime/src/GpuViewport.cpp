@@ -15,7 +15,7 @@
 #include <array>
 
 namespace {
-struct Vertex {float p[3],n[3];};
+struct Vertex {float p[3],n[3],uv[2];};
 struct Params {float mvp[16],dir[4],color[4];};
 void require(VkResult r,const char* s){if(r!=VK_SUCCESS)throw std::runtime_error(s);}
 uint32_t memoryType(VkPhysicalDevice gpu,uint32_t bits,VkMemoryPropertyFlags flags){
@@ -145,6 +145,7 @@ static int gpuViewportImpl(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
     const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
     const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
+    const float* vertexUV,
     char* error,uint32_t errorCapacity,uint32_t requestedShadowSize,float shadowSoftness,float shadowBias) {
     auto fail=[&](const char* why) {
         if(error&&errorCapacity){
@@ -173,6 +174,7 @@ static int gpuViewportImpl(
     mix(positions,size_t(vertexCount)*3*sizeof(float));
     mix(indices,size_t(indexCount)*sizeof(uint32_t));
     mix(faceNormals,size_t(indexCount)*sizeof(float));
+    if(vertexUV)mix(vertexUV,size_t(vertexCount)*2*sizeof(float));
     const uint64_t currentMeshKey=key;
     mix(&w,sizeof(w));mix(&h,sizeof(h));
     mix(&requestedShadowSize,sizeof(requestedShadowSize));
@@ -582,6 +584,7 @@ static int gpuViewportImpl(
                     Vertex v{};
                     std::memcpy(v.p,positions+3*index,sizeof(v.p));
                     std::memcpy(v.n,faceNormals+i,sizeof(v.n));
+                    if(vertexUV)std::memcpy(v.uv,vertexUV+2*index,sizeof(v.uv));
                     mesh.push_back(v);
                 }
             }
@@ -737,13 +740,14 @@ static int gpuViewportImpl(
         stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT;stages[0].module=vert;
         stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;stages[1].module=frag;
         VkVertexInputBindingDescription binding{0,sizeof(Vertex),VK_VERTEX_INPUT_RATE_VERTEX};
-        VkVertexInputAttributeDescription attrs[2]{
+        VkVertexInputAttributeDescription attrs[3]{
             {0,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex,p)},
-            {1,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex,n)}
+            {1,0,VK_FORMAT_R32G32B32_SFLOAT,offsetof(Vertex,n)},
+            {2,0,VK_FORMAT_R32G32_SFLOAT,offsetof(Vertex,uv)}
         };
         VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         vi.vertexBindingDescriptionCount=1;vi.pVertexBindingDescriptions=&binding;
-        vi.vertexAttributeDescriptionCount=2;vi.pVertexAttributeDescriptions=attrs;
+        vi.vertexAttributeDescriptionCount=3;vi.pVertexAttributeDescriptions=attrs;
         VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         ia.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         VkViewport viewport{0,0,float(w),float(h),0,1};
@@ -917,7 +921,7 @@ extern "C" int hamun_gpu_viewport_render(
     const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
     char* error,uint32_t errorCapacity){
     return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
-                           mvp,lights,lightCount,faceNormals,error,errorCapacity,1024,1.f,1.f);
+                           mvp,lights,lightCount,faceNormals,nullptr,error,errorCapacity,1024,1.f,1.f);
 }
 extern "C" int hamun_gpu_viewport_render_shadow(
     uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
@@ -928,6 +932,21 @@ extern "C" int hamun_gpu_viewport_render_shadow(
        !std::isfinite(softness)||softness<0.f||softness>4.f||
        !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
     return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
-                           mvp,lights,lightCount,faceNormals,error,errorCapacity,
+                           mvp,lights,lightCount,faceNormals,nullptr,error,errorCapacity,
+                           shadowSize,softness,bias);
+}
+
+// Versioned UV bridge: old entry points remain ABI-compatible.
+extern "C" int hamun_gpu_viewport_render_shadow_uv(
+    uint32_t w,uint32_t h,uint8_t* pixels,uint64_t capacity,
+    const float* positions,uint32_t vertexCount,const uint32_t* indices,uint32_t indexCount,
+    const float* mvp,const float* lights,uint32_t lightCount,const float* faceNormals,
+    const float* vertexUV,
+    char* error,uint32_t errorCapacity,uint32_t shadowSize,float softness,float bias){
+    if(!vertexUV||shadowSize<64||shadowSize>4096||(shadowSize&(shadowSize-1))!=0||
+       !std::isfinite(softness)||softness<0.f||softness>4.f||
+       !std::isfinite(bias)||bias<0.f||bias>4.f)return 0;
+    return gpuViewportImpl(w,h,pixels,capacity,positions,vertexCount,indices,indexCount,
+                           mvp,lights,lightCount,faceNormals,vertexUV,error,errorCapacity,
                            shadowSize,softness,bias);
 }
