@@ -41,4 +41,12 @@ if(HAMUN_ENABLE_VULKAN)
     src/backends/Vulkan/VulkanTextureResources.cpp
   )
   target_link_libraries(HamunRHI PRIVATE Vulkan::Vulkan)
+
+  option(HAMUN_BUILD_VULKAN_TEXTURE_TEST
+    "Build standalone Vulkan texture upload smoke test" ON)
+  if(HAMUN_BUILD_VULKAN_TEXTURE_TEST)
+    add_executable(HamunVulkanTextureSmoke
+      tests/VulkanTextureSmoke.cpp)
+    target_link_libraries(HamunVulkanTextureSmoke PRIVATE HamunRHI)
+  endif()
 endif()
