@@ -33,3 +33,12 @@ if(WIN32)
     target_link_libraries(HamunRHI PRIVATE d3d11 dxgi d3dcompiler)
   endif()
 endif()
+
+# Compile Vulkan resource support only when the backend is enabled.
+if(HAMUN_ENABLE_VULKAN)
+  find_package(Vulkan REQUIRED)
+  target_sources(HamunRHI PRIVATE
+    src/backends/Vulkan/VulkanTextureResources.cpp
+  )
+  target_link_libraries(HamunRHI PRIVATE Vulkan::Vulkan)
+endif()
